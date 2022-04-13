@@ -1,9 +1,0 @@
-/tmp/tmpxdaau92v/ffc_form_f8be833cafe634b6e0490c44a4a1328079268831.cpp: In member function ‘virtual void ffc_form_f8be833cafe634b6e0490c44a4a1328079268831_exterior_facet_integral_main_otherwise::tabulate_tensor(double*, const double* const*, const double*, std::size_t, int) const’:
-/tmp/tmpxdaau92v/ffc_form_f8be833cafe634b6e0490c44a4a1328079268831.cpp:228:48: error: ‘facet_0’ was not declared in this scope; did you mean ‘facet’?
-  228 |             w3_r0_m0 += w[3][ic] * FE2_C0_F_Q2[facet_0][iq][ic];
-      |                                                ^~~~~~~
-      |                                                facet
-/tmp/tmpxdaau92v/ffc_form_f8be833cafe634b6e0490c44a4a1328079268831.cpp:231:52: error: ‘facet_1’ was not declared in this scope; did you mean ‘facet’?
-  231 |             w3_r1_m0 += w[3][ic + 3] * FE2_C0_F_Q2[facet_1][iq][ic];
-      |                                                    ^~~~~~~
-      |                                                    facet
