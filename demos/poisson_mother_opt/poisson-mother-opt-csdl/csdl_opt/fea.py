@@ -51,10 +51,10 @@ class FEA(object):
 
         self.total_dofs_bc = len(self.bc_ind)
         self.total_dofs_u = len(self.u.vector().get_local())
-
+        self.total_dofs_f = len(self.f.vector().get_local())
         # Partial derivatives in the magnetostatic problem
         self.dR_du = derivative(self.R(), self.u)
-        
+        self.dR_df = derivative(self.R(), self.f)
 
     def initFunctionSpace(self):
         """
@@ -97,13 +97,13 @@ class FEA(object):
         bc = DirichletBC(self.V, Constant(0.0), "on_boundary")
         return bc
 
-    def objective(self,u,f):
+    def objective(self):
         x = SpatialCoordinate(self.mesh)
         w = Expression("sin(pi*x[0])*sin(pi*x[1])", degree=3)
         d = 1/(2*pi**2)
         d = Expression("d*w", d=d, w=w, degree=3)
         alpha = Constant(1e-6)
-        return (Constant(0.5)*inner(u-d, u-d))*dx + alpha/2*f**2*dx
+        return (Constant(0.5)*inner(self.u-d, self.u-d))*dx + alpha/2*self.f**2*dx
 
     def getBCDerivatives(self):
         """

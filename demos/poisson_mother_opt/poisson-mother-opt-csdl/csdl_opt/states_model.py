@@ -5,7 +5,7 @@ from csdl import Model, CustomImplicitOperation
 import csdl
 import numpy as np
 from csdl_om import Simulator
-from motor_fea import *
+from fea import *
 
 class StatesModel(Model):
 
@@ -23,7 +23,7 @@ class StatesModel(Model):
                         shape=(self.input_size,),
                         val=np.zeros(self.input_size).reshape(self.input_size,))
         e = StatesOperation(fea=self.fea)
-        u = csdl.custom(f, iq, op=e)
+        u = csdl.custom(f, op=e)
         self.register_output('u', u)
 
 class StatesOperation(CustomImplicitOperation):
@@ -63,7 +63,7 @@ class StatesOperation(CustomImplicitOperation):
         update(self.fea.u, outputs['u'])
 
         R = assemble(self.fea.R())
-        self.bcs.apply(R)
+        # self.bcs.apply(R)
         residuals['u'] = R.get_local()
 
     def solve_residual_equations(self, inputs, outputs):
@@ -71,8 +71,7 @@ class StatesOperation(CustomImplicitOperation):
         print("CSDL: Running solve_residual_equations()...")
         print("="*40)
         update(self.fea.f, inputs['f'])
-        updateR(self.fea.iq, inputs['iq'])
-        self.fea.solveMagnetostatic()
+        self.fea.solve()
 
         outputs['u'] = self.fea.u.vector().get_local()
         update(self.fea.u, outputs['u'])
@@ -82,7 +81,6 @@ class StatesOperation(CustomImplicitOperation):
         print("CSDL: Running compute_derivatives()...")
         print("="*40)
         update(self.fea.f, inputs['f'])
-        updateR(self.fea.iq, inputs['iq'])
         update(self.fea.u, outputs['u'])
 
         self.dRdu = assemble(self.fea.dR_du)
@@ -94,7 +92,8 @@ class StatesOperation(CustomImplicitOperation):
         print("="*40)
         print("CSDL: Running compute_jacvec_product()...")
         print("="*40)
-
+        update(self.fea.f, inputs['f'])
+        update(self.fea.u, outputs['u'])
         if mode == 'fwd':
             if 'u' in d_residuals:
                 if 'u' in d_outputs:
@@ -149,9 +148,11 @@ if __name__ == "__main__":
     sim.run()
     #    sim.visualize_implementation()
     fea.u.vector().set_local(sim['u'])
+    state_error = errornorm(u_ex, fea.u)
+    print("Error in solve_nonlinear:", state_error)
     plt.figure(1)
     plot(fea.u)
     plt.show()
 
-    # print("CSDL: Checking the partial derivatives...")
-    # sim.check_partials()
+    print("CSDL: Checking the partial derivatives...")
+    sim.check_partials()
