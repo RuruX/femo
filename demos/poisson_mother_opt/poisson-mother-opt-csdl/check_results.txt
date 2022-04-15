@@ -1,0 +1,3 @@
+num_el   np      stop-start  state_error    control_error
+ 16       1      21.471      1.759820e-04    2.438660e-02
+ 16       1      8.837      1.759820e-04    2.438660e-02
