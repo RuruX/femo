@@ -1,0 +1,33 @@
+f = f_ex
+         Problem                         : poisson-mother
+         Solver                          : scipy_slsqp
+         Success                         : True
+         Message                         : Optimization terminated successfully
+         Objective                       : 1.7990304396300596e-07
+         Gradient norm                   : 6.78335386995077e-07
+         Total time                      : 0.1088714599609375
+         Major iterations                : 1
+         Total function evaluations      : 1
+         Total gradient evaluations      : 1
+         ===========================================
+
+
+        Problem                         : poisson-mother
+         Solver                          : scipy_slsqp
+         Success                         : True
+         Message                         : Optimization terminated successfully
+         Objective                       : 0.00012561300896086558
+         Gradient norm                   : 3.398171827219206e-05
+         Total time                      : 0.11064767837524414
+         Major iterations                : 1
+         Total function evaluations      : 1
+         Total gradient evaluations      : 1
+         ===========================================
+
+         --------------------------------
+Group: PoissonGroup 'Full Model'
+--------------------------------
+'<output>'                     wrt '<variable>'                   | calc mag.  | check mag. | a(cal-chk) | r(cal-chk)
+---------------------------------------------------------------------------------------------------------------------
+
+'objective_comp.objective'     wrt 'inputs_comp.f'                | 3.4018e-05 | 3.4017e-05 | 1.9546e-08 | 5.7458e-04
