@@ -6,6 +6,16 @@ __pycache__/
 # C extensions
 *.so
 
+# output files
+*.vtu
+*.pvd
+
+# profile files
+profile*
+
+# Optimization results files
+*.out
+
 # Distribution / packaging
 .Python
 build/
