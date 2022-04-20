@@ -5,7 +5,8 @@ from csdl import Model, CustomImplicitOperation
 import csdl
 import numpy as np
 from csdl_om import Simulator
-from fea import *
+# from fea import *
+from fea_dolfinx import *
 
 class StatesModel(Model):
 
@@ -68,9 +69,9 @@ class StatesOperation(CustomImplicitOperation):
         update(self.fea.f, inputs['f'])
         update(self.fea.u, outputs['u'])
 
-        R = assemble(self.fea.R())
+        R = getFormArray(self.fea.R())
         # self.bcs.apply(R)
-        residuals['u'] = R.get_local()
+        residuals['u'] = R
 
     def solve_residual_equations(self, inputs, outputs):
         if self.debug_mode == True:
@@ -80,7 +81,7 @@ class StatesOperation(CustomImplicitOperation):
         update(self.fea.f, inputs['f'])
         self.fea.solve()
 
-        outputs['u'] = self.fea.u.vector().get_local()
+        outputs['u'] = getFuncArray(self.fea.u)
         update(self.fea.u, outputs['u'])
 
     def compute_derivatives(self, inputs, outputs, derivatives):
@@ -91,9 +92,11 @@ class StatesOperation(CustomImplicitOperation):
         update(self.fea.f, inputs['f'])
         update(self.fea.u, outputs['u'])
 
-        self.dRdu = assemble(self.fea.dR_du)
-        self.dRdf = assemble(self.fea.dR_df)
-        self.A,_ = assemble_system(self.fea.dR_du, self.fea.R(), bcs=self.bcs)
+        self.dRdu = assembleMatrix(self.fea.dR_du)
+        print(type(self.dRdu))
+        self.dRdf = assembleMatrix(self.fea.dR_df)
+        self.A = assembleMatrix(self.fea.dR_du, bcs=self.bcs)
+        # self.A,_ = assemble_system(self.fea.dR_du, self.fea.R(), bcs=self.bcs)
 
     def compute_jacvec_product(self, inputs, outputs,
                                 d_inputs, d_outputs, d_residuals, mode):
@@ -151,7 +154,7 @@ if __name__ == "__main__":
     # print("CSDL: Running the model...")
     sim.run()
     # #    sim.visualize_implementation()
-    # setArray(fea.u, sim['u'])
+    # setFuncArray(fea.u, sim['u'])
     # state_error = errornorm(u_ex, fea.u)
     # print("Error in solve_nonlinear:", state_error)
     # plt.figure(1)

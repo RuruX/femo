@@ -113,6 +113,7 @@ class FEA(object):
         x = SpatialCoordinate(self.mesh)
         w = Expression("sin(pi*x[0])*sin(pi*x[1])", degree=3)
         alpha = Constant(1e-6)
+        # f_analytic = Expression("sin(pi*x[0])", degree=3)
         f_analytic = Expression("1/(1+alpha*4*pow(pi,4))*w", w=w, alpha=alpha, degree=3)
         u_analytic = Expression("1/(2*pow(pi, 2))*f", f=f_analytic, degree=3)
         f_ex = interpolate(f_analytic, self.VF)
@@ -225,17 +226,15 @@ if __name__ == "__main__":
     mesh = UnitSquareMesh(n, n)
     fea = FEA(mesh)
 
-    x = SpatialCoordinate(fea.mesh)
-    w = Expression("sin(pi*x[0])*sin(pi*x[1])", degree=3)
-    alpha = Constant(1e-6)
-    f_analytic = Expression("1/(1+alpha*4*pow(pi,4))*w", w=w, alpha=alpha, degree=3)
-    u_analytic = Expression("1/(2*pow(pi, 2))*f", f=f_analytic, degree=3)
-    f_ex = interpolate(f_analytic, fea.VF)
-    u_ex = interpolate(u_analytic, fea.V)
-
-    fea.f.assign(f_ex)
+    fea.f.assign(fea.f_ex)
+    print(computeArray(fea.f))
+    print(SpatialCoordinate(fea.mesh))
+    
     fea.solve(report=False)
-    state_error = errornorm(u_ex, fea.u)
+    state_error = errornorm(fea.u_ex, fea.u)
     print("Error in solve():", state_error)
+    print("number of states dofs:", fea.total_dofs_u)
+    File('f_dolfin.pvd') << fea.f
+    File('u_dolfin.pvd') << fea.u
     plot(fea.u)
     plt.show()

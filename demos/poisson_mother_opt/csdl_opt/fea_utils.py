@@ -5,6 +5,9 @@ from dolfin import *
 from petsc4py import PETSc
 from scipy.spatial import KDTree
 
+def errorNorm(v, v_ex):
+    return errornorm(v,v_ex)
+    
 def getGlobalIndices(u_):
     comm = MPI.comm_world
     rank = comm.Get_rank()

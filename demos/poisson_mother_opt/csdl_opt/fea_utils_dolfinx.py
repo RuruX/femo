@@ -4,9 +4,11 @@ Reusable functions for the PETSc and UFL operations
 
 import dolfinx
 import dolfinx.io
-from ufl import Identity
+from ufl import Identity, dot, dx
 from dolfinx.mesh import create_unit_square
-from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.fem import form, assemble_scalar
+from dolfinx.fem.petsc import (assemble_vector, assemble_matrix, 
+                        NonlinearProblem)
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from scipy.spatial import KDTree
@@ -19,25 +21,43 @@ def createUnitSquareMesh(n):
     """
     return create_unit_square(MPI.COMM_WORLD, n, n)
 
-def computeArray(v):
+def getFormArray(F):
+    """
+    Compute the array representation of the Form
+    """
+    return assemble_vector(form(F)).getArray()
+
+def getFuncArray(v):
     """
     Compute the array representation of the Function
     """
     return v.vector.getArray()
 
-def setArray(v, v_array):
+def setFuncArray(v, v_array):
     """
     Set the fuction based on the array
     """
     v.vector[:] = v_array
-    v2p(v.vector()).assemble()
-    v2p(v.vector()).ghostUpdate()
+    v.vector.assemble()
+    v.vector.ghostUpdate()
+
+def assembleMatrix(M, bcs=None):
+    """
+    Compute the matrix representation of the form
+    """
+    M_ = assemble_matrix(form(M), bcs=bcs)
+    M_.assemble()
+    return M_
 
 def errorNorm(v, v_ex):
     """
     Calculate the L2 norm of two functions
     """
-    return np.linalg.norm(computeArray(v)-computeArray(v_ex))
+    comm = MPI.COMM_WORLD
+    error = form((v - v_ex)**2 * dx)
+    E = np.sqrt(comm.allreduce(assemble_scalar(error), MPI.SUM))
+    return E
+    # return np.linalg.norm(computeArray(v)-computeArray(v_ex))
 
 #set_log_level(1)
 def m2p(A):
@@ -64,10 +84,13 @@ def computeMatVecProductFwd(A, x):
     A: ufl form matrix
     x: ufl function
     """
-    A_p = m2p(A)
-    y = A_p * v2p(x)
+    y = A*x.vector
     y.assemble()
     return y.getArray()
+    # A_p = m2p(A)
+    # y = A_p * v2p(x)
+    # y.assemble()
+    # return y.getArray()
 
 def computeMatVecProductBwd(A, R):
     """
@@ -143,9 +166,7 @@ def update(v, v_values):
     v: dolfin function
     v_values: numpy array
     """
-    v.vector[:] = v_array
-    v.vector.assemble()
-    v.vector.ghostUpdate()
+    setFuncArray(v, v_values)
 
 def findNodeIndices(node_coordinates, coordinates):
     """

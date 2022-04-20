@@ -5,7 +5,8 @@ from csdl import Model, CustomExplicitOperation
 import csdl
 import numpy as np
 from csdl_om import Simulator
-from fea import *
+# from fea import *
+from fea_dolfinx import *
 
 class ScalarOutputModel(Model):
 

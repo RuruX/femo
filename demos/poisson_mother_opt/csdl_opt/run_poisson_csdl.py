@@ -79,11 +79,11 @@ if __name__ == '__main__':
     sim.prob.run_driver()
     print("="*40)
     print("Objective value: ", sim['scalar_output_model.objective'])
-    control_error = errornorm(f_ex, fea.f)
+    control_error = errorNorm(f_ex, fea.f)
     print("Error in controls:", control_error)
-    state_error = errornorm(u_ex, fea.u)
+    state_error = errorNorm(u_ex, fea.u)
     print("Error in states:", state_error)
-
+    print("="*40)
     # TODO: fix the check_first_derivatives()
     ############## Run the optimization with modOpt #############
     # from modopt.csdl_library import CSDLProblem

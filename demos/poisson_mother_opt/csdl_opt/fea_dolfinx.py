@@ -6,9 +6,9 @@ from fea_utils_dolfinx import *
 from dolfinx.io import XDMFFile
 import ufl
 
-from dolfinx.fem.petsc import (assemble_vector, assemble_matrix, apply_lifting)
-from dolfinx.fem import (set_bc, Function, FunctionSpace, form, dirichletbc,   
-                        assemble_scalar, locate_dofs_topological)
+from dolfinx.fem.petsc import (apply_lifting)
+from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,   
+                        locate_dofs_topological)
 from dolfinx.mesh import compute_boundary_facets
 from ufl import (TestFunction, TrialFunction, dx, inner, derivative,
                     grad, SpatialCoordinate)
@@ -113,22 +113,21 @@ class FEA(object):
         """
         Exact solutions for the problem
         """
-        x = SpatialCoordinate(self.mesh)
         class Expression_f:
             def __init__(self):
-                pass
+                self.alpha = 1e-6
+
             def eval(self, x):
-                # Added some spatial variation here. Expression is sin(t)*x
-                return (1/(1+alpha*4*pow(PI,4))*
+                return (1/(1+self.alpha*4*np.power(PI,4))*
                         np.sin(PI*x[0])*np.sin(PI*x[1]))
-        
+
         class Expression_u:
             def __init__(self):
-                pass
+                self.alpha = 1e-6
+
             def eval(self, x):
-                # Added some spatial variation here. Expression is sin(t)*x
-                return (1/(2*pow(PI, 2))*
-                        1/(1+alpha*4*pow(PI,4))*
+                return (1/(2*np.power(PI, 2))*
+                        1/(1+self.alpha*4*np.power(PI,4))*
                         np.sin(PI*x[0])*np.sin(PI*x[1]))
 
         alpha = 1e-6
@@ -141,12 +140,8 @@ class FEA(object):
         return u_ex, f_ex
 
     def objective(self):
-        x = SpatialCoordinate(self.mesh)
-        w = Expression("sin(pi*x[0])*sin(pi*x[1])", degree=3)
-        d = 1/(2*pi**2)
-        d = Expression("d*w", d=d, w=w, degree=3)
         alpha = 1e-6
-        return 0.5*inner(self.u-d, self.u-d)*dx + alpha/2*self.f**2*dx
+        return 0.5*inner(self.u-self.u_ex, self.u-u_ex)*dx + alpha/2*self.f**2*dx
 
     def getBCDerivatives(self):
         """
@@ -181,7 +176,7 @@ class FEA(object):
         """
         solve linear system dR = dR_du (A) * du in DOLFIN type
         """
-        setArray(self.dR, dR)
+        setFuncArray(self.dR, dR)
 
         self.du.vector.set(0.0)
 
@@ -194,7 +189,7 @@ class FEA(object):
         """
         solve linear system du = dR_du.T (A_T) * dR in DOLFIN type
         """
-        setArray(self.du, du)
+        setFuncArray(self.du, du)
 
         self.dR.vector.set(0.0)
 
@@ -207,16 +202,30 @@ if __name__ == "__main__":
     n = 16
     mesh = createUnitSquareMesh(n)
     fea = FEA(mesh)
-    print(mesh)
     f_ex = fea.f_ex
     u_ex = fea.u_ex
 
     fea.f.x.array[:] = f_ex.x.array
-    fea.solve(report=False)
-    state_error = errorNorm(u_ex, fea.u)
-    print("Error in solve():", state_error)
-    # Visualization with Paraview
+    setFuncArray(fea.f, getFuncArray(f_ex))
+    # print(getFuncArray(fea.f))
+    # print(fea.mesh.geometry.x)
+
     with XDMFFile(MPI.COMM_WORLD, "solutions/u.xdmf", "w") as xdmf:
         xdmf.write_mesh(fea.mesh)
         xdmf.write_function(fea.u)
+    with XDMFFile(MPI.COMM_WORLD, "solutions/f.xdmf", "w") as xdmf:
+        xdmf.write_mesh(fea.mesh)
+        xdmf.write_function(fea.f)
 
+
+    fea.solve(report=False)
+    state_error = errorNorm(u_ex, fea.u)
+
+    print("="*40)
+    control_error = errorNorm(f_ex, fea.f)
+    print("Error in controls:", control_error)
+    state_error = errorNorm(u_ex, fea.u)
+    print("Error in states:", state_error)
+    print("number of controls dofs:", fea.total_dofs_f)
+    print("number of states dofs:", fea.total_dofs_u)
+    print("="*40)
