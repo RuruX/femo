@@ -62,7 +62,7 @@ if __name__ == '__main__':
     # TODO: 
     ############## Run the optimization with pyOptSparse #############
     import openmdao.api as om
-    sim.prob.run_model()
+    # sim.prob.run_model()
 
     # sim.prob.driver = om.ScipyOptimizeDriver()
     # sim.prob.driver.options['optimizer'] = 'SLSQP'

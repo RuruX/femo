@@ -1,12 +1,9 @@
-# Import `dolfin` first to avoid segmentation fault
-from dolfin import *
 
 from csdl import Model, CustomExplicitOperation
 import csdl
 import numpy as np
 from csdl_om import Simulator
-# from fea import *
-from fea_dolfinx import *
+from fea import *
 
 class ScalarOutputModel(Model):
 
@@ -52,14 +49,14 @@ class ScalarOutputOperation(CustomExplicitOperation):
     def compute(self, inputs, outputs):
         update(self.fea.u, inputs['u'])
         update(self.fea.f, inputs['f'])
-        objective = assemble(self.fea.objective())
+        objective = assembleScalar(self.fea.objective())
         outputs['objective'] = objective
 
     def compute_derivatives(self, inputs, derivatives):
         update(self.fea.u, inputs['u'])
         update(self.fea.f, inputs['f'])
-        dcdu = assemble(derivative(self.fea.objective(), self.fea.u)).get_local()
-        dcdf = assemble(derivative(self.fea.objective(), self.fea.f)).get_local()
+        dcdu = assembleVector(self.fea.dC_du)
+        dcdf = assembleVector(self.fea.dC_df)
         derivatives['objective', 'u'] = dcdu
         derivatives['objective', 'f'] = dcdf
         
@@ -75,8 +72,8 @@ if __name__ == "__main__":
     print("CSDL: Running the model...")
     
     sim = Simulator(ScalarOutputModel(fea=fea))
-    # fea.f.assign(f_ex)
-    # sim['u'] = getArray(u_ex)
+    # setFuncArray(fea.f, getFuncArray(f_ex))
+    # sim['u'] = getFuncArray(u_ex)
     sim.run()
     print(sim['objective'])
     

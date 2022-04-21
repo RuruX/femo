@@ -5,8 +5,7 @@ from csdl import Model, CustomImplicitOperation
 import csdl
 import numpy as np
 from csdl_om import Simulator
-# from fea import *
-from fea_dolfinx import *
+from fea import *
 
 class StatesModel(Model):
 
@@ -93,10 +92,9 @@ class StatesOperation(CustomImplicitOperation):
         update(self.fea.u, outputs['u'])
 
         self.dRdu = assembleMatrix(self.fea.dR_du)
-        print(type(self.dRdu))
         self.dRdf = assembleMatrix(self.fea.dR_df)
-        self.A = assembleMatrix(self.fea.dR_du, bcs=self.bcs)
-        # self.A,_ = assemble_system(self.fea.dR_du, self.fea.R(), bcs=self.bcs)
+        # self.A = assembleMatrix(self.fea.dR_du, bcs=self.bcs)
+        self.A,_ = assembleSystem(self.fea.dR_du, self.fea.R(), bcs=self.bcs)
 
     def compute_jacvec_product(self, inputs, outputs,
                                 d_inputs, d_outputs, d_residuals, mode):

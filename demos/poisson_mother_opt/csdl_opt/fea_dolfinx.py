@@ -8,7 +8,7 @@ import ufl
 
 from dolfinx.fem.petsc import (apply_lifting)
 from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,   
-                        locate_dofs_topological)
+                        locate_dofs_topological, locate_dofs_geometrical)
 from dolfinx.mesh import compute_boundary_facets
 from ufl import (TestFunction, TrialFunction, dx, inner, derivative,
                     grad, SpatialCoordinate)
@@ -48,15 +48,17 @@ class FEA(object):
         
         self.f = Function(self.VF)
         self.df = Function(self.VF)
-
+        self.u_ex, self.f_ex = self.exactSolution()
         # self.total_dofs_bc = len(self.bc_ind)
         self.total_dofs_u = len(self.u.vector.getArray())
         self.total_dofs_f = len(self.f.vector.getArray())
         # Partial derivatives in the magnetostatic problem
         self.dR_du = derivative(self.R(), self.u)
         self.dR_df = derivative(self.R(), self.f)
+        self.dC_du = derivative(self.objective(), self.u)
+        self.dC_df = derivative(self.objective(), self.f)
 
-        self.u_ex, self.f_ex = self.exactSolution()
+
 
     def initFunctionSpace(self):
         """
@@ -96,6 +98,20 @@ class FEA(object):
         return res
 
     def bc(self):
+        # ubc = Function(self.V)
+        # ubc.vector.set(0.0)
+        # locate_BC1 = locate_dofs_geometrical((self.V, self.V), 
+        #                             lambda x: np.isclose(x[0], 0. ,atol=1e-6))
+        # locate_BC2 = locate_dofs_geometrical((self.V, self.V), 
+        #                             lambda x: np.isclose(x[0], 1. ,atol=1e-6))
+        # locate_BC3 = locate_dofs_geometrical((self.V, self.V), 
+        #                             lambda x: np.isclose(x[1], 0. ,atol=1e-6))
+        # locate_BC4 = locate_dofs_geometrical((self.V, self.V), 
+        #                             lambda x: np.isclose(x[1], 1. ,atol=1e-6))
+        # bc = [dirichletbc(ubc, locate_BC1, self.V),
+        #         dirichletbc(ubc, locate_BC2, self.V),
+        #         dirichletbc(ubc, locate_BC3, self.V),
+        #         dirichletbc(ubc, locate_BC4, self.V),]
         # Create facet to cell connectivity required to determine boundary facets
         tdim = self.mesh.topology.dim
         fdim = tdim - 1
@@ -103,6 +119,7 @@ class FEA(object):
         boundary_facets = np.flatnonzero(
                             compute_boundary_facets(
                                 self.mesh.topology))
+
         boundary_dofs = locate_dofs_topological(self.V, fdim, boundary_facets)
         ubc = Function(self.V)
         ubc.vector.set(0.0)
@@ -141,7 +158,7 @@ class FEA(object):
 
     def objective(self):
         alpha = 1e-6
-        return 0.5*inner(self.u-self.u_ex, self.u-u_ex)*dx + alpha/2*self.f**2*dx
+        return 0.5*inner(self.u-self.u_ex, self.u-self.u_ex)*dx + alpha/2*self.f**2*dx
 
     def getBCDerivatives(self):
         """
@@ -166,10 +183,8 @@ class FEA(object):
             print(80*"=")
             print(" FEA: Solving the PDE problem")
             print(80*"=")
-        bc = self.bc()
-        res = self.R()
 
-        solveNonlinear(res, self.u, bc)
+        solveNonlinear(self.R(), self.u, self.bc(), report=report)
 
 
     def solveLinearFwd(self, A, dR):
@@ -199,13 +214,12 @@ class FEA(object):
         return self.dR.vector.getArray()
 
 if __name__ == "__main__":
-    n = 16
+    n = 2
     mesh = createUnitSquareMesh(n)
     fea = FEA(mesh)
     f_ex = fea.f_ex
     u_ex = fea.u_ex
 
-    fea.f.x.array[:] = f_ex.x.array
     setFuncArray(fea.f, getFuncArray(f_ex))
     # print(getFuncArray(fea.f))
     # print(fea.mesh.geometry.x)
@@ -220,7 +234,13 @@ if __name__ == "__main__":
 
     fea.solve(report=False)
     state_error = errorNorm(u_ex, fea.u)
-
+    A = assembleMatrix(fea.dR_du, bcs=fea.bc())
+    # A,_ = assembleSystem(fea.dR_du, fea.R(), bcs=fea.bc())
+    
+    print(convertToDense(A))
+    # print(getFuncArray(fea.u))
+    # print(getFuncArray(fea.f))
+    # print(mesh.geometry.x)
     print("="*40)
     control_error = errorNorm(f_ex, fea.f)
     print("Error in controls:", control_error)

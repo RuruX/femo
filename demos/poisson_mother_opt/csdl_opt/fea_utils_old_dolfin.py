@@ -7,31 +7,65 @@ from scipy.spatial import KDTree
 
 def errorNorm(v, v_ex):
     return errornorm(v,v_ex)
-    
+
 def getGlobalIndices(u_):
     comm = MPI.comm_world
     rank = comm.Get_rank()
     u_PETSc = v2p(u_.vector())
     ind = u_PETSc.getLGMap().getIndices()
     return ind
-    
+
+def assembleSystem(J, F, bcs=[]):
+    """
+    Compute the array representations of the linear system
+    ---------
+    Returns: A, b
+    """
+    return assemble_system(J, F, bcs=bcs)
+
+def assembleMatrix(M, bcs=[]):
+    """
+    Compute the matrix representation of the form
+    """
+    return assemble(M)
+
+def assembleScalar(c):
+    """
+    Compute the array representation of the scalar form
+    """
+    return assemble(c)
+
+def assembleVector(v):
+    """
+    Compute the array representation of the vector form
+    """
+    return assemble(v).get_local()
+
 def createUnitSquareMesh(n):
     """
     Create unit square mesh for test purposes
     """
     return UnitSquareMesh(n, n)
 
-def computeArray(v):
+def getFormArray(F):
+    """
+    Compute the array representation of the Form
+    """
+    return assemble(F).get_local()
+
+def getFuncArray(v):
     """
     Compute the array representation of the Function
     """
     return v.vector().get_local()
 
-def setArray(v, v_array):
+def setFuncArray(v, v_array):
     """
     Set the fuction based on the array
     """
     v.vector().set_local(v_array)
+    v2p(v.vector()).ghostUpdate()
+    v2p(v.vector()).assemble()
 
 #set_log_level(1)
 def m2p(A):
@@ -137,9 +171,7 @@ def update(f, f_values):
     f: dolfin function
     f_values: numpy array
     """
-    f.vector().set_local(f_values)
-    v2p(f.vector()).assemble()
-    v2p(f.vector()).ghostUpdate()
+    setFuncArray(f, f_values)
 
 def findNodeIndices(node_coordinates, coordinates):
     """

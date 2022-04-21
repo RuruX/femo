@@ -8,7 +8,7 @@ from ufl import Identity, dot, dx
 from dolfinx.mesh import create_unit_square
 from dolfinx.fem import form, assemble_scalar
 from dolfinx.fem.petsc import (assemble_vector, assemble_matrix, 
-                        NonlinearProblem)
+                        NonlinearProblem, apply_lifting)
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from scipy.spatial import KDTree
@@ -41,13 +41,34 @@ def setFuncArray(v, v_array):
     v.vector.assemble()
     v.vector.ghostUpdate()
 
-def assembleMatrix(M, bcs=None):
+def assembleMatrix(M, bcs=[]):
     """
-    Compute the matrix representation of the form
+    Compute the array representation of the matrix form
     """
     M_ = assemble_matrix(form(M), bcs=bcs)
     M_.assemble()
     return M_
+
+def assembleSystem(J, F, bcs=[]):
+    """
+    Compute the array representations of the linear system
+    """
+    # apply_lifting(assemble_vector(form(F)), [form(J)], bcs=bcs)
+    M_ = assemble_matrix(form(J), bcs=bcs)
+    M_.assemble()
+    return M_, F
+
+def assembleScalar(c):
+    """
+    Compute the array representation of the scalar form
+    """
+    return assemble_scalar(form(c))
+
+def assembleVector(v):
+    """
+    Compute the array representation of the vector form
+    """
+    return assemble_vector(form(v)).array
 
 def errorNorm(v, v_ex):
     """
@@ -200,7 +221,7 @@ def J(uhat):
     """
     return det(I + grad(uhat))
 
-def solveNonlinear(F, w, bcs, abs_tol=1e-50, max_it=3):
+def solveNonlinear(F, w, bcs, abs_tol=1e-50, max_it=3, report=False):
 
     """
     Wrap up the nonlinear solver for the problem F(w)=0 and 
@@ -213,7 +234,8 @@ def solveNonlinear(F, w, bcs, abs_tol=1e-50, max_it=3):
     with w.vector.localForm() as w_local:
         w_local.set(0.9)
     solver = NewtonSolver(MPI.COMM_WORLD, problem)
-    dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
+    if report == True:
+        dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
 
     # Set the Newton solver options
     solver.atol = abs_tol
