@@ -1,35 +1,52 @@
-from dolfin import *
+import dolfinx
+import ufl
+import numpy as np
+from mpi4py import MPI
 
 n = 2
-mesh = UnitSquareMesh(n, n)
-V = FunctionSpace(mesh, 'CG', 1)
-VF = FunctionSpace(mesh, 'DG', 0)
+mesh = dolfinx.mesh.create_unit_square(MPI.COMM_WORLD, n, n)
+V = dolfinx.fem.FunctionSpace(mesh, ('CG', 1))
+VF = dolfinx.fem.FunctionSpace(mesh, ('DG', 0))
 
-u = Function(V)
-v = TestFunction(V)
+u = dolfinx.fem.Function(V)
+v = ufl.TestFunction(V)
 
 # Define the source term
-w = Expression("sin(pi*x[0])*sin(pi*x[1])", degree=3)
-alpha = Constant(1e-6)
-f_analytic = Expression("1/(1+alpha*4*pow(pi,4))*w", w=w, alpha=alpha, degree=3)
-f = interpolate(f_analytic, VF)
+
+class Expression_f:
+    def __init__(self):
+        self.alpha = 1e-6
+
+    def eval(self, x):
+        return (1/(1+self.alpha*4*np.power(np.pi,4))*
+                np.sin(np.pi*x[0])*np.sin(np.pi*x[1]))
+                        
+f_analytic = Expression_f()
+f = dolfinx.fem.Function(VF)
+f.interpolate(f_analytic.eval)
 
 # Apply zero boundary condition on the outer boundary
-bc = DirichletBC(V, Constant(0.0), "on_boundary")
+tdim = mesh.topology.dim
+fdim = tdim - 1
+mesh.topology.create_connectivity(fdim, tdim)
+boundary_facets = np.flatnonzero(
+                    dolfinx.mesh.compute_boundary_facets(
+                        mesh.topology))
+
+boundary_dofs = dolfinx.fem.locate_dofs_topological(V, fdim, boundary_facets)
+ubc = dolfinx.fem.Function(V)
+ubc.vector.set(0.0)
+bc = [dolfinx.fem.dirichletbc(ubc, boundary_dofs)]
 
 # Variational form of Poisson's equation
-res = (inner(grad(u),grad(v))-f*v)*dx
+res = (ufl.inner(ufl.grad(u),ufl.grad(v))-f*v)*ufl.dx
 
 # Quantity of interest: will be used as the Jacobian in adjoint method
-dRdu = derivative(res, u)
+dRdu = ufl.derivative(res, u)
 
 # Option 1: assemble A and b seperately
-A = assemble(dRdu)
-b = assemble(res)
-bc.apply(A,b)
+A = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(dRdu), bcs=bc)
 
-# Option 2: assemble the system
-A_,b_ = assemble_system(dRdu, res, bcs=bc)
 
 def convertToDense(A_petsc):
     """
@@ -40,7 +57,9 @@ def convertToDense(A_petsc):
     A_dense = A_petsc.convert("dense")
     return A_dense.getDenseArray()
 
-print(" ------ Matrix A from Option 1 ------- ")
-print(convertToDense(as_backend_type(A).mat()))
-print(" ------ Matrix A from Option 2 ------- ")
-print(convertToDense(as_backend_type(A_).mat()))
+print(" ------ Matrix A by DOLFINx ------- ")
+print(convertToDense(A))
+
+
+
+
