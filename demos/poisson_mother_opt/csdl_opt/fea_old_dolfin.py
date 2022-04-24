@@ -64,6 +64,8 @@ class FEA(object):
         self.dR_df = derivative(self.R(), self.f)
         self.dC_du = derivative(self.objective(), self.u)
         self.dC_df = derivative(self.objective(), self.f)
+        
+        self.initial_guess_f = interpolate(Expression("x[1]+x[0]",degree=1), self.VF)
 
     def initFunctionSpace(self):
         """
@@ -127,7 +129,9 @@ class FEA(object):
         d = 1/(2*pi**2)
         d = Expression("d*w", d=d, w=w, degree=3)
         alpha = Constant(1e-6)
+        d_f = interpolate(d, self.V)
         return (Constant(0.5)*inner(self.u-d, self.u-d))*dx + alpha/2*self.f**2*dx
+#        return (Constant(0.5)*inner(self.u-d_f, self.u-d_f))*dx + alpha/2*self.f**2*dx
 
     def getBCDerivatives(self):
         """

@@ -53,7 +53,8 @@ def assembleSystem(J, F, bcs=[]):
     """
     Compute the array representations of the linear system
     """
-    # apply_lifting(assemble_vector(form(F)), [form(J)], bcs=bcs)
+#    apply_lifting(assemble_vector(form(F)), [form(J)], bcs=bcs)
+    
     M_ = assemble_matrix(form(J), bcs=bcs)
     M_.assemble()
     return M_, F

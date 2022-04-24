@@ -9,22 +9,19 @@ from fea import *
 
 class StatesModel(Model):
 
-    def initialize(self, debug_mode=False):
-        self.debug_mode = debug_mode
-        if self.debug_mode == True:
-            print("="*40)
-            print("CSDL: Running initialize()...")
-            print("="*40)
+    def initialize(self):
+        self.parameters.declare('debug_mode')
         self.parameters.declare('fea')
 
     def define(self):
         self.fea = self.parameters['fea']
+        self.debug_mode = self.parameters['debug_mode']
         self.input_size = self.fea.total_dofs_f
         self.output_size = self.fea.total_dofs_u
         f = self.declare_variable('f',
                         shape=(self.input_size,),
                         val=1.0)
-        e = StatesOperation(fea=self.fea)
+        e = StatesOperation(fea=self.fea, debug_mode=self.debug_mode)
         u = csdl.custom(f, op=e)
         self.register_output('u', u)
 
@@ -33,15 +30,12 @@ class StatesOperation(CustomImplicitOperation):
     input: f
     output: u
     """
-    def initialize(self, debug_mode=False):
-        self.debug_mode = debug_mode
-        if self.debug_mode == True:
-            print("="*40)
-            print("CSDL: Running initialize()...")
-            print("="*40)
+    def initialize(self):
+        self.parameters.declare('debug_mode')
         self.parameters.declare('fea')
 
     def define(self):
+        self.debug_mode = self.parameters['debug_mode']
         if self.debug_mode == True:
             print("="*40)
             print("CSDL: Running define()...")
@@ -95,7 +89,10 @@ class StatesOperation(CustomImplicitOperation):
         self.dRdf = assembleMatrix(self.fea.dR_df)
         # self.A = assembleMatrix(self.fea.dR_du, bcs=self.bcs)
         self.A,_ = assembleSystem(self.fea.dR_du, self.fea.R(), bcs=self.bcs)
-
+        print(convertToDense(self.A))
+        print(convertToDense(self.dRdf))
+        print(convertToDense(self.dRdu))
+        
     def compute_jacvec_product(self, inputs, outputs,
                                 d_inputs, d_outputs, d_residuals, mode):
         if self.debug_mode == True:
@@ -139,14 +136,15 @@ class StatesOperation(CustomImplicitOperation):
 
 
 if __name__ == "__main__":
-    n = 16
+    n = 3
     mesh = createUnitSquareMesh(n)
     fea = FEA(mesh)
 
     f_ex = fea.f_ex
     u_ex = fea.u_ex
     # fea.solveMeshMotion()
-    sim = Simulator(StatesModel(fea=fea))
+    model = StatesModel(fea=fea, debug_mode=False)
+    sim = Simulator(model)
     # sim['f'] = getArray(f_ex)
     # from matplotlib import pyplot as plt
     # print("CSDL: Running the model...")
@@ -160,4 +158,15 @@ if __name__ == "__main__":
     # plt.show()
 
     print("CSDL: Checking the partial derivatives...")
-    sim.check_partials()
+    sim.check_partials(compact_print=True)
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    

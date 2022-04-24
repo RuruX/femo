@@ -57,6 +57,7 @@ class ScalarOutputOperation(CustomExplicitOperation):
         update(self.fea.f, inputs['f'])
         dcdu = assembleVector(self.fea.dC_du)
         dcdf = assembleVector(self.fea.dC_df)
+#        print(dcdu)
         derivatives['objective', 'u'] = dcdu
         derivatives['objective', 'f'] = dcdf
         
@@ -78,7 +79,7 @@ if __name__ == "__main__":
     print(sim['objective'])
     
     print("CSDL: Running check_partials()...")
-    sim.check_partials()
+    sim.check_partials(compact_print=True)
 
 
         

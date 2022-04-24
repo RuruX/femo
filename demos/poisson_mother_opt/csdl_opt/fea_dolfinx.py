@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix
 
 PI = np.pi
+ALPHA = 1E-6
+
 
 def pdeRes(u,v,f):
     """
@@ -57,7 +59,13 @@ class FEA(object):
         self.dR_df = derivative(self.R(), self.f)
         self.dC_du = derivative(self.objective(), self.u)
         self.dC_df = derivative(self.objective(), self.f)
-
+        
+        x = SpatialCoordinate(self.mesh)
+        expression = x[1]+x[0]
+        f_expression = dolfinx.fem.Expression(expression, self.VF.element.interpolation_points)
+        f_init = Function(self.VF)
+        f_init.interpolate(f_expression)
+        self.initial_guess_f = f_init
 
 
     def initFunctionSpace(self):
@@ -147,9 +155,10 @@ class FEA(object):
                         1/(1+self.alpha*4*np.power(PI,4))*
                         np.sin(PI*x[0])*np.sin(PI*x[1]))
 
-        alpha = 1e-6
         f_analytic = Expression_f()
+        f_analytic.alpha = ALPHA
         u_analytic = Expression_u()
+        u_analytic.alpha = ALPHA
         f_ex = Function(self.VF)
         u_ex = Function(self.V)
         f_ex.interpolate(f_analytic.eval)
@@ -157,8 +166,23 @@ class FEA(object):
         return u_ex, f_ex
 
     def objective(self):
-        alpha = 1e-6
-        return 0.5*inner(self.u-self.u_ex, self.u-self.u_ex)*dx + alpha/2*self.f**2*dx
+#        class Expression_d:
+#            def __init__(self):
+#                pass
+#            def eval(self, x):
+#                return (1/(2*np.power(PI, 2))*
+#                        np.sin(PI*x[0])*np.sin(PI*x[1]))
+#                        
+#        d_expression = Expression_d()
+#        d = Function(self.V)
+#        d.interpolate(d_expression.eval)
+#        print(getFuncArray(d))
+        x = ufl.SpatialCoordinate(self.mesh)
+        expression = 1/(2*ufl.pi**2)*ufl.sin(ufl.pi*x[0])*ufl.sin(ufl.pi*x[1])
+        d_expression = dolfinx.fem.Expression(expression, self.V.element.interpolation_points)
+        d = Function(self.V)
+        d.interpolate(d_expression)
+        return 0.5*inner(self.u-d, self.u-d)*dx + ALPHA/2*self.f**2*dx
 
     def getBCDerivatives(self):
         """
@@ -183,8 +207,12 @@ class FEA(object):
             print(80*"=")
             print(" FEA: Solving the PDE problem")
             print(80*"=")
-
+        from timeit import default_timer
+        start = default_timer()
         solveNonlinear(self.R(), self.u, self.bc(), report=report)
+        stop = default_timer()
+        if report == True:
+            print("Solve nonlinear finished in ",start-stop, "seconds")
 
 
     def solveLinearFwd(self, A, dR):

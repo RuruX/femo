@@ -40,7 +40,7 @@ def convertToDense(A_petsc):
     A_dense = A_petsc.convert("dense")
     return A_dense.getDenseArray()
 
-print(" ------ Matrix A from Option 1 ------- ")
+print(" ------ Matrix A by old dolfin - assemble ------- ")
 print(convertToDense(as_backend_type(A).mat()))
-print(" ------ Matrix A from Option 2 ------- ")
+print(" ------ Matrix A by old dolfin - assemble_system ------- ")
 print(convertToDense(as_backend_type(A_).mat()))

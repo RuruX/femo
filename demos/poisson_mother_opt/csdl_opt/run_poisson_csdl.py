@@ -1,4 +1,4 @@
-# from dolfin import *
+
 import csdl
 from csdl import Model
 from csdl_om import Simulator
@@ -14,10 +14,11 @@ class PoissonModel(Model):
 
     def define(self):
         self.fea = fea = self.parameters['fea']
+        
+        f = self.create_input('f', shape=(fea.total_dofs_f,), 
+                            val=getFuncArray(self.fea.initial_guess_f))
 
-        f = self.create_input('f', shape=(fea.total_dofs_f,), val=1.0)
-
-        self.add(StatesModel(fea=self.fea), 
+        self.add(StatesModel(fea=self.fea, debug_mode=False), 
                             name='states_model', promotes=[])
         self.add(ScalarOutputModel(fea=self.fea), 
                             name='scalar_output_model', promotes=[])
@@ -31,7 +32,7 @@ class PoissonModel(Model):
 
 if __name__ == '__main__':
 
-    num_el = 16
+    num_el = 64
     mesh = createUnitSquareMesh(num_el)
     fea = FEA(mesh)
 
@@ -44,16 +45,16 @@ if __name__ == '__main__':
     # setting the design variable to be the exact solution
     ############## Run the simulation with the exact solution #########
     # sim['f'] = computeArray(f_ex)
-    # sim.run()
-    # print("="*40)
-    # print("Objective value: ", sim['scalar_output_model.objective'])
-    # control_error = errornorm(f_ex, fea.f)
-    # print("Error in controls:", control_error)
-    # state_error = errornorm(u_ex, fea.u)
-    # print("Error in states:", state_error)
-    # plt.figure(1)
-    # plot(fea.u)
-    # plt.show()
+#    sim.run()
+#    print("="*40)
+#    print("Objective value: ", sim['scalar_output_model.objective'])
+#    control_error = errorNorm(f_ex, fea.f)
+#    print("Error in controls:", control_error)
+#    state_error = errorNorm(u_ex, fea.u)
+#    print("Error in states:", state_error)
+#    plt.figure(1)
+#    plot(fea.u)
+#    plt.show()
 
     # TODO: fix the `check_totals`
     # sim.check_partials(compact_print=True)
@@ -62,21 +63,28 @@ if __name__ == '__main__':
     # TODO: 
     ############## Run the optimization with pyOptSparse #############
     import openmdao.api as om
-    # sim.prob.run_model()
+    sim.prob.run_model()
+    print("Objective value: ", sim['scalar_output_model.objective'])
+    
+    ####### Driver = SLSQP #########
+#    sim.prob.driver = om.ScipyOptimizeDriver()
+#    sim.prob.driver.options['optimizer'] = 'SLSQP'
+#    sim.prob.driver.options['tol'] = 1e-12
+#    sim.prob.driver.options['disp'] = True
 
-    # sim.prob.driver = om.ScipyOptimizeDriver()
-    # sim.prob.driver.options['optimizer'] = 'SLSQP'
+#    sim.prob.run_driver()
 
-    # sim.prob.run_driver()
-
+    ####### Driver = SNOPT #########
     driver = om.pyOptSparseDriver()
     driver.options['optimizer']='SNOPT'
-    driver.opt_settings['Major feasibility tolerance'] = 1e-12
+    driver.opt_settings['Major feasibility tolerance'] = 1e-13
     driver.opt_settings['Major optimality tolerance'] = 1e-13
     driver.options['print_results'] = False
     
     sim.prob.driver = driver
     sim.prob.run_driver()
+    
+    ############## Output ###################
     print("="*40)
     print("Objective value: ", sim['scalar_output_model.objective'])
     control_error = errorNorm(f_ex, fea.f)
@@ -84,6 +92,8 @@ if __name__ == '__main__':
     state_error = errorNorm(u_ex, fea.u)
     print("Error in states:", state_error)
     print("="*40)
+    
+    
     # TODO: fix the check_first_derivatives()
     ############## Run the optimization with modOpt #############
     # from modopt.csdl_library import CSDLProblem
