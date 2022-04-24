@@ -15,7 +15,7 @@ f_analytic = Expression("1/(1+alpha*4*pow(pi,4))*w", w=w, alpha=alpha, degree=3)
 f = interpolate(f_analytic, VF)
 
 # Apply zero boundary condition on the outer boundary
-bc = DirichletBC(V, Constant(0.0), "on_boundary")
+bc = DirichletBC(V, Constant(1.0), "on_boundary")
 
 # Variational form of Poisson's equation
 res = (inner(grad(u),grad(v))-f*v)*dx
@@ -42,5 +42,7 @@ def convertToDense(A_petsc):
 
 print(" ------ Matrix A by old dolfin - assemble ------- ")
 print(convertToDense(as_backend_type(A).mat()))
+print(b.get_local())
 print(" ------ Matrix A by old dolfin - assemble_system ------- ")
 print(convertToDense(as_backend_type(A_).mat()))
+print(b_.get_local())

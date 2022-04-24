@@ -7,6 +7,19 @@ from fea import *
 from states_model import StatesModel
 from scalar_output_model import ScalarOutputModel
 
+# import argparse
+# parser = argparse.ArgumentParser()
+# parser.add_argument('--fea',dest='fea',default='dolfin',
+#                     help='FEA backend')
+
+# args = parser.parse_args()
+# fea = str(args.fea)
+# if fea == 'dolfin':
+#     from fea_old_dolfin import *
+# elif fea == 'dolfinx':
+#     from fea_dolfinx import *
+# else:
+#     TypeError("Unsupported FEA backend; choose 'dolfin' or 'dolfinx'")
 
 class PoissonModel(Model):
     def initialize(self):
@@ -32,7 +45,7 @@ class PoissonModel(Model):
 
 if __name__ == '__main__':
 
-    num_el = 64
+    num_el = 4
     mesh = createUnitSquareMesh(num_el)
     fea = FEA(mesh)
 
@@ -65,7 +78,7 @@ if __name__ == '__main__':
     import openmdao.api as om
     sim.prob.run_model()
     print("Objective value: ", sim['scalar_output_model.objective'])
-    
+    # sim.prob.check_totals(compact_print=True)
     ####### Driver = SLSQP #########
 #    sim.prob.driver = om.ScipyOptimizeDriver()
 #    sim.prob.driver.options['optimizer'] = 'SLSQP'
@@ -77,7 +90,7 @@ if __name__ == '__main__':
     ####### Driver = SNOPT #########
     driver = om.pyOptSparseDriver()
     driver.options['optimizer']='SNOPT'
-    driver.opt_settings['Major feasibility tolerance'] = 1e-13
+    driver.opt_settings['Major feasibility tolerance'] = 1e-12
     driver.opt_settings['Major optimality tolerance'] = 1e-13
     driver.options['print_results'] = False
     
@@ -93,7 +106,21 @@ if __name__ == '__main__':
     print("Error in states:", state_error)
     print("="*40)
     
-    
+    ########### Postprocessing with DOLFIN #############
+    # plt.figure(1)
+    # plot(fea.u)
+    # plt.show()
+    # File('f_opt_dolfin.pvd') << fea.f
+    # File('u_opt_dolfin.pvd') << fea.u
+
+    ########### Postprocessing with DOLFINx #############
+    with XDMFFile(MPI.COMM_WORLD, "solutions/u_opt_dolfinx.xdmf", "w") as xdmf:
+        xdmf.write_mesh(fea.mesh)
+        xdmf.write_function(fea.u)
+    with XDMFFile(MPI.COMM_WORLD, "solutions/f_opt_dolfinx.xdmf", "w") as xdmf:
+        xdmf.write_mesh(fea.mesh)
+        xdmf.write_function(fea.f)
+
     # TODO: fix the check_first_derivatives()
     ############## Run the optimization with modOpt #############
     # from modopt.csdl_library import CSDLProblem

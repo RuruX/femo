@@ -223,7 +223,7 @@ class FEA(object):
 
         self.du.vector.set(0.0)
 
-        solveKSP(A, self.du.vector, self.dR.vector)
+        solveKSP(A, self.dR.vector, self.du.vector)
         self.du.vector.assemble()
         self.du.vector.ghostUpdate()
         return self.du.vector.getArray()
@@ -236,7 +236,7 @@ class FEA(object):
 
         self.dR.vector.set(0.0)
 
-        solveKSP(transpose(A), self.dR.vector, self.du.vector)
+        solveKSP(transpose(A), self.du.vector, self.dR.vector)
         self.dR.vector.assemble()
         self.dR.vector.ghostUpdate()
         return self.dR.vector.getArray()

@@ -4,8 +4,12 @@ Reusable functions for the PETSc and UFL operations
 from dolfin import *
 from petsc4py import PETSc
 from scipy.spatial import KDTree
+import numpy as np
 
 def errorNorm(v, v_ex):
+    """
+    Calculate the L2 norm of two functions
+    """
     return errornorm(v,v_ex)
 
 def getGlobalIndices(u_):

@@ -89,9 +89,9 @@ class StatesOperation(CustomImplicitOperation):
         self.dRdf = assembleMatrix(self.fea.dR_df)
         # self.A = assembleMatrix(self.fea.dR_du, bcs=self.bcs)
         self.A,_ = assembleSystem(self.fea.dR_du, self.fea.R(), bcs=self.bcs)
-        print(convertToDense(self.A))
-        print(convertToDense(self.dRdf))
-        print(convertToDense(self.dRdu))
+        # print(convertToDense(self.A))
+        # print(convertToDense(self.dRdf))
+        # print(convertToDense(self.dRdu))
         
     def compute_jacvec_product(self, inputs, outputs,
                                 d_inputs, d_outputs, d_residuals, mode):
