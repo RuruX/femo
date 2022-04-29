@@ -7,13 +7,25 @@ import dolfinx.io
 from ufl import Identity, dot, dx
 from dolfinx.mesh import create_unit_square
 from dolfinx.fem import form, assemble_scalar
-from dolfinx.fem.petsc import (assemble_vector, assemble_matrix, 
-                        NonlinearProblem, apply_lifting)
+from dolfinx.fem.petsc import (assemble_vector, assemble_matrix,
+                        NonlinearProblem, apply_lifting, set_bc)
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from scipy.spatial import KDTree
 from mpi4py import MPI
 import numpy as np
+from scipy.spatial import KDTree
+
+
+def findNodeIndices(node_coordinates, coordinates):
+    """
+    Find the indices of the closest nodes, given the `node_coordinates`
+    for a set of nodes and the `coordinates` for all of the vertices
+    in the mesh, by using scipy.spatial.KDTree
+    """
+    tree = KDTree(coordinates)
+    dist, node_indices = tree.query(node_coordinates)
+    return node_indices
 
 def createUnitSquareMesh(n):
     """
@@ -53,11 +65,27 @@ def assembleSystem(J, F, bcs=[]):
     """
     Compute the array representations of the linear system
     """
-#    apply_lifting(assemble_vector(form(F)), [form(J)], bcs=bcs)
-    
-    M_ = assemble_matrix(form(J), bcs=bcs)
-    M_.assemble()
-    return M_, F
+    a = form(J)
+    L = form(F)
+    A = assemble_matrix(a, bcs=bcs)
+    A.assemble()
+    L = form(F)
+    b = assemble_vector(L)
+    apply_lifting(b, [a], [bcs])
+    b.ghostUpdate(PETSc.InsertMode.ADD_VALUES, PETSc.ScatterMode.REVERSE)
+    set_bc(b, bcs)
+    return A, b
+
+def assemble(f, dim=0, bcs=[]):
+    if dim == 0:
+        return assembleScalar(f)
+    elif dim == 1:
+        return assembleVector(f)
+    elif dim == 2:
+        M = assembleMatrix(f, bcs=bcs)
+        return convertToDense(M.copy())
+    else:
+        return TypeError("Invalid type for assembly.")
 
 def assembleScalar(c):
     """
@@ -65,11 +93,13 @@ def assembleScalar(c):
     """
     return assemble_scalar(form(c))
 
+
 def assembleVector(v):
     """
     Compute the array representation of the vector form
     """
     return assemble_vector(form(v)).array
+
 
 def errorNorm(v, v_ex):
     """
@@ -79,20 +109,7 @@ def errorNorm(v, v_ex):
     error = form((v - v_ex)**2 * dx)
     E = np.sqrt(comm.allreduce(assemble_scalar(error), MPI.SUM))
     return E
-    # return np.linalg.norm(computeArray(v)-computeArray(v_ex))
 
-#set_log_level(1)
-def m2p(A):
-    """
-    Convert the matrix of DOLFIN type to a PETSc.Mat object
-    """
-    return A
-
-def v2p(v):
-    """
-    Convert the vector of DOLFIN type to a PETSc.Vec object
-    """
-    return v.vector
 
 def transpose(A):
     """
@@ -100,35 +117,33 @@ def transpose(A):
     """
     return A.transpose(PETSc.Mat(MPI.COMM_WORLD))
 
+
 def computeMatVecProductFwd(A, x):
     """
     Compute y = A * x
-    A: ufl form matrix
+    A: PETSc matrix
     x: ufl function
     """
     y = A*x.vector
     y.assemble()
     return y.getArray()
-    # A_p = m2p(A)
-    # y = A_p * v2p(x)
-    # y.assemble()
-    # return y.getArray()
+
 
 def computeMatVecProductBwd(A, R):
     """
     Compute y = A.T * R
-    A: ufl form matrix
+    A: PETSc matrix
     R: ufl function
     """
-    row, col = m2p(A).getSizes()
+    row, col = A.getSizes()
     y = PETSc.Vec().create()
     y.setSizes(col)
     y.setUp()
-    m2p(A).multTranspose(v2p(R),y)
+    A.multTranspose(R.vector,y)
     y.assemble()
     return y.getArray()
 
-
+# not sure useful
 def zero_petsc_vec(size, comm=MPI.COMM_WORLD):
     """
     Create zero PETSc vector of size ``num_el``.
@@ -148,6 +163,7 @@ def zero_petsc_vec(size, comm=MPI.COMM_WORLD):
     v.assemble()
     return v
 
+# not sure useful
 def zero_petsc_mat(row, col, comm=MPI.COMM_WORLD):
     """
     Create zeros PETSc matrix with shape (``row``, ``col``).
@@ -168,6 +184,7 @@ def zero_petsc_mat(row, col, comm=MPI.COMM_WORLD):
     A.assemble()
     return A
 
+
 def convertToDense(A_petsc):
     """
     Convert the PETSc matrix to a dense numpy array
@@ -177,9 +194,7 @@ def convertToDense(A_petsc):
     A_dense = A_petsc.convert("dense")
     return A_dense.getDenseArray()
 
-def updateR(f, f_value):
-    f.assign(Constant(float(f_value)))
-    
+
 def update(v, v_values):
     """
     Update the nodal values in every dof of the DOLFIN function `v`
@@ -188,7 +203,11 @@ def update(v, v_values):
     v: dolfin function
     v_values: numpy array
     """
-    setFuncArray(v, v_values)
+    if len(v_values) == 1:
+        v.vector.set(v_values)
+    else:
+        setFuncArray(v, v_values)
+
 
 def findNodeIndices(node_coordinates, coordinates):
     """
@@ -199,6 +218,7 @@ def findNodeIndices(node_coordinates, coordinates):
     tree = KDTree(coordinates)
     dist, node_indices = tree.query(node_coordinates)
     return node_indices
+
 
 I = Identity(2)
 def gradx(f,uhat):
@@ -212,6 +232,7 @@ def gradx(f,uhat):
     """
     return dot(grad(f), inv(I + grad(uhat)))
 
+
 def J(uhat):
     """
     Compute the determinant of the deformation gradient used in the
@@ -222,15 +243,21 @@ def J(uhat):
     """
     return det(I + grad(uhat))
 
-def solveNonlinear(F, w, bcs, abs_tol=1e-50, max_it=3, report=False):
+
+def solveNonlinear(F, w, bcs,
+                    abs_tol=1e-50,
+                    rel_tol=1e-30,
+                    max_it=3,
+                    error_on_nonconvergence=False,
+                    report=False):
 
     """
-    Wrap up the nonlinear solver for the problem F(w)=0 and 
+    Wrap up the nonlinear solver for the problem F(w)=0 and
     returns the solution
     """
-    
+
     problem = NonlinearProblem(F, w, bcs)
-    
+
     # Set the initial guess of the solution
     with w.vector.localForm() as w_local:
         w_local.set(0.9)
@@ -240,11 +267,13 @@ def solveNonlinear(F, w, bcs, abs_tol=1e-50, max_it=3, report=False):
 
     # Set the Newton solver options
     solver.atol = abs_tol
+    solver.rtol = rel_tol
     solver.max_it = max_it
-    solver.error_on_nonconvergence = False
+    solver.error_on_nonconvergence = error_on_nonconvergence
     opts = PETSc.Options()
     opts["nls_solve_pc_factor_mat_solver_type"] = "mumps"
     solver.solve(w)
+
 
 def solveKSP(A, b, x):
     """
@@ -255,7 +284,7 @@ def solveKSP(A, b, x):
     ksp = PETSc.KSP().create(A.getComm())
     ksp.setOperators(A)
 
-    # additive Schwarz method 
+    # additive Schwarz method
     pc = ksp.getPC()
     pc.setType("asm")
 
@@ -270,4 +299,3 @@ def solveKSP(A, b, x):
     ksp.setConvergenceHistory()
     ksp.solve(b, x)
     history = ksp.getConvergenceHistory()
-    

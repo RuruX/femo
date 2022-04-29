@@ -7,7 +7,7 @@ from dolfinx.io import XDMFFile
 import ufl
 
 from dolfinx.fem.petsc import (apply_lifting)
-from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,   
+from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,
                         locate_dofs_topological, locate_dofs_geometrical)
 from dolfinx.mesh import compute_boundary_facets
 from ufl import (TestFunction, TrialFunction, dx, inner, derivative,
@@ -35,8 +35,6 @@ class FEA(object):
     def __init__(self, mesh, coords_bc=[]):
 
         self.mesh = mesh
-        # # Import the initial mesh from the mesh file to FEniCS
-        # self.initMesh()
         # Define the function spaces based on the initial mesh
         self.initFunctionSpace()
 
@@ -47,7 +45,7 @@ class FEA(object):
         self.v = TestFunction(self.V)
         self.dR = Function(self.V) # Function used in the CSDL model
         self.du = Function(self.V) # Function used in the CSDL model
-        
+
         self.f = Function(self.VF)
         self.df = Function(self.VF)
         self.u_ex, self.f_ex = self.exactSolution()
@@ -57,15 +55,16 @@ class FEA(object):
         # Partial derivatives in the magnetostatic problem
         self.dR_du = derivative(self.R(), self.u)
         self.dR_df = derivative(self.R(), self.f)
-        self.dC_du = derivative(self.objective(), self.u)
-        self.dC_df = derivative(self.objective(), self.f)
-        
+        self.dC_du = derivative(self.objective_form(), self.u)
+        self.dC_df = derivative(self.objective_form(), self.f)
+
         x = SpatialCoordinate(self.mesh)
         expression = x[1]+x[0]
         f_expression = dolfinx.fem.Expression(expression, self.VF.element.interpolation_points)
         f_init = Function(self.VF)
         f_init.interpolate(f_expression)
         self.initial_guess_f = f_init
+        self.objective_dim = 0
 
 
     def initFunctionSpace(self):
@@ -76,26 +75,28 @@ class FEA(object):
         self.V = FunctionSpace(self.mesh, ('CG', 1))
         self.VF = FunctionSpace(self.mesh, ('DG', 0))
 
-    # def locateBC(self,coords_bc):
-    #     """
-    #     Find the indices of the dofs for setting up the boundary condition
-    #     in the mesh motion subproblem
-    #     """
-    #     V0 = FunctionSpace(self.mesh, 'CG', 1)
-    #     coordinates = V0.tabulate_dof_coordinates()
+    def locateBC(self,coords_bc,V_bc):
+        """
+        Find the indices of the dofs for setting up the boundary condition, given
+        the coordinates of the boundary vertices, and the function space of the
+        function where the bc should be applied.
+        """
+        coordinates = self.mesh.geometry.x
 
-    #     # Use KDTree to find the node indices of the points on the edge
-    #     # in the mesh object in FEniCS
-    #     node_indices = findNodeIndices(np.reshape(coords_bc, (-1,2)),
-    #                                     coordinates)
+        # Use KDTree to find the node indices of the points on the edge
+        # in the mesh object in FEniCS
+        node_indices = findNodeIndices(np.reshape(coords_bc, (-1,2)),
+                                        coordinates)
 
-    #     # Convert the node indices to edge indices, where each node has 2 dofs
-    #     dofs = np.empty(2*len(node_indices))
-    #     for i in range(len(node_indices)):
-    #         dofs[2*i] = 2*node_indices[i]
-    #         dofs[2*i+1] = 2*node_indices[i]+1
+        # Convert the node indices to function dof indices
+        # TODO: need to find out how to get the dofs per function vertex
+        fdim = V_bc.dim
+        dofs = np.empty(fdim*len(node_indices))
+        for i in range(len(node_indices)):
+            dofs[2*i] = 2*node_indices[i]
+            dofs[2*i+1] = 2*node_indices[i]+1
 
-    #     return dofs.astype('int')
+        return node_indices.astype('int')
 
     def R(self):
         """
@@ -106,37 +107,38 @@ class FEA(object):
         return res
 
     def bc(self):
-        # ubc = Function(self.V)
-        # ubc.vector.set(0.0)
-        # locate_BC1 = locate_dofs_geometrical((self.V, self.V), 
-        #                             lambda x: np.isclose(x[0], 0. ,atol=1e-6))
-        # locate_BC2 = locate_dofs_geometrical((self.V, self.V), 
-        #                             lambda x: np.isclose(x[0], 1. ,atol=1e-6))
-        # locate_BC3 = locate_dofs_geometrical((self.V, self.V), 
-        #                             lambda x: np.isclose(x[1], 0. ,atol=1e-6))
-        # locate_BC4 = locate_dofs_geometrical((self.V, self.V), 
-        #                             lambda x: np.isclose(x[1], 1. ,atol=1e-6))
-        # bc = [dirichletbc(ubc, locate_BC1, self.V),
-        #         dirichletbc(ubc, locate_BC2, self.V),
-        #         dirichletbc(ubc, locate_BC3, self.V),
-        #         dirichletbc(ubc, locate_BC4, self.V),]
-        # Create facet to cell connectivity required to determine boundary facets
-        tdim = self.mesh.topology.dim
-        fdim = tdim - 1
-        self.mesh.topology.create_connectivity(fdim, tdim)
-        boundary_facets = np.flatnonzero(
-                            compute_boundary_facets(
-                                self.mesh.topology))
-
-        boundary_dofs = locate_dofs_topological(self.V, fdim, boundary_facets)
         ubc = Function(self.V)
         ubc.vector.set(0.0)
-        bc = [dirichletbc(ubc, boundary_dofs)]
+        locate_BC1 = locate_dofs_geometrical((self.V, self.V),
+                                    lambda x: np.isclose(x[0], 0. ,atol=1e-6))
+        locate_BC2 = locate_dofs_geometrical((self.V, self.V),
+                                    lambda x: np.isclose(x[0], 1. ,atol=1e-6))
+        locate_BC3 = locate_dofs_geometrical((self.V, self.V),
+                                    lambda x: np.isclose(x[1], 0. ,atol=1e-6))
+        locate_BC4 = locate_dofs_geometrical((self.V, self.V),
+                                    lambda x: np.isclose(x[1], 1. ,atol=1e-6))
+        # Note: locate_BC are lists of arrays
+        bc = [dirichletbc(ubc, locate_BC1, self.V),
+                dirichletbc(ubc, locate_BC2, self.V),
+                dirichletbc(ubc, locate_BC3, self.V),
+                dirichletbc(ubc, locate_BC4, self.V),]
+        # Create facet to cell connectivity required to determine boundary facets
+        # tdim = self.mesh.topology.dim
+        # fdim = tdim - 1
+        # self.mesh.topology.create_connectivity(fdim, tdim)
+        # boundary_facets = np.flatnonzero(
+        #                     compute_boundary_facets(
+        #                         self.mesh.topology))
+        #
+        # boundary_dofs = locate_dofs_topological(self.V, fdim, boundary_facets)
+        # ubc = Function(self.V)
+        # ubc.vector.set(0.0)
+        # bc = [dirichletbc(ubc, boundary_dofs)]
         return bc
 
     def exactSolution(self):
         """
-        Exact solutions for the problem
+        interpolate the exact solutions onto the function space of the solutions
         """
         class Expression_f:
             def __init__(self):
@@ -165,18 +167,10 @@ class FEA(object):
         u_ex.interpolate(u_analytic.eval)
         return u_ex, f_ex
 
-    def objective(self):
-#        class Expression_d:
-#            def __init__(self):
-#                pass
-#            def eval(self, x):
-#                return (1/(2*np.power(PI, 2))*
-#                        np.sin(PI*x[0])*np.sin(PI*x[1]))
-#                        
-#        d_expression = Expression_d()
-#        d = Function(self.V)
-#        d.interpolate(d_expression.eval)
-#        print(getFuncArray(d))
+    def objective_form(self):
+        """
+        The UFL form of the objective
+        """
         x = ufl.SpatialCoordinate(self.mesh)
         expression = 1/(2*ufl.pi**2)*ufl.sin(ufl.pi*x[0])*ufl.sin(ufl.pi*x[1])
         d_expression = dolfinx.fem.Expression(expression, self.V.element.interpolation_points)
@@ -210,6 +204,8 @@ class FEA(object):
         from timeit import default_timer
         start = default_timer()
         solveNonlinear(self.R(), self.u, self.bc(), report=report)
+        # solveNonlinear(self.R(), self.u, self.bc(),
+                        # abs_tol=1e-15, max_it=100, report=report)
         stop = default_timer()
         if report == True:
             print("Solve nonlinear finished in ",start-stop, "seconds")
@@ -235,7 +231,6 @@ class FEA(object):
         setFuncArray(self.du, du)
 
         self.dR.vector.set(0.0)
-
         solveKSP(transpose(A), self.du.vector, self.dR.vector)
         self.dR.vector.assemble()
         self.dR.vector.ghostUpdate()
@@ -249,26 +244,9 @@ if __name__ == "__main__":
     u_ex = fea.u_ex
 
     setFuncArray(fea.f, getFuncArray(f_ex))
-    # print(getFuncArray(fea.f))
-    # print(fea.mesh.geometry.x)
-
-    with XDMFFile(MPI.COMM_WORLD, "solutions/u.xdmf", "w") as xdmf:
-        xdmf.write_mesh(fea.mesh)
-        xdmf.write_function(fea.u)
-    with XDMFFile(MPI.COMM_WORLD, "solutions/f.xdmf", "w") as xdmf:
-        xdmf.write_mesh(fea.mesh)
-        xdmf.write_function(fea.f)
-
 
     fea.solve(report=False)
     state_error = errorNorm(u_ex, fea.u)
-    A = assembleMatrix(fea.dR_du, bcs=fea.bc())
-    # A,_ = assembleSystem(fea.dR_du, fea.R(), bcs=fea.bc())
-    
-    print(convertToDense(A))
-    # print(getFuncArray(fea.u))
-    # print(getFuncArray(fea.f))
-    # print(mesh.geometry.x)
     print("="*40)
     control_error = errorNorm(f_ex, fea.f)
     print("Error in controls:", control_error)
@@ -277,3 +255,14 @@ if __name__ == "__main__":
     print("number of controls dofs:", fea.total_dofs_f)
     print("number of states dofs:", fea.total_dofs_u)
     print("="*40)
+
+    A,_ = assembleSystem(fea.dR_du, fea.R(), bcs=fea.bc())
+    print(convertToDense(A))
+
+
+    with XDMFFile(MPI.COMM_WORLD, "solutions/u.xdmf", "w") as xdmf:
+        xdmf.write_mesh(fea.mesh)
+        xdmf.write_function(fea.u)
+    with XDMFFile(MPI.COMM_WORLD, "solutions/f.xdmf", "w") as xdmf:
+        xdmf.write_mesh(fea.mesh)
+        xdmf.write_function(fea.f)

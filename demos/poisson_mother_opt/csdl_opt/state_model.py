@@ -7,7 +7,7 @@ import numpy as np
 from csdl_om import Simulator
 from fea import *
 
-class StatesModel(Model):
+class StateModel(Model):
 
     def initialize(self):
         self.parameters.declare('debug_mode')
@@ -21,11 +21,11 @@ class StatesModel(Model):
         f = self.declare_variable('f',
                         shape=(self.input_size,),
                         val=1.0)
-        e = StatesOperation(fea=self.fea, debug_mode=self.debug_mode)
+        e = StateOperation(fea=self.fea, debug_mode=self.debug_mode)
         u = csdl.custom(f, op=e)
         self.register_output('u', u)
 
-class StatesOperation(CustomImplicitOperation):
+class StateOperation(CustomImplicitOperation):
     """
     input: f
     output: u
@@ -87,12 +87,9 @@ class StatesOperation(CustomImplicitOperation):
 
         self.dRdu = assembleMatrix(self.fea.dR_du)
         self.dRdf = assembleMatrix(self.fea.dR_df)
-        # self.A = assembleMatrix(self.fea.dR_du, bcs=self.bcs)
         self.A,_ = assembleSystem(self.fea.dR_du, self.fea.R(), bcs=self.bcs)
-        # print(convertToDense(self.A))
-        # print(convertToDense(self.dRdf))
-        # print(convertToDense(self.dRdu))
-        
+
+
     def compute_jacvec_product(self, inputs, outputs,
                                 d_inputs, d_outputs, d_residuals, mode):
         if self.debug_mode == True:
@@ -136,37 +133,17 @@ class StatesOperation(CustomImplicitOperation):
 
 
 if __name__ == "__main__":
-    n = 3
+    n = 4
     mesh = createUnitSquareMesh(n)
     fea = FEA(mesh)
 
     f_ex = fea.f_ex
     u_ex = fea.u_ex
-    # fea.solveMeshMotion()
-    model = StatesModel(fea=fea, debug_mode=False)
+    model = StateModel(fea=fea, debug_mode=False)
     sim = Simulator(model)
-    # sim['f'] = getArray(f_ex)
-    # from matplotlib import pyplot as plt
+    # sim['f'] = getFuncArray(f_ex)
     # print("CSDL: Running the model...")
     sim.run()
-    # #    sim.visualize_implementation()
-    # setFuncArray(fea.u, sim['u'])
-    # state_error = errornorm(u_ex, fea.u)
-    # print("Error in solve_nonlinear:", state_error)
-    # plt.figure(1)
-    # plot(fea.u)
-    # plt.show()
 
     print("CSDL: Checking the partial derivatives...")
     sim.check_partials(compact_print=True)
-    
-
-    
-    
-    
-    
-    
-    
-    
-    
-    

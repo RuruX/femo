@@ -4,22 +4,11 @@ from csdl import Model
 from csdl_om import Simulator
 from matplotlib import pyplot as plt
 from fea import *
-from states_model import StatesModel
-from scalar_output_model import ScalarOutputModel
+from state_model import StateModel
+from output_model import OutputModel
 
-# import argparse
-# parser = argparse.ArgumentParser()
-# parser.add_argument('--fea',dest='fea',default='dolfin',
-#                     help='FEA backend')
+import argparse
 
-# args = parser.parse_args()
-# fea = str(args.fea)
-# if fea == 'dolfin':
-#     from fea_old_dolfin import *
-# elif fea == 'dolfinx':
-#     from fea_dolfinx import *
-# else:
-#     TypeError("Unsupported FEA backend; choose 'dolfin' or 'dolfinx'")
 
 class PoissonModel(Model):
     def initialize(self):
@@ -27,25 +16,30 @@ class PoissonModel(Model):
 
     def define(self):
         self.fea = fea = self.parameters['fea']
-        
-        f = self.create_input('f', shape=(fea.total_dofs_f,), 
+
+        f = self.create_input('f', shape=(fea.total_dofs_f,),
                             val=getFuncArray(self.fea.initial_guess_f))
 
-        self.add(StatesModel(fea=self.fea, debug_mode=False), 
-                            name='states_model', promotes=[])
-        self.add(ScalarOutputModel(fea=self.fea), 
-                            name='scalar_output_model', promotes=[])
-        self.connect('f', 'states_model.f')
-        self.connect('f', 'scalar_output_model.f')
-        self.connect('states_model.u', 'scalar_output_model.u')
+        self.add(StateModel(fea=self.fea, debug_mode=False),
+                            name='state_model', promotes=[])
+        self.add(OutputModel(fea=self.fea),
+                            name='output_model', promotes=[])
+        self.connect('f', 'state_model.f')
+        self.connect('f', 'output_model.f')
+        self.connect('state_model.u', 'output_model.u')
 
         self.add_design_variable('f')
-        self.add_objective('scalar_output_model.objective')
+        self.add_objective('output_model.objective')
 
 
 if __name__ == '__main__':
 
-    num_el = 4
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--nel',dest='nel',default='16',
+                        help='Number of elements')
+
+    args = parser.parse_args()
+    num_el = int(args.nel)
     mesh = createUnitSquareMesh(num_el)
     fea = FEA(mesh)
 
@@ -55,57 +49,39 @@ if __name__ == '__main__':
     sim = Simulator(model)
 
     fea = model.fea
-    # setting the design variable to be the exact solution
-    ############## Run the simulation with the exact solution #########
-    # sim['f'] = computeArray(f_ex)
-#    sim.run()
-#    print("="*40)
-#    print("Objective value: ", sim['scalar_output_model.objective'])
-#    control_error = errorNorm(f_ex, fea.f)
-#    print("Error in controls:", control_error)
-#    state_error = errorNorm(u_ex, fea.u)
-#    print("Error in states:", state_error)
-#    plt.figure(1)
-#    plot(fea.u)
-#    plt.show()
 
-    # TODO: fix the `check_totals`
+    ############## Run the simulation with the exact solution #########
+    # setting the design variable to be the exact solution
+    # sim['f'] = computeArray(f_ex)
+    sim.run()
+    print("Objective value: ", sim['output_model.objective'])
+
+
+    ############## Check the derivatives #############
     # sim.check_partials(compact_print=True)
     # sim.prob.check_totals(compact_print=True)
 
-    # TODO: 
     ############## Run the optimization with pyOptSparse #############
     import openmdao.api as om
-    sim.prob.run_model()
-    print("Objective value: ", sim['scalar_output_model.objective'])
-    # sim.prob.check_totals(compact_print=True)
-    ####### Driver = SLSQP #########
-#    sim.prob.driver = om.ScipyOptimizeDriver()
-#    sim.prob.driver.options['optimizer'] = 'SLSQP'
-#    sim.prob.driver.options['tol'] = 1e-12
-#    sim.prob.driver.options['disp'] = True
-
-#    sim.prob.run_driver()
-
     ####### Driver = SNOPT #########
     driver = om.pyOptSparseDriver()
     driver.options['optimizer']='SNOPT'
     driver.opt_settings['Major feasibility tolerance'] = 1e-12
     driver.opt_settings['Major optimality tolerance'] = 1e-13
     driver.options['print_results'] = False
-    
+
     sim.prob.driver = driver
     sim.prob.run_driver()
-    
+
     ############## Output ###################
     print("="*40)
-    print("Objective value: ", sim['scalar_output_model.objective'])
+    print("Objective value: ", sim['output_model.objective'])
     control_error = errorNorm(f_ex, fea.f)
     print("Error in controls:", control_error)
     state_error = errorNorm(u_ex, fea.u)
     print("Error in states:", state_error)
     print("="*40)
-    
+
     ########### Postprocessing with DOLFIN #############
     # plt.figure(1)
     # plot(fea.u)
@@ -121,7 +97,6 @@ if __name__ == '__main__':
         xdmf.write_mesh(fea.mesh)
         xdmf.write_function(fea.f)
 
-    # TODO: fix the check_first_derivatives()
     ############## Run the optimization with modOpt #############
     # from modopt.csdl_library import CSDLProblem
 
@@ -130,17 +105,17 @@ if __name__ == '__main__':
     #     problem_name='poisson-mother',
     #     simulator=sim,
     # )
-    
+
     # from modopt.snopt_library import SNOPT
 
-    # optimizer = SNOPT(  prob, 
-    #                     Major_iterations = 100, 
-    #                     Major_optimality=1e-12, 
+    # optimizer = SNOPT(  prob,
+    #                     Major_iterations = 100,
+    #                     Major_optimality=1e-12,
     #                     Major_feasibility=1e-13)
 
     # from modopt.scipy_library import SLSQP
 
-    # # Setup your preferred optimizer (SLSQP) with the Problem object 
+    # # Setup your preferred optimizer (SLSQP) with the Problem object
     # # Pass in the options for your chosen optimizer
     # optimizer = SLSQP(prob, maxiter=100)
 
@@ -151,5 +126,5 @@ if __name__ == '__main__':
 
     # # # Print results of optimization
     # optimizer.print_results()
-    
+
     # optimizer.print_available_outputs()
