@@ -1,29 +1,66 @@
 """
-The FEniCS wrapper for the variational forms and the partial derivatives computation
+The FEniCS wrapper for variational forms and partial derivatives computation
 """
 
-from fea_utils_dolfinx import *
+from fea.utils_dolfinx import *
 from dolfinx.io import XDMFFile
 import ufl
 
-from dolfinx.fem.petsc import (apply_lifting)
+from dolfinx.fem.petsc import apply_lifting
 from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,
-                        locate_dofs_topological, locate_dofs_geometrical)
+                        locate_dofs_topological, locate_dofs_geometrical,
+                        Constant)
 from dolfinx.mesh import compute_boundary_facets
-from ufl import (TestFunction, TrialFunction, dx, inner, derivative,
-                    grad, SpatialCoordinate)
+from ufl import (TestFunction, TrialFunction, dx, ds, inner, derivative,
+                    grad, SpatialCoordinate, CellDiameter, FacetNormal)
 import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix
 
 PI = np.pi
 ALPHA = 1E-6
 
+def interiorResidual(u,v,f):
+    mesh = u.function_space.mesh
+    n = FacetNormal(mesh)
+    h_E = CellDiameter(mesh)
+    x = SpatialCoordinate(mesh)
+    return inner(grad(u), grad(v))*dx \
+            - inner(f, v)*dx
 
-def pdeRes(u,v,f):
+def boundaryResidual(u,v,u_exact,
+                        sym=False,
+                        beta_value=0.1,
+                        overPenalize=False):
+
+    '''
+    Formulation from Github:
+    https://github.com/MiroK/fenics-nitsche/blob/master/poisson/
+    poisson_circle_dirichlet.py
+    '''
+    mesh = u.function_space.mesh
+    n = FacetNormal(mesh)
+    h_E = CellDiameter(mesh)
+    x = SpatialCoordinate(mesh)
+    beta = Constant(mesh, beta_value)
+    sgn = 1.0
+    if (sym is not True):
+        sgn = -1.0
+    retval = sgn*inner(u_exact-u, dot(grad(v), n))*ds \
+            - inner(dot(grad(u), n), v)*ds
+    penalty = beta*h_E**(-1)*inner(u-u_exact, v)*ds
+    if (overPenalize or sym):
+        retval += penalty
+    return retval
+
+def pdeRes(u,v,f,u_exact,weak_bc=False,sym=False):
     """
     The variational form of the PDE residual for the Poisson's problem
     """
-    return (inner(grad(u),grad(v))-f*v)*dx
+    retval = interiorResidual(u,v,f)
+    if (weak_bc):
+        retval += boundaryResidual(u,v,u_exact,sym=sym)
+    return retval
+
 
 
 class FEA(object):
@@ -32,19 +69,22 @@ class FEA(object):
     with methods to compute the variational forms, partial derivatives,
     and solve the nonlinear/linear subproblems.
     """
-    def __init__(self, mesh, coords_bc=[]):
+    def __init__(self, mesh, weak_bc=False, sym_nitsche=False):
 
         self.mesh = mesh
         # Define the function spaces based on the initial mesh
         self.initFunctionSpace()
 
+        self.weak_bc = weak_bc
+        self.sym_nitsche = sym_nitsche
+
         # Get the indices of the vertices that would move during optimization
         # self.bc_ind = self.locateBC(coords_bc)
 
-        self.u = Function(self.V) # Function for the solution of the magnetic vector potential
+        self.u = Function(self.V) # Function for the state variables
         self.v = TestFunction(self.V)
-        self.dR = Function(self.V) # Function used in the CSDL model
-        self.du = Function(self.V) # Function used in the CSDL model
+        self.dR = Function(self.V) # Function used in the state model
+        self.du = Function(self.V) # Function used in the state model
 
         self.f = Function(self.VF)
         self.df = Function(self.VF)
@@ -65,6 +105,12 @@ class FEA(object):
         f_init.interpolate(f_expression)
         self.initial_guess_f = f_init
         self.objective_dim = 0
+
+        self.bc = []
+        if (not self.weak_bc):
+            self.bc = self.set_bc()
+
+        self.res = self.R()
 
 
     def initFunctionSpace(self):
@@ -103,10 +149,11 @@ class FEA(object):
         Formulation of the magnetostatic problem
         """
         res = pdeRes(
-                self.u,self.v,self.f)
+                self.u,self.v,self.f,self.u_ex,
+                weak_bc=self.weak_bc, sym=self.sym_nitsche)
         return res
 
-    def bc(self):
+    def set_bc(self):
         ubc = Function(self.V)
         ubc.vector.set(0.0)
         locate_BC1 = locate_dofs_geometrical((self.V, self.V),
@@ -134,6 +181,7 @@ class FEA(object):
         # ubc = Function(self.V)
         # ubc.vector.set(0.0)
         # bc = [dirichletbc(ubc, boundary_dofs)]
+
         return bc
 
     def exactSolution(self):
@@ -150,15 +198,17 @@ class FEA(object):
 
         class Expression_u:
             def __init__(self):
-                pass
+                self.alpha = 1e-6
 
             def eval(self, x):
                 return (1/(2*np.power(PI, 2))*
+                        1/(1+self.alpha*4*np.power(PI,4))*
                         np.sin(PI*x[0])*np.sin(PI*x[1]))
 
         f_analytic = Expression_f()
         f_analytic.alpha = ALPHA
         u_analytic = Expression_u()
+        u_analytic.alpha = ALPHA
         f_ex = Function(self.VF)
         u_ex = Function(self.V)
         f_ex.interpolate(f_analytic.eval)
@@ -169,7 +219,12 @@ class FEA(object):
         """
         The UFL form of the objective
         """
-        return 0.5*inner(self.u-self.u_ex, self.u-self.u_ex)*dx + ALPHA/2*self.f**2*dx
+        x = SpatialCoordinate(self.mesh)
+        expression = 1/(2*ufl.pi**2)*ufl.sin(ufl.pi*x[0])*ufl.sin(ufl.pi*x[1])
+        d_expression = dolfinx.fem.Expression(expression, self.V.element.interpolation_points)
+        d = Function(self.V)
+        d.interpolate(d_expression)
+        return 0.5*inner(self.u-d, self.u-d)*dx + ALPHA/2*self.f**2*dx
 
     def getBCDerivatives(self):
         """
@@ -185,6 +240,7 @@ class FEA(object):
                         shape=(self.total_dofs_uhat, self.total_dofs_bc))
         return M
 
+
     def solve(self, report=False):
         """
         Solve the PDE problem
@@ -195,7 +251,7 @@ class FEA(object):
             print(80*"=")
         from timeit import default_timer
         start = default_timer()
-        solveNonlinear(self.R(), self.u, self.bc(), report=report)
+        solveNonlinear(self.R(), self.u, self.bc, report=report)
         # solveNonlinear(self.R(), self.u, self.bc(),
                         # abs_tol=1e-15, max_it=100, report=report)
         stop = default_timer()
@@ -229,9 +285,9 @@ class FEA(object):
         return self.dR.vector.getArray()
 
 if __name__ == "__main__":
-    n = 2
+    n = 128
     mesh = createUnitSquareMesh(n)
-    fea = FEA(mesh)
+    fea = FEA(mesh, weak_bc=True, sym_nitsche=True)
     f_ex = fea.f_ex
     u_ex = fea.u_ex
 
@@ -248,8 +304,8 @@ if __name__ == "__main__":
     print("number of states dofs:", fea.total_dofs_u)
     print("="*40)
 
-    A,_ = assembleSystem(fea.dR_du, fea.R(), bcs=fea.bc())
-    print(convertToDense(A))
+    # A,_ = assembleSystem(fea.dR_du, fea.R(), bcs=fea.bc())
+    # print(convertToDense(A))
 
 
     with XDMFFile(MPI.COMM_WORLD, "solutions/u.xdmf", "w") as xdmf:

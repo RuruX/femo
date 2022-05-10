@@ -4,7 +4,7 @@ import csdl
 import numpy as np
 from csdl_om import Simulator
 from fea import *
-from fea_utils_dolfinx import assemble
+from fea.utils_dolfinx import assemble
 
 class OutputModel(Model):
 
@@ -70,7 +70,7 @@ class OutputOperation(CustomExplicitOperation):
         derivatives['objective', 'f'] = dcdf
 
 if __name__ == "__main__":
-    n = 4
+    n = 2
     mesh = createUnitSquareMesh(n)
     fea = FEA(mesh)
 

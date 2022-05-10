@@ -4,8 +4,8 @@ from csdl import Model
 from csdl_om import Simulator
 from matplotlib import pyplot as plt
 from fea import *
-from state_model import StateModel
-from output_model import OutputModel
+from fe_csdl_opt.state_model import StateModel
+from fe_csdl_opt.output_model import OutputModel
 
 import argparse
 
@@ -20,19 +20,16 @@ class PoissonModel(Model):
         f = self.create_input('f', shape=(fea.total_dofs_f,),
                             val=getFuncArray(self.fea.initial_guess_f))
 
-        # self.add(StateModel(fea=self.fea, debug_mode=False),
-        #                     name='state_model', promotes=[])
-        # self.add(OutputModel(fea=self.fea),
-        #                     name='output_model', promotes=[])
-        # self.connect('f', 'state_model.f')
-        # self.connect('f', 'output_model.f')
-        # self.connect('state_model.u', 'output_model.u')
         self.add(StateModel(fea=self.fea, debug_mode=False),
-                            name='state_model', promotes=['*'])
+                            name='state_model', promotes=[])
         self.add(OutputModel(fea=self.fea),
-                            name='output_model', promotes=['*'])
+                            name='output_model', promotes=[])
+        self.connect('f', 'state_model.f')
+        self.connect('f', 'output_model.f')
+        self.connect('state_model.u', 'output_model.u')
+
         self.add_design_variable('f')
-        self.add_objective('objective')
+        self.add_objective('output_model.objective')
 
 
 if __name__ == '__main__':

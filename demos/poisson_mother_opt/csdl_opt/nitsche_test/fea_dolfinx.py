@@ -198,17 +198,15 @@ class FEA(object):
 
         class Expression_u:
             def __init__(self):
-                self.alpha = 1e-6
+                pass
 
             def eval(self, x):
                 return (1/(2*np.power(PI, 2))*
-                        1/(1+self.alpha*4*np.power(PI,4))*
                         np.sin(PI*x[0])*np.sin(PI*x[1]))
 
         f_analytic = Expression_f()
         f_analytic.alpha = ALPHA
         u_analytic = Expression_u()
-        u_analytic.alpha = ALPHA
         f_ex = Function(self.VF)
         u_ex = Function(self.V)
         f_ex.interpolate(f_analytic.eval)
@@ -219,12 +217,7 @@ class FEA(object):
         """
         The UFL form of the objective
         """
-        x = SpatialCoordinate(self.mesh)
-        expression = 1/(2*ufl.pi**2)*ufl.sin(ufl.pi*x[0])*ufl.sin(ufl.pi*x[1])
-        d_expression = dolfinx.fem.Expression(expression, self.V.element.interpolation_points)
-        d = Function(self.V)
-        d.interpolate(d_expression)
-        return 0.5*inner(self.u-d, self.u-d)*dx + ALPHA/2*self.f**2*dx
+        return 0.5*inner(self.u-self.u_ex, self.u-self.u_ex)*dx + ALPHA/2*self.f**2*dx
 
     def getBCDerivatives(self):
         """
@@ -285,7 +278,7 @@ class FEA(object):
         return self.dR.vector.getArray()
 
 if __name__ == "__main__":
-    n = 128
+    n = 16
     mesh = createUnitSquareMesh(n)
     fea = FEA(mesh, weak_bc=True, sym_nitsche=True)
     f_ex = fea.f_ex

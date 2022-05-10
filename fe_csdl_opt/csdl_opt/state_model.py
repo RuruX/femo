@@ -45,11 +45,11 @@ class StateOperation(CustomImplicitOperation):
         self.input_size = self.fea.total_dofs_f
         self.output_size = self.fea.total_dofs_u
         self.add_input('f',
-                        shape=(self.input_size,),)
-                        # val=np.zeros(self.input_size).reshape(self.input_size,))
+                        shape=(self.input_size,),
+                        val=np.zeros(self.input_size).reshape(self.input_size,))
         self.add_output('u',
-                        shape=(self.output_size,),)
-                        # val=np.zeros(self.output_size).reshape(self.output_size,))
+                        shape=(self.output_size,),
+                        val=np.zeros(self.output_size).reshape(self.output_size,))
         self.declare_derivatives('u', 'f')
         self.declare_derivatives('u', 'u')
         self.bcs = self.fea.bc
@@ -96,8 +96,8 @@ class StateOperation(CustomImplicitOperation):
             print("="*40)
             print("CSDL: Running compute_jacvec_product()...")
             print("="*40)
-        # update(self.fea.f, inputs['f'])
-        # update(self.fea.u, outputs['u'])
+        update(self.fea.f, inputs['f'])
+        update(self.fea.u, outputs['u'])
         if mode == 'fwd':
             if 'u' in d_residuals:
                 if 'u' in d_outputs:
@@ -135,23 +135,15 @@ class StateOperation(CustomImplicitOperation):
 if __name__ == "__main__":
     n = 4
     mesh = createUnitSquareMesh(n)
-    fea = FEA(mesh, weak_bc=False, sym_nitsche=True)
+    fea = FEA(mesh, weak_bc=True, sym_nitsche=True)
 
     f_ex = fea.f_ex
     u_ex = fea.u_ex
     model = StateModel(fea=fea, debug_mode=False)
     sim = Simulator(model)
-    sim['f'] = getFuncArray(f_ex)
+    # sim['f'] = getFuncArray(f_ex)
     # print("CSDL: Running the model...")
     sim.run()
-    print("="*40)
-    control_error = errorNorm(f_ex, fea.f)
-    print("Error in controls:", control_error)
-    state_error = errorNorm(u_ex, fea.u)
-    print("Error in states:", state_error)
-    # print("number of controls dofs:", fea.total_dofs_f)
-    # print("number of states dofs:", fea.total_dofs_u)
-    print("="*40)
 
     print("CSDL: Checking the partial derivatives...")
     sim.check_partials(compact_print=True)

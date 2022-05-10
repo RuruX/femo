@@ -48,7 +48,7 @@ rf = ReducedFunctional(J, control)
 
 problem = MoolaOptimizationProblem(rf)
 f_moola = moola.DolfinPrimalVector(f)
-solver = moola.NewtonCG(problem, f_moola, options={'gtol': 1e-9,
+solver = moola.NewtonCG(problem, f_moola, options={'gtol': 1e-13,
                         'maxiter': 20,
                         'display': 3,
                         'ncg_hesstol': 0})
