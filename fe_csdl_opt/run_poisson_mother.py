@@ -3,6 +3,7 @@
 from fea_dolfinx import *
 from state_model import StateModel
 from output_model import OutputModel
+from fea_model import FEAModel
 import numpy as np
 import csdl
 from csdl import Model
@@ -15,7 +16,7 @@ import argparse
 '''
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--nel',dest='nel',default='2',
+parser.add_argument('--nel',dest='nel',default='16',
                     help='Number of elements')
 
 args = parser.parse_args()
@@ -98,6 +99,7 @@ class Expression_u:
 fea = FEA(mesh, weak_bc=True)
 # Add input to the PDE problem:
 # name = 'input', function = input_function (function is the solution vector here)
+input_name = 'f'
 input_function_space = FunctionSpace(mesh, ('DG', 0))
 input_function = Function(input_function_space)
 
@@ -106,6 +108,7 @@ input_function = Function(input_function_space)
 # residual_form = get_residual_form(u, v, rho_e) from atomics.pdes.thermo_mechanical_uniform_temp
 # *inputs = input (can be multiple, here 'input' is the only input)
 
+state_name = 'u'
 state_function_space = FunctionSpace(mesh, ('CG', 1))
 state_function = Function(state_function_space)
 v = TestFunction(state_function_space)
@@ -117,16 +120,18 @@ f_ex = fea.add_exact_solution(Expression_f, input_function_space)
 ALPHA = 1e-6
 
 # Add output-avg_input to the PDE problem:
+output_name = 'output'
 output_form = outputForm(state_function, input_function, u_ex)
 
-fea.add_input('input', input_function)
-fea.add_state(name='state',
+fea.add_input(input_name, input_function)
+fea.add_state(name=state_name,
                 function=state_function,
                 residual_form=residual_form,
-                arguments=['input'])
-fea.add_output('output',
-                output_form,
-                arguments=['input','state'])
+                arguments=[input_name])
+fea.add_output(name=output_name,
+                type='scalar',
+                form=output_form,
+                arguments=[input_name,state_name])
 
 
 '''
@@ -148,88 +153,66 @@ fea.add_strong_bc(ubc, locate_BC3, state_function_space)
 fea.add_strong_bc(ubc, locate_BC4, state_function_space)
 
 
-########### Test the forward solve ##############
-setFuncArray(input_function, getFuncArray(f_ex))
 
-fea.solve(residual_form, state_function, fea.bc, report=False)
-state_error = errorNorm(u_ex, state_function)
-print("="*40)
-control_error = errorNorm(f_ex, input_function)
-print("Error in controls:", control_error)
-state_error = errorNorm(u_ex, state_function)
-print("Error in states:", state_error)
-# print("number of controls dofs:", fea.total_dofs_f)
-# print("number of states dofs:", fea.total_dofs_u)
-print("="*40)
-
-with XDMFFile(MPI.COMM_WORLD, "solutions/u.xdmf", "w") as xdmf:
-    xdmf.write_mesh(fea.mesh)
-    xdmf.write_function(fea.u)
-with XDMFFile(MPI.COMM_WORLD, "solutions/f.xdmf", "w") as xdmf:
-    xdmf.write_mesh(fea.mesh)
-    xdmf.write_function(fea.f)
 '''
 4. Set up the CSDL model
 '''
-"""
-4.1. write up the state Model
-4.2. write up the output model
-4.3. write up the fea model
-"""
-# prob = om.Problem()
-#
-# num_dof_input = fea.inputs_dict['input']['num_dof']
-#
-# comp = om.IndepVarComp()
-# comp.add_output(
-#     'input_unfiltered',
-#     shape=num_dof_input,
-#     val=np.random.random(num_dof_input) * 0.86,
-# )
-# prob.model.add_subsystem('indep_var_comp', comp, promotes=['*'])
-#
-# comp = GeneralFilterComp(input_function_space=input_function_space)
-# prob.model.add_subsystem('general_filter_comp', comp, promotes=['*'])
-#
-#
-# group = AtomicsGroup(fea=fea)
-# prob.model.add_subsystem('atomics_group', group, promotes=['*'])
-#
-# prob.model.add_design_var('input_unfiltered',upper=1, lower=1e-4)
-# prob.model.add_objective('compliance')
-# prob.model.add_constraint('avg_input',upper=0.40)
-#
+
+fea_model = FEAModel(fea=fea)
+fea_model.add_design_variable(input_name)
+fea_model.add_objective(output_name)
+
+sim = Simulator(fea_model)
+
+########### Test the forward solve ##############
+#sim[input_name] = getFuncArray(f_ex)
+
+sim.run()
+
+############# Check the derivatives #############
+#sim.check_partials(compact_print=True)
+#sim.prob.check_totals(compact_print=True)  
+
 '''
 5. Set up the optimization problem
 '''
-
-# # set up the optimizer
-# prob.driver = driver = om.pyOptSparseDriver()
-# driver.options['optimizer'] = 'SNOPT'
+############## Run the optimization with pyOptSparse #############
+import openmdao.api as om
+####### Driver = SNOPT #########
+driver = om.pyOptSparseDriver()
+driver.options['optimizer']='SNOPT'
 # driver.opt_settings['Verify level'] = 0
 #
 # driver.opt_settings['Major iterations limit'] = 100000
 # driver.opt_settings['Minor iterations limit'] = 100000
 # driver.opt_settings['Iterations limit'] = 100000000
 # driver.opt_settings['Major step limit'] = 2.0
-#
-# driver.opt_settings['Major feasibility tolerance'] = 1.0e-6
-# driver.opt_settings['Major optimality tolerance'] =1.e-8
-#
-# prob.setup()
-#
-# if False:
-#     prob.run_model()
-#     prob.check_partials(compact_print=True)
-# else:
-#     prob.run_driver()
-#
-#
-# #save the solution vector
-# if method =='SIMP':
-#     penalized_input  = project(input_function**3, input_function_space)
-# else:
-#     penalized_input  = project(input_function/(1 + 8. * (1. - input_function)), input_function_space)
-#
-# File('solutions/case_1/cantilever_beam/displacement.pvd') << state_function
-# File('solutions/case_1/cantilever_beam/penalized_input.pvd') << penalized_input
+
+driver.opt_settings['Major feasibility tolerance'] = 1e-12
+driver.opt_settings['Major optimality tolerance'] = 1e-14
+driver.options['print_results'] = False
+
+sim.prob.driver = driver
+sim.prob.setup()
+sim.prob.run_driver()
+
+
+print("Objective value: ", sim[output_name])
+print("="*40)
+control_error = errorNorm(f_ex, input_function)
+print("Error in controls:", control_error)
+state_error = errorNorm(u_ex, state_function)
+print("Error in states:", state_error)
+print("="*40)
+
+with XDMFFile(MPI.COMM_WORLD, "solutions/"+state_name+".xdmf", "w") as xdmf:
+    xdmf.write_mesh(fea.mesh)
+    xdmf.write_function(fea.states_dict[state_name]['function'])
+with XDMFFile(MPI.COMM_WORLD, "solutions/"+input_name+".xdmf", "w") as xdmf:
+    xdmf.write_mesh(fea.mesh)
+    xdmf.write_function(fea.inputs_dict[input_name]['function'])
+    
+    
+    
+
+

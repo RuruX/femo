@@ -147,35 +147,35 @@ class FEA(object):
             print(80*"=")
         from timeit import default_timer
         start = default_timer()
-        solveNonlinear(res, func, bc, report=report)
-        # solveNonlinear(self.res, self.u, self.bc(),
-                        # abs_tol=1e-15, max_it=100, report=report)
+#        solveNonlinear(res, func, bc, report=report)
+        solveNonlinear(res, func, bc,
+                     abs_tol=1e-16, max_it=100, report=report)
         stop = default_timer()
         if report == True:
             print("Solve nonlinear finished in ",start-stop, "seconds")
 
 
-    def solveLinearFwd(self, A, dR):
+    def solveLinearFwd(self, du, A, dR, dR_array):
         """
         solve linear system dR = dR_du (A) * du in DOLFIN type
         """
-        setFuncArray(self.dR, dR)
+        setFuncArray(dR, dR_array)
 
-        self.du.vector.set(0.0)
+        du.vector.set(0.0)
 
-        solveKSP(A, self.dR.vector, self.du.vector)
-        self.du.vector.assemble()
-        self.du.vector.ghostUpdate()
-        return self.du.vector.getArray()
+        solveKSP(A, dR.vector, du.vector)
+        du.vector.assemble()
+        du.vector.ghostUpdate()
+        return du.vector.getArray()
 
-    def solveLinearBwd(self, A, du):
+    def solveLinearBwd(self, dR, A, du, du_array):
         """
         solve linear system du = dR_du.T (A_T) * dR in DOLFIN type
         """
-        setFuncArray(self.du, du)
+        setFuncArray(du, du_array)
 
-        self.dR.vector.set(0.0)
-        solveKSP(transpose(A), self.du.vector, self.dR.vector)
-        self.dR.vector.assemble()
-        self.dR.vector.ghostUpdate()
-        return self.dR.vector.getArray()
+        dR.vector.set(0.0)
+        solveKSP(transpose(A), du.vector, dR.vector)
+        dR.vector.assemble()
+        dR.vector.ghostUpdate()
+        return dR.vector.getArray()

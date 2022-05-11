@@ -18,15 +18,8 @@ class PoissonModel(Model):
         self.fea = fea = self.parameters['fea']
 
         f = self.create_input('f', shape=(fea.total_dofs_f,),
-                            val=getFuncArray(self.fea.initial_guess_f))
+                            val=1.0)
 
-        # self.add(StateModel(fea=self.fea, debug_mode=False),
-        #                     name='state_model', promotes=[])
-        # self.add(OutputModel(fea=self.fea),
-        #                     name='output_model', promotes=[])
-        # self.connect('f', 'state_model.f')
-        # self.connect('f', 'output_model.f')
-        # self.connect('state_model.u', 'output_model.u')
         self.add(StateModel(fea=self.fea, debug_mode=False),
                             name='state_model', promotes=['*'])
         self.add(OutputModel(fea=self.fea),
@@ -44,7 +37,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     num_el = int(args.nel)
     mesh = createUnitSquareMesh(num_el)
-    fea = FEA(mesh, weak_bc=True)
+    fea = FEA(mesh, weak_bc=False)
 
     f_ex = fea.f_ex
     u_ex = fea.u_ex
@@ -55,14 +48,14 @@ if __name__ == '__main__':
 
     ############## Run the simulation with the exact solution #########
     # setting the design variable to be the exact solution
-    # sim['f'] = computeArray(f_ex)
+#    sim['f'] = getFuncArray(f_ex)
     sim.run()
     print("Objective value: ", sim['output_model.objective'])
 
 
     ############## Check the derivatives #############
-    # sim.check_partials(compact_print=True)
-    # sim.prob.check_totals(compact_print=True)
+#    sim.check_partials(compact_print=True)
+#    sim.prob.check_totals(compact_print=True)
 
     ############## Run the optimization with pyOptSparse #############
     import openmdao.api as om
@@ -74,6 +67,7 @@ if __name__ == '__main__':
     driver.options['print_results'] = False
 
     sim.prob.driver = driver
+    sim.prob.setup()
     sim.prob.run_driver()
 
     ############## Output ###################
@@ -84,13 +78,6 @@ if __name__ == '__main__':
     state_error = errorNorm(u_ex, fea.u)
     print("Error in states:", state_error)
     print("="*40)
-
-    ########### Postprocessing with DOLFIN #############
-    # plt.figure(1)
-    # plot(fea.u)
-    # plt.show()
-    # File('f_opt_dolfin.pvd') << fea.f
-    # File('u_opt_dolfin.pvd') << fea.u
 
     ########### Postprocessing with DOLFINx #############
     with XDMFFile(MPI.COMM_WORLD, "solutions/u_opt_dolfinx.xdmf", "w") as xdmf:

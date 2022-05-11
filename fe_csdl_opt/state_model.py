@@ -175,13 +175,13 @@ class StateOperation(CustomImplicitOperation):
             print("="*40)
             print("CSDL: Running apply_inverse_jacobian()...")
             print("="*40)
-
+        state_name = self.state_name
         if mode == 'fwd':
             d_outputs[state_name] = self.fea.solveLinearFwd(
-                                            self.A, d_residuals[state_name])
+                                            self.du, self.A, self.dR, d_residuals[state_name])
         else:
             d_residuals[state_name] = self.fea.solveLinearBwd(
-                                            self.A, d_outputs[state_name])
+                                            self.dR, self.A, self.du, d_outputs[state_name])
 
 
 
