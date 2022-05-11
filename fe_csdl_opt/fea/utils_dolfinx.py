@@ -4,9 +4,9 @@ Reusable functions for the PETSc and UFL operations
 
 import dolfinx
 import dolfinx.io
-from ufl import Identity, dot, dx
+from ufl import Identity, dot, dx, derivative
 from dolfinx.mesh import create_unit_square
-from dolfinx.fem import form, assemble_scalar
+from dolfinx.fem import form, assemble_scalar, Function
 from dolfinx.fem.petsc import (assemble_vector, assemble_matrix,
                         NonlinearProblem, apply_lifting, set_bc)
 from dolfinx.nls.petsc import NewtonSolver
@@ -191,6 +191,12 @@ def J(uhat):
     return det(I + grad(uhat))
 
 
+def computePartials(form, function):
+    return derivative(form, function)
+
+def createFunction(function):
+    return Function(function.function_space)
+
 def solveNonlinear(F, w, bcs=[],
                     abs_tol=1e-50,
                     rel_tol=1e-30,
@@ -246,3 +252,22 @@ def solveKSP(A, b, x):
     ksp.setConvergenceHistory()
     ksp.solve(b, x)
     history = ksp.getConvergenceHistory()
+
+def solveKSP_mumps(A, b, x):
+    """
+    Implementation of KSP solution of the linear system Ax=b using MUMPS
+    """
+
+    # setup petsc for pre-only solve
+    ksp = PETSc.KSP().create(A.getComm())
+    ksp.setOperators(A)
+    ksp.setType("preonly")
+
+    # set LU w/ MUMPS
+    pc = ksp.getPC()
+    pc.setType("lu")
+    pc.setFactorSolverType('mumps')
+
+    # solve
+    ksp.setUp()
+    ksp.solve(b, x)

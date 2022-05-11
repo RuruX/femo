@@ -1,9 +1,8 @@
 
-
-from fea_dolfinx import *
-from state_model import StateModel
-from output_model import OutputModel
-from fea_model import FEAModel
+from fe_csdl_opt.fea.fea_dolfinx import *
+from fe_csdl_opt.csdl_opt.fea_model import FEAModel
+from fe_csdl_opt.csdl_opt.state_model import StateModel
+from fe_csdl_opt.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
 from csdl import Model
@@ -96,47 +95,33 @@ class Expression_u:
                 np.sin(PI*x[0])*np.sin(PI*x[1]))
 
 
-fea = FEA(mesh, weak_bc=True)
+fea = FEA(mesh)
 # Add input to the PDE problem:
-# name = 'input', function = input_function (function is the solution vector here)
 input_name = 'f'
 input_function_space = FunctionSpace(mesh, ('DG', 0))
 input_function = Function(input_function_space)
-
-# Add states to the PDE problem (line 58):
-# name = 'displacements', function = state_function (function is the solution vector here)
-# residual_form = get_residual_form(u, v, rho_e) from atomics.pdes.thermo_mechanical_uniform_temp
-# *inputs = input (can be multiple, here 'input' is the only input)
-
+# Add state to the PDE problem:
 state_name = 'u'
 state_function_space = FunctionSpace(mesh, ('CG', 1))
 state_function = Function(state_function_space)
 v = TestFunction(state_function_space)
-residual_form = pdeRes(state_function, v, input_function)
 
 u_ex = fea.add_exact_solution(Expression_u, state_function_space)
 f_ex = fea.add_exact_solution(Expression_f, input_function_space)
 
-ALPHA = 1e-6
 
-# Add output-avg_input to the PDE problem:
+ALPHA = 1e-6
+# Add output to the PDE problem:
 output_name = 'output'
 output_form = outputForm(state_function, input_function, u_ex)
 
-fea.add_input(input_name, input_function)
-fea.add_state(name=state_name,
-                function=state_function,
-                residual_form=residual_form,
-                arguments=[input_name])
-fea.add_output(name=output_name,
-                type='scalar',
-                form=output_form,
-                arguments=[input_name,state_name])
 
 
 '''
 3. Define the boundary conditions
 '''
+
+############ Strongly enforced boundary conditions #############
 ubc = Function(state_function_space)
 ubc.vector.set(0.0)
 locate_BC1 = locate_dofs_geometrical((state_function_space, state_function_space),
@@ -147,10 +132,28 @@ locate_BC3 = locate_dofs_geometrical((state_function_space, state_function_space
                             lambda x: np.isclose(x[1], 0. ,atol=1e-6))
 locate_BC4 = locate_dofs_geometrical((state_function_space, state_function_space),
                             lambda x: np.isclose(x[1], 1. ,atol=1e-6))
-fea.add_strong_bc(ubc, locate_BC1, state_function_space)
-fea.add_strong_bc(ubc, locate_BC2, state_function_space)
-fea.add_strong_bc(ubc, locate_BC3, state_function_space)
-fea.add_strong_bc(ubc, locate_BC4, state_function_space)
+locate_BC_list = [locate_BC1, locate_BC2, locate_BC3, locate_BC4]
+fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
+
+residual_form = pdeRes(state_function, v, input_function)
+
+############ Weakly enforced boundary conditions #############
+############### Unsymmetric Nitsche's method #################
+# residual_form = pdeRes(state_function, v, input_function, 
+#                         u_exact=u_ex, weak_bc=True, sym=False)
+##############################################################
+
+
+
+fea.add_input(input_name, input_function)
+fea.add_state(name=state_name,
+                function=state_function,
+                residual_form=residual_form,
+                arguments=[input_name])
+fea.add_output(name=output_name,
+                type='scalar',
+                form=output_form,
+                arguments=[input_name,state_name])
 
 
 
