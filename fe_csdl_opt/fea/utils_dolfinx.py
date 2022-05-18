@@ -4,8 +4,9 @@ Reusable functions for the PETSc and UFL operations
 
 import dolfinx
 import dolfinx.io
-from ufl import Identity, dot, dx, derivative
-from dolfinx.mesh import create_unit_square
+from ufl import Identity, dot, derivative
+from dolfinx.mesh import (create_unit_square, create_rectangle, 
+                            locate_entities_boundary, meshtags)
 from dolfinx.fem import form, assemble_scalar, Function
 from dolfinx.fem.petsc import (assemble_vector, assemble_matrix,
                         NonlinearProblem, apply_lifting, set_bc)
@@ -32,6 +33,12 @@ def createUnitSquareMesh(n):
     Create unit square mesh for test purposes
     """
     return create_unit_square(MPI.COMM_WORLD, n, n)
+
+def createRectangleMesh(pt1,pt2,nx,ny):
+    """
+    Create rectangle mesh for test purposes
+    """
+    return create_rectangle(MPI.COMM_WORLD, [pt1, pt2], [nx,ny])
 
 def getFormArray(F):
     """

@@ -9,10 +9,11 @@ import ufl
 from dolfinx.fem.petsc import apply_lifting
 from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,
                         locate_dofs_topological, locate_dofs_geometrical,
-                        Constant)
+                        Constant, VectorFunctionSpace)
 from dolfinx.mesh import compute_boundary_facets
 from ufl import (TestFunction, TrialFunction, dx, ds, inner, derivative,
-                    grad, SpatialCoordinate, CellDiameter, FacetNormal)
+                    grad, SpatialCoordinate, CellDiameter, FacetNormal,
+                    div, Identity)
 import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix
 

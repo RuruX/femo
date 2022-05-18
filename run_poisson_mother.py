@@ -106,6 +106,7 @@ state_function_space = FunctionSpace(mesh, ('CG', 1))
 state_function = Function(state_function_space)
 v = TestFunction(state_function_space)
 
+residual_form = pdeRes(state_function, v, input_function)
 u_ex = fea.add_exact_solution(Expression_u, state_function_space)
 f_ex = fea.add_exact_solution(Expression_f, input_function_space)
 
@@ -135,7 +136,6 @@ locate_BC4 = locate_dofs_geometrical((state_function_space, state_function_space
 locate_BC_list = [locate_BC1, locate_BC2, locate_BC3, locate_BC4]
 fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
 
-residual_form = pdeRes(state_function, v, input_function)
 
 ############ Weakly enforced boundary conditions #############
 ############### Unsymmetric Nitsche's method #################
