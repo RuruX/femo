@@ -4,8 +4,8 @@ from fe_csdl_opt.fea.fea_dolfinx import *
 from fe_csdl_opt.csdl_opt.fea_model import FEAModel
 from fe_csdl_opt.csdl_opt.state_model import StateModel
 from fe_csdl_opt.csdl_opt.output_model import OutputModel
-# from fe_csdl_opt.csdl_opt.post_processor.general_filter_model \
-#                                     import GeneralFilterModel
+from fe_csdl_opt.csdl_opt.pre_processor.general_filter_model \
+                                    import GeneralFilterModel
 import numpy as np
 import csdl
 from csdl import Model
@@ -48,21 +48,25 @@ mesh = createRectangleMesh(np.array([0.0,0.0]),
 DOLFIN_EPS = 1E-8
 def TractionBoundary(x):
     return np.logical_and(abs(x[1] - LENGTH_Y/2) < LENGTH_Y/num_el_y + DOLFIN_EPS,
-                            abs(x[0] - LENGTH_X ) < DOLFIN_EPS*1.5e15)
+                            abs(x[0] - LENGTH_X) < DOLFIN_EPS)
 
 fdim = mesh.topology.dim - 1 
-bottom_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
+traction_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
+print(traction_facets)
+traction_vertices = locate_entities_boundary(mesh,fdim-1,TractionBoundary)
+print(traction_vertices)
+facet_tag = meshtags(mesh,fdim,traction_facets,np.full(len(traction_facets),100,dtype=np.int32))
 
-marked_facets = np.hstack([bottom_facets])
-marked_values = np.hstack([np.full(len(bottom_facets),3,dtype=np.int32)])
-sorted_facets = np.argsort(marked_facets)
-facet_tag = meshtags(mesh,fdim,marked_facets[sorted_facets],marked_values[sorted_facets])
+# marked_facets = np.hstack([traction_facets])
+# marked_values = np.hstack([np.full(len(traction_facets),100,dtype=np.int32)])
+# sorted_facets = np.argsort(marked_facets)
+# print(sorted_facets)
+# facet_tag = meshtags(mesh,fdim,marked_facets[sorted_facets],marked_values[sorted_facets])
 
 #### Defining measures ####
 metadata = {"quadrature_degree":4}
 import ufl
 ds_ = ufl.Measure('ds',domain=mesh,subdomain_data=facet_tag,metadata=metadata)
-
 
 
 ######################### dolfin ####################
@@ -78,7 +82,7 @@ ds_ = ufl.Measure('ds',domain=mesh,subdomain_data=facet_tag,metadata=metadata)
 # dss = df.Measure('ds')(subdomain_data=sub_domains)
 # f = df.Constant((0, -1. / 4 ))
 
-def pdeRes(u, v, rho_e, f, E = 1, ds_ = ds, method='SIMP'):
+def pdeRes(u, v, rho_e, f, E = 1, dss = ds, method='SIMP'):
     if method =='SIMP':
         C = rho_e**3
     else:
@@ -92,7 +96,7 @@ def pdeRes(u, v, rho_e, f, E = 1, ds_ = ds, method='SIMP'):
     v_ij = 0.5 * (grad(v) + grad(v).T)
     d = len(u)
     sigm = lambda_*div(u)*Identity(d) + 2*mu*w_ij
-    res = inner(sigm, v_ij) * dx - dot(f, v) * ds_
+    res = inner(sigm, v_ij) * dx - dot(f, v) * dss
     return res
 
 def averageFunc(func):
@@ -101,8 +105,8 @@ def averageFunc(func):
     func1.vector.set(1/volume)
     return inner(func,func1)*dx
 
-def compliance(u, f, ds_=ds):
-    return dot(u,f)*ds_
+def compliance(u, f, dss=ds):
+    return dot(u,f)*dss
 ###################################################
 
 fea = FEA(mesh)
@@ -122,7 +126,7 @@ residual_form = pdeRes(state_function,
                         v, 
                         input_function,
                         f,
-                        ds_=ds(6),
+                        dss=ds_(100),
                         method=method)
 # Add output to the PDE problem:
 output_name_1 = 'avg_density'
@@ -130,7 +134,7 @@ output_form_1 = averageFunc(input_function)
 output_name_2 = 'compliance'
 output_form_2 = compliance(state_function, 
                             f, 
-                            ds_=ds_(6))
+                            dss=ds_(100))
 
 
 '''
@@ -176,12 +180,21 @@ fea.add_output(name=output_name_2,
 fea_model = FEAModel(fea=fea)
 
 
-# post_processor_name = 'general_filter_comp'
-# post_processor_model = GeneralFilterModel(density_function_space=state_function_space)
-# fea_model.add_subsystem(post_processor_name, post_processor_model, promotes=['*'])
+pre_processor_name = 'general_filter_model'
 
-# fea_model.add_design_variable('density_unfiltered', upper=1.0, lower=1e-4)
-fea_model.add_design_variable('density', upper=1.0, lower=1e-4)
+coords = input_function_space.tabulate_dof_coordinates()
+tdim = mesh.topology.dim
+num_cells = mesh.topology.index_map(tdim).size_local
+h = dolfinx.cpp.mesh.h(mesh, tdim, range(num_cells))
+h_avg = (h.max() + h.min())/2
+num_element = mesh.topology.index_map(mesh.topology.dim).size_local
+pre_processor_model = GeneralFilterModel(num_element_unfiltered=num_element, 
+                                            coordinates=coords, 
+                                            h_avg=h_avg)
+fea_model.add(pre_processor_model, name=pre_processor_name, promotes=['*'])
+
+fea_model.add_design_variable('density_unfiltered', upper=1.0, lower=1e-4)
+# fea_model.add_design_variable('density', upper=1.0, lower=1e-4)
 fea_model.add_objective(output_name_1) # compliance
 fea_model.add_constraint(output_name_2, upper=0.40) # ave_density
 sim = Simulator(fea_model)
@@ -191,8 +204,8 @@ sim = Simulator(fea_model)
 sim.run()
 
 ############# Check the derivatives #############
-sim.check_partials(compact_print=True)
-sim.prob.check_totals(compact_print=True)  
+# sim.check_partials(compact_print=True)
+# sim.prob.check_totals(compact_print=True)  
 
 '''
 5. Set up the optimization problem
@@ -227,8 +240,9 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/"+state_name+".xdmf", "w") as xdmf:
 with XDMFFile(MPI.COMM_WORLD, "solutions/"+input_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
     xdmf.write_function(fea.inputs_dict[input_name]['function'])
-    
-    
-    
+with XDMFFile(MPI.COMM_WORLD, "solutions/traction_bc.xdmf", "w") as xdmf:
+    xdmf.write_mesh(mesh)
+    mesh.topology.create_connectivity(mesh.topology.dim-1,mesh.topology.dim)
+    xdmf.write_meshtags(facet_tag)
 
 

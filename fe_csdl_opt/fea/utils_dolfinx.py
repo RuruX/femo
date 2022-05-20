@@ -6,7 +6,9 @@ import dolfinx
 import dolfinx.io
 from ufl import Identity, dot, derivative
 from dolfinx.mesh import (create_unit_square, create_rectangle, 
-                            locate_entities_boundary, meshtags)
+                            locate_entities_boundary, locate_entities,
+                            meshtags)
+from dolfinx.cpp.mesh import CellType
 from dolfinx.fem import form, assemble_scalar, Function
 from dolfinx.fem.petsc import (assemble_vector, assemble_matrix,
                         NonlinearProblem, apply_lifting, set_bc)
@@ -38,7 +40,7 @@ def createRectangleMesh(pt1,pt2,nx,ny):
     """
     Create rectangle mesh for test purposes
     """
-    return create_rectangle(MPI.COMM_WORLD, [pt1, pt2], [nx,ny])
+    return create_rectangle(MPI.COMM_WORLD, [pt1, pt2], [nx,ny], cell_type=CellType.quadrilateral)
 
 def getFormArray(F):
     """
