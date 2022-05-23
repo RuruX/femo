@@ -162,6 +162,10 @@ fea.add_output(name=output_name,
 '''
 
 fea_model = FEAModel(fea=fea)
+fea_model.create_input("{}".format(input_name),
+                            shape=fea.inputs_dict[input_name]['shape'],
+                            val=np.random.random(fea.inputs_dict[input_name]['shape']) * 0.86)
+
 fea_model.add_design_variable(input_name)
 fea_model.add_objective(output_name)
 
@@ -184,12 +188,6 @@ import openmdao.api as om
 ####### Driver = SNOPT #########
 driver = om.pyOptSparseDriver()
 driver.options['optimizer']='SNOPT'
-# driver.opt_settings['Verify level'] = 0
-#
-# driver.opt_settings['Major iterations limit'] = 100000
-# driver.opt_settings['Minor iterations limit'] = 100000
-# driver.opt_settings['Iterations limit'] = 100000000
-# driver.opt_settings['Major step limit'] = 2.0
 
 driver.opt_settings['Major feasibility tolerance'] = 1e-12
 driver.opt_settings['Major optimality tolerance'] = 1e-14

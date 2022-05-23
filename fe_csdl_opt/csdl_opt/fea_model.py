@@ -35,10 +35,11 @@ class FEAModel(Model):
         problem_type = self.parameters['problem_type']
         visualization = self.parameters['visualization']
 
-        for input_name in fea.inputs_dict:
-            self.create_input("{}".format(input_name),
-                                        shape=fea.inputs_dict[input_name]['shape'],
-                                        val=1.0)
+#        for input_name in fea.inputs_dict:
+#            self.create_input("{}".format(input_name),
+#                                        shape=fea.inputs_dict[input_name]['shape'],
+#                                        val=1.0)
+
         for state_name in fea.states_dict:
             arg_name_list = fea.states_dict[state_name]['arguments']
             self.add(StateModel(fea=fea,

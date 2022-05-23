@@ -4,7 +4,8 @@ Reusable functions for the PETSc and UFL operations
 
 import dolfinx
 import dolfinx.io
-from ufl import Identity, dot, derivative
+from ufl import (Identity, dot, derivative, TestFunction, TrialFunction, 
+                inner, ds, dx)
 from dolfinx.mesh import (create_unit_square, create_rectangle, 
                             locate_entities_boundary, locate_entities,
                             meshtags)
@@ -209,7 +210,7 @@ def createFunction(function):
 def solveNonlinear(F, w, bcs=[],
                     abs_tol=1e-50,
                     rel_tol=1e-30,
-                    max_it=3,
+                    max_it=2,
                     error_on_nonconvergence=False,
                     report=False):
 
@@ -220,9 +221,6 @@ def solveNonlinear(F, w, bcs=[],
 
     problem = NonlinearProblem(F, w, bcs)
 
-    # Set the initial guess of the solution
-    with w.vector.localForm() as w_local:
-        w_local.set(0.9)
     solver = NewtonSolver(MPI.COMM_WORLD, problem)
     if report == True:
         dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
@@ -280,3 +278,31 @@ def solveKSP_mumps(A, b, x):
     # solve
     ksp.setUp()
     ksp.solve(b, x)
+    
+def project(v, target_func, bcs=[]):
+
+    """ 
+    Solution from 
+    https://fenicsproject.discourse.group/t/problem-interpolating-mixed-
+    function-dolfinx/4142/6
+    """
+    
+    # Ensure we have a mesh and attach to measure
+    V = target_func.function_space
+    # Define variational problem for projection
+    w = TestFunction(V)
+    Pv = TrialFunction(V)
+    a = inner(Pv, w) * dx
+    L = inner(v, w) * dx
+    print(type(a), type(form(a)))
+    # Assemble linear system
+    A = assemble_matrix(form(a), bcs)
+    A.assemble()
+    b = assemble_vector(form(L))
+    apply_lifting(b, [form(a)], [bcs])
+    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    set_bc(b, bcs)
+    
+    solver = PETSc.KSP().create(A.getComm())
+    solver.setOperators(A)
+    solver.solve(b, target_func.vector)
