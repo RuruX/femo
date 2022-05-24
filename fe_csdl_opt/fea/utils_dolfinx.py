@@ -43,12 +43,6 @@ def createRectangleMesh(pt1,pt2,nx,ny):
     """
     return create_rectangle(MPI.COMM_WORLD, [pt1, pt2], [nx,ny], cell_type=CellType.quadrilateral)
 
-def getFormArray(F):
-    """
-    Compute the array representation of the Form
-    """
-    return assemble_vector(form(F)).getArray()
-
 def getFuncArray(v):
     """
     Compute the array representation of the Function
@@ -62,6 +56,18 @@ def setFuncArray(v, v_array):
     v.vector[:] = v_array
     v.vector.assemble()
     v.vector.ghostUpdate()
+
+def assembleScalar(c):
+    """
+    Compute the array representation of the scalar form
+    """
+    return assemble_scalar(form(c))
+
+def assembleVector(v):
+    """
+    Compute the array representation of the vector form
+    """
+    return assemble_vector(form(v)).array
 
 def assembleMatrix(M, bcs=[]):
     """
@@ -96,19 +102,6 @@ def assemble(f, dim=0, bcs=[]):
         return convertToDense(M.copy())
     else:
         return TypeError("Invalid type for assembly.")
-
-def assembleScalar(c):
-    """
-    Compute the array representation of the scalar form
-    """
-    return assemble_scalar(form(c))
-
-
-def assembleVector(v):
-    """
-    Compute the array representation of the vector form
-    """
-    return assemble_vector(form(v)).array
 
 
 def errorNorm(v, v_ex):
@@ -177,40 +170,23 @@ def update(v, v_values):
     else:
         setFuncArray(v, v_values)
 
-I = Identity(2)
-def gradx(f,uhat):
-    """
-    Convert the differential operation from the reference domain
-    to the measure in the deformed configuration based on the mesh
-    movement of `uhat`
-    --------------------------
-    f: DOLFIN function for the solution of the physical problem
-    uhat: DOLFIN function for mesh movements
-    """
-    return dot(grad(f), inv(I + grad(uhat)))
-
-
-def J(uhat):
-    """
-    Compute the determinant of the deformation gradient used in the
-    integration measure of the deformed configuration wrt the the
-    reference configuration.
-    ---------------------------
-    uhat: DOLFIN function for mesh movements
-    """
-    return det(I + grad(uhat))
-
-
 def computePartials(form, function):
     return derivative(form, function)
 
 def createFunction(function):
     return Function(function.function_space)
 
+# TODO
+def solveSNES():
+    """
+    https://github.com/FEniCS/dolfinx/blob/main/python/test/unit/nls/test_newton.py#L182-L205
+    """
+    pass
+
 def solveNonlinear(F, w, bcs=[],
                     abs_tol=1e-50,
                     rel_tol=1e-30,
-                    max_it=2,
+                    max_it=3,
                     error_on_nonconvergence=False,
                     report=False):
 
@@ -225,6 +201,7 @@ def solveNonlinear(F, w, bcs=[],
     if report == True:
         dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
 
+    # w.vector.set(0.0)
     # Set the Newton solver options
     solver.atol = abs_tol
     solver.rtol = rel_tol
@@ -294,7 +271,6 @@ def project(v, target_func, bcs=[]):
     Pv = TrialFunction(V)
     a = inner(Pv, w) * dx
     L = inner(v, w) * dx
-    print(type(a), type(form(a)))
     # Assemble linear system
     A = assemble_matrix(form(a), bcs)
     A.assemble()

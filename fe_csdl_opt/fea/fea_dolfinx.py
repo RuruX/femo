@@ -40,10 +40,8 @@ class AbstractFEA(object):
         self.outputs_dict = dict()
         self.bcs_list = list()
 
-    def create_function_space(self, var_name, type='CG1'):
-        pass
 
-    def add_bc(self, bc):
+    def add_strong_bc(self, bc):
         self.bcs_list.append(bc)
 
     def add_input(self, name, function):
@@ -142,15 +140,11 @@ class FEA(object):
         """
         Solve the PDE problem
         """
-        if report == True:
-            print(80*"=")
-            print(" FEA: Solving the PDE problem")
-            print(80*"=")
         from timeit import default_timer
         start = default_timer()
-#        solveNonlinear(res, func, bc, report=report)
-        solveNonlinear(res, func, bc,
-                     abs_tol=1e-16, max_it=100, report=report)
+        solveNonlinear(res, func, bc, report=report)
+        # solveNonlinear(res, func, bc,
+        #              abs_tol=1e-13, rel_tol=1e-13, max_it=100, report=True)
         stop = default_timer()
         if report == True:
             print("Solve nonlinear finished in ",start-stop, "seconds")

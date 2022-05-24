@@ -214,7 +214,14 @@ driver.options['print_results'] = False
 
 sim.prob.driver = driver
 sim.prob.setup()
+
+from timeit import default_timer
+start = default_timer()
+
 sim.prob.run_driver()
+
+stop = default_timer()
+print('Optimization runtime:', str(stop-start), 'seconds')
 
 
 print("Compliance value: ", sim['compliance'])
