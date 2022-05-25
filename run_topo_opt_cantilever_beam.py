@@ -172,6 +172,8 @@ pre_processor_model = GeneralFilterModel(nel=nel,
                                             coordinates=coords, 
                                             h_avg=h_avg)
 fea_model.add(pre_processor_model, name=pre_processor_name, promotes=['*'])
+
+np.random.seed(0)
 fea_model.create_input("{}".format('density_unfiltered'),
                             shape=nel,
                             val=np.random.random(nel) * 0.86)
