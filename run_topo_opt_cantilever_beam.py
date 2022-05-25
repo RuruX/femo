@@ -42,10 +42,10 @@ mesh = createRectangleMesh(np.array([0.0,0.0]),
     2.1 Define the traction boundary for the source term
 '''
 #### Getting facets of the bottom edge that will come in contact ####
-DOLFIN_EPS = 1E-8
+DOLFIN_EPS = 3E-16
 def TractionBoundary(x):
     return np.logical_and(abs(x[1] - LENGTH_Y/2) < LENGTH_Y/num_el_y + DOLFIN_EPS,
-                            abs(x[0] - LENGTH_X) < DOLFIN_EPS)
+                            abs(x[0] - LENGTH_X) < DOLFIN_EPS*1e5)
 
 fdim = mesh.topology.dim - 1 
 traction_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
@@ -173,7 +173,7 @@ pre_processor_model = GeneralFilterModel(nel=nel,
                                             h_avg=h_avg)
 fea_model.add(pre_processor_model, name=pre_processor_name, promotes=['*'])
 
-np.random.seed(0)
+np.random.seed(0) 
 fea_model.create_input("{}".format('density_unfiltered'),
                             shape=nel,
                             val=np.random.random(nel) * 0.86)
