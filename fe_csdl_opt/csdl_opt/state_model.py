@@ -79,7 +79,7 @@ class StateOperation(CustomImplicitOperation):
 
         update(self.state['function'], outputs[self.state_name])
 
-        residuals[self.state_name] = getFormArray(self.state['residual_form'])
+        residuals[self.state_name] = assembleVector(self.state['residual_form'])
 
 
     def solve_residual_equations(self, inputs, outputs):
