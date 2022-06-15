@@ -206,11 +206,13 @@ state_error = errorNorm(u_ex, state_function)
 print("Error in states:", state_error)
 print("="*40)
 
-with XDMFFile(MPI.COMM_WORLD, "solutions/"+state_name+".xdmf", "w") as xdmf:
+with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
+    fea.states_dict[state_name]['function'].name = state_name
     xdmf.write_function(fea.states_dict[state_name]['function'])
-with XDMFFile(MPI.COMM_WORLD, "solutions/"+input_name+".xdmf", "w") as xdmf:
+with XDMFFile(MPI.COMM_WORLD, "solutions/input_"+input_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
+    fea.inputs_dict[input_name]['function'].name = input_name
     xdmf.write_function(fea.inputs_dict[input_name]['function'])
     
     
