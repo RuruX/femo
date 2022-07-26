@@ -11,18 +11,20 @@ class FEAModel(Model):
 
         for state_name in fea.states_dict:
             arg_name_list = fea.states_dict[state_name]['arguments']
-            self.add(StateModel(fea=fea,
-                                debug_mode=False,
-                                state_name=state_name,
-                                arg_name_list=arg_name_list),
-                                name='{}_state_model'.format(state_name),
-                                promotes=['*'])
+            state_model = StateModel(fea=fea,
+                                        debug_mode=False,
+                                        state_name=state_name,
+                                        arg_name_list=arg_name_list)
+            self.add(state_model,
+                    name='{}_state_model'.format(state_name),
+                    promotes=['*'])
 
         for output_name in fea.outputs_dict:
             arg_name_list = fea.outputs_dict[output_name]['arguments']
-            self.add(OutputModel(fea=fea,
-                                output_name=output_name,
-                                arg_name_list=arg_name_list),
-                                name='{}_output_model'.format(output_name),
-                                promotes=['*'])
+            output_model = OutputModel(fea=fea,
+                                        output_name=output_name,
+                                        arg_name_list=arg_name_list)
+            self.add(output_model,
+                    name='{}_output_model'.format(output_name),
+                    promotes=['*'])
 

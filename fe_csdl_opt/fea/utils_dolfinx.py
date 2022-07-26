@@ -3,22 +3,105 @@ Reusable functions for the PETSc and UFL operations
 """
 
 import dolfinx
-import dolfinx.io
+from dolfinx.io import XDMFFile
 from ufl import (Identity, dot, derivative, TestFunction, TrialFunction, 
-                inner, ds, dx)
+                inner, ds, dx, grad, inv, as_vector, sqrt, conditional, lt, 
+                det, Measure, exp)
 from dolfinx.mesh import (create_unit_square, create_rectangle, 
                             locate_entities_boundary, locate_entities,
                             meshtags)
 from dolfinx.cpp.mesh import CellType
-from dolfinx.fem import form, assemble_scalar, Function
+from dolfinx.fem import (form, assemble_scalar, Function, FunctionSpace,
+                        dirichletbc, locate_dofs_geometrical)
 from dolfinx.fem.petsc import (assemble_vector, assemble_matrix,
-                        NonlinearProblem, apply_lifting, set_bc)
+                        NonlinearProblem, apply_lifting, set_bc,
+                        create_matrix, _assemble_matrix_mat,)
 from dolfinx.nls.petsc import NewtonSolver
+from dolfinx import la
 from petsc4py import PETSc
 from scipy.spatial import KDTree
 from mpi4py import MPI
 import numpy as np
 from scipy.spatial import KDTree
+from configparser import ConfigParser
+
+DOLFIN_EPS = 3E-16
+
+I = Identity(2)
+def gradx(f,uhat):
+    """
+    Convert the differential operation from the reference domain
+    to the measure in the deformed configuration based on the mesh
+    movement of `uhat`
+    --------------------------
+    f: DOLFINx function for the solution of the physical problem
+    uhat: DOLFIN function for mesh movements
+    """
+    return dot(grad(f), inv(I + grad(uhat)))
+
+def J(uhat):
+    """
+    Compute the determinant of the deformation gradient used in the
+    integration measure of the deformed configuration wrt the the
+    reference configuration.
+    ---------------------------
+    uhat: DOLFINx function for mesh movements
+    """
+    return det(I + grad(uhat))
+
+# The dolfinx version for mesh importer from msh2xdmf module
+def import_mesh(
+        prefix="mesh",
+        subdomains=False,
+        dim=2,
+        directory=".",
+):
+    """Function importing a dolfinx mesh.
+
+    Arguments:
+        prefix (str, optional): mesh files prefix (eg. my_mesh.msh,
+            my_mesh_domain.xdmf, my_mesh_bondaries.xdmf). Defaults to "mesh".
+        subdomains (bool, optional): True if there are subdomains. Defaults to
+            False.
+        dim (int, optional): dimension of the domain. Defaults to 2.
+        directory (str, optional): directory of the mesh files. Defaults to ".".
+
+    Output:
+        - dolfinx Mesh object containing the domain;
+        - dolfinx MeshFunction object containing the physical lines (dim=2) or
+            surfaces (dim=3) defined in the msh file and the sub-domains;
+        - association table
+    """
+    # Set the file name
+    domain = "{}_domain.xdmf".format(prefix)
+    boundaries = "{}_boundaries.xdmf".format(prefix)
+
+    # Import the converted domain
+    with XDMFFile(MPI.COMM_WORLD, "{}/{}".format(directory, domain), "r") as xdmf:
+        mesh = xdmf.read_mesh(name="Grid")
+        tdim = mesh.topology.dim
+        mesh.topology.create_connectivity(tdim-1, tdim)
+    # Import the boundaries
+    with XDMFFile(MPI.COMM_WORLD, "{}/{}".format(directory, boundaries), "r") as xdmf:
+        boundaries_mf = xdmf.read_meshtags(mesh, "Grid")
+    # Import the subdomains
+    if subdomains:
+        with XDMFFile(MPI.COMM_WORLD, "{}/{}".format(directory, domain), "r") as xdmf:
+            subdomains_mf = xdmf.read_meshtags(mesh, 'Grid')
+    # Import the association table
+    association_table_name = "{}/{}_{}".format(
+        directory, prefix, "association_table.ini")
+    file_content = ConfigParser()
+    file_content.read(association_table_name)
+    association_table = dict(file_content["ASSOCIATION TABLE"])
+    # Convert the value from string to int
+    for key, value in association_table.items():
+        association_table[key] = int(value)
+    # Return the Mesh and the MeshFunction objects
+    if not subdomains:
+        return mesh, boundaries_mf, association_table
+    else:
+        return mesh, boundaries_mf, subdomains_mf, association_table
 
 
 def findNodeIndices(node_coordinates, coordinates):
@@ -114,6 +197,7 @@ def errorNorm(v, v_ex):
     return E
 
 
+##### Linear algebra
 def transpose(A):
     """
     Transpose for matrix of DOLFIN type
@@ -176,12 +260,86 @@ def computePartials(form, function):
 def createFunction(function):
     return Function(function.function_space)
 
+import ufl
+class NonlinearSNESProblem:
+
+    def __init__(self, F, u, bcs,
+                 J=None):
+        self.L = form(F)
+
+        # Create the Jacobian matrix, dF/du
+        if J is None:
+            V = u.function_space
+            du = TrialFunction(V)
+            J = derivative(F, u, du)
+
+        self.a = form(J)
+        self.bcs = bcs
+        self.u = u
+
+    def F(self, snes, x, b):
+        # Reset the residual vector
+        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        x.copy(self.u.vector)
+        self.u.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+
+        with b.localForm() as b_local:
+            b_local.set(0.0)
+        assemble_vector(b, self.L)
+
+        # Apply boundary condition
+        apply_lifting(b, [self.a], bcs=[self.bcs], x0=[x], scale=-1.0)
+        b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        set_bc(b, self.bcs, x, -1.0)
+
+    def J(self, snes, x, J, P):
+        """Assemble Jacobian matrix."""
+        J.zeroEntries()
+        assemble_matrix(J, self.a, bcs=self.bcs)
+        J.assemble()
+
 # TODO
-def solveSNES():
+def solveNonlinearSNES(F, w, bcs=[],
+                    abs_tol=1e-15,
+                    rel_tol=1e-15,
+                    max_it=10,
+                    report=False):
     """
     https://github.com/FEniCS/dolfinx/blob/main/python/test/unit/nls/test_newton.py#L182-L205
     """
-    pass
+    # Create nonlinear problem
+    w.x.array[:] = 0.1
+    problem = NonlinearSNESProblem(F, w, bcs)
+    if report is True:
+        dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
+    W = w.function_space
+    b = la.create_petsc_vector(W.dofmap.index_map, W.dofmap.index_map_bs)
+    J = create_matrix(problem.a)
+    opts = PETSc.Options()
+    opts["error_on_nonconvergence"] = False
+    # Create Newton solver and solve
+    snes = PETSc.SNES().create()
+    snes.setFromOptions() 
+    snes.setFunction(problem.F, b)
+    snes.setJacobian(problem.J, J)
+
+    snes.setTolerances(atol=abs_tol, rtol=rel_tol, max_it=max_it)
+    snes.getKSP().setType("preonly")
+    snes.getKSP().setTolerances(atol=abs_tol,rtol=rel_tol)
+    snes.getKSP().getPC().setType("lu")
+    snes.getKSP().getPC().setFactorSolverType('mumps')
+
+    snes.setConvergenceHistory()
+    snes.solve(None, w.vector)
+    history = snes.getConvergenceHistory()
+    for i in range(len(history[0])):
+        print("SNES iteration " + str(history[1][i]) + 
+            "        residual norm " + str(history[0][i]))
+
+    # snes.view()
+    # print("Total SNES iterations:", snes.getIterationNumber())
+    # print("Norm:", snes.getFunctionNorm())
+    # print("Converged reason:", snes.getConvergedReason())
 
 def solveNonlinear(F, w, bcs=[],
                     abs_tol=1e-50,
@@ -196,9 +354,11 @@ def solveNonlinear(F, w, bcs=[],
     """
 
     problem = NonlinearProblem(F, w, bcs)
-
+    # Set the initial guess of the solution
+    with w.vector.localForm() as w_local:
+        w_local.set(0.1)
     solver = NewtonSolver(MPI.COMM_WORLD, problem)
-    if report == True:
+    if report is True:
         dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
 
     # w.vector.set(0.0)
@@ -210,7 +370,6 @@ def solveNonlinear(F, w, bcs=[],
     opts = PETSc.Options()
     opts["nls_solve_pc_factor_mat_solver_type"] = "mumps"
     solver.solve(w)
-
 
 def solveKSP(A, b, x):
     """
@@ -282,3 +441,4 @@ def project(v, target_func, bcs=[]):
     solver = PETSc.KSP().create(A.getComm())
     solver.setOperators(A)
     solver.solve(b, target_func.vector)
+

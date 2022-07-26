@@ -18,7 +18,6 @@ class StateModel(Model):
         arg_name_list = self.parameters['arg_name_list']
         state_name = self.parameters['state_name']
         self.debug_mode = self.parameters['debug_mode']
-
         args_dict = dict()
         args_list = []
         for arg_name in arg_name_list:
@@ -93,7 +92,9 @@ class StateOperation(CustomImplicitOperation):
 
         self.fea.solve(self.state['residual_form'],
                         self.state['function'],
-                        self.bcs)
+                        self.bcs,
+                        solver=self.fea.PDE_SOLVER,
+                        report=self.fea.REPORT)
 
         outputs[self.state_name] = getFuncArray(self.state['function'])
 

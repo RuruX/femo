@@ -10,7 +10,6 @@ from dolfinx.fem.petsc import apply_lifting
 from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,
                         locate_dofs_topological, locate_dofs_geometrical,
                         Constant, VectorFunctionSpace)
-from dolfinx.mesh import compute_boundary_facets
 from ufl import (grad, SpatialCoordinate, CellDiameter, FacetNormal,
                     div, Identity)
 import matplotlib.pyplot as plt
@@ -85,7 +84,8 @@ class FEA(object):
         self.states_dict = dict()
         self.outputs_dict = dict()
         self.bc = []
-
+        self.PDE_SOLVER = "Newton"
+        self.REPORT = 'True'
 
     def add_input(self, name, function):
         if name in self.inputs_dict:
@@ -136,18 +136,19 @@ class FEA(object):
         for locate_BC in locate_BC_list:
             self.bc.append(dirichletbc(ubc, locate_BC, function_space))
 
-    def solve(self, res, func, bc, report=False):
+    def solve(self, res, func, bc, solver='Newton', report=False):
         """
         Solve the PDE problem
         """
         from timeit import default_timer
         start = default_timer()
-        solveNonlinear(res, func, bc, report=report)
-        # solveNonlinear(res, func, bc,
-        #              abs_tol=1e-13, rel_tol=1e-13, max_it=100, report=True)
+        if solver == 'Newton':
+            solveNonlinear(res, func, bc, report=report)
+        elif solver == 'SNES':
+            solveNonlinearSNES(res, func, bc, report=report)
         stop = default_timer()
-        if report == True:
-            print("Solve nonlinear finished in ",start-stop, "seconds")
+        if report is True:
+            print("Solve nonlinear finished in ",stop-start, "seconds")
 
 
     def solveLinearFwd(self, du, A, dR, dR_array):
