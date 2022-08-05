@@ -72,10 +72,10 @@ class StateOperation(CustomImplicitOperation):
             print("="*40)
             print("CSDL: Running evaluate_residuals()...")
             print("="*40)
+
         for arg_name in inputs:
             arg = self.args_dict[arg_name]
             update(arg['function'], inputs[arg_name])
-
         update(self.state['function'], outputs[self.state_name])
 
         residuals[self.state_name] = assembleVector(self.state['residual_form'])
@@ -89,12 +89,9 @@ class StateOperation(CustomImplicitOperation):
         for arg_name in inputs:
             arg = self.args_dict[arg_name]
             update(arg['function'], inputs[arg_name])
-
         self.fea.solve(self.state['residual_form'],
                         self.state['function'],
-                        self.bcs,
-                        solver=self.fea.PDE_SOLVER,
-                        report=self.fea.REPORT)
+                        self.bcs)
 
         outputs[self.state_name] = getFuncArray(self.state['function'])
 
@@ -111,15 +108,26 @@ class StateOperation(CustomImplicitOperation):
 
         state = self.state
         args_dict = self.args_dict
-        dR_du = computePartials(state['residual_form'],state['function'])
+        dR_du = state['dR_du']
+        if dR_du == None:
+            dR_du = computePartials(state['residual_form'],state['function'])
         self.dRdu = assembleMatrix(dR_du)
+
+
         dRdf_dict = dict()
-        for arg_name in args_dict:
-            dRdf = assembleMatrix(computePartials(
-                                state['residual_form'],
-                                args_dict[arg_name]['function']))
+        dR_df_list = state['dR_df_list']
+        arg_list = state['arguments']
+        for arg_ind in range(len(arg_list)):
+            arg_name = arg_list[arg_ind]
+            if dR_df_list == None:
+                dRdf = assembleMatrix(computePartials(
+                                    state['residual_form'],
+                                    args_dict[arg_name]['function']))
+            else:
+                dRdf = dR_df_list[arg_ind]
             df = createFunction(args_dict[arg_name]['function'])
             dRdf_dict[arg_name] = dict(dRdf=dRdf, df=df)
+
         self.dRdf_dict = dRdf_dict
         self.A,_ = assembleSystem(dR_du,
                                 state['residual_form'],

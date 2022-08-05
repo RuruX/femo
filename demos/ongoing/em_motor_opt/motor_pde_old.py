@@ -7,13 +7,12 @@ from permeability.piecewise_permeability_Luca import *
 
 exp_coeff = extractexpDecayCoeff()
 cubic_bounds = extractCubicBounds()
-
 # START NEW PERMEABILITY
 def RelativePermeability(subdomain, u, uhat):
     gradu = gradx(u,uhat)
     # if subdomain == 1: # Electrical/Silicon/Laminated Steel
     if subdomain == 1 or subdomain == 2: # Electrical/Silicon/Laminated Steel
-        B = as_vector([gradu[1], -gradu[0]])
+        B = as_vector((gradu[1], -gradu[0]))
         norm_B = sqrt(dot(B, B) + DOLFIN_EPS)
 
         mu = conditional(
@@ -25,14 +24,15 @@ def RelativePermeability(subdomain, u, uhat):
                 (exp_coeff[0] * exp(exp_coeff[1]*norm_B + exp_coeff[2]) + 1)
             )
         )
-    elif subdomain >= 3 and subdomain <= 14: # NEODYMIUM
-        mu = 1.05 
-    elif subdomain >= 15 and subdomain <= 50: # COPPER
-        mu = 1.00  
-    elif subdomain == 51: # insert value for titanium or shaft material
+    elif subdomain == 3:
+        mu = 1.00 # insert value for titanium or shaft material
+    elif subdomain >= 4 and subdomain <= 28: # AIR
+        mu = 1.0
+    elif subdomain >= 29 and subdomain <= 40: # NEODYMIUM
+        mu = 1.05
+    elif subdomain >= 41: # COPPER
         mu = 1.00
-    elif subdomain >= 52: # AIR
-        mu = 1.00
+
     return mu
 # END NEW PERMEABILITY
 
@@ -61,12 +61,12 @@ def JS(v,uhat,iq,p,s,Hc,angle):
         H = as_vector([Hx, Hy])
 
         curl_v = as_vector([gradv[1],-gradv[0]])
-        Jm += inner(H,curl_v)*dx(i + 2 + 1)
+        Jm += inner(H,curl_v)*dx(i + 4 + p*2 + 1)
 
     num_phases = 3
     num_windings = s
     coil_per_phase = 2
-    stator_winding_index_start  = p + 2 + 1
+    stator_winding_index_start  = 4 + 3 * p + 1
     stator_winding_index_end    = stator_winding_index_start + num_windings
     Jw = 0.
     i_abc = compute_i_abc(iq, angle)
@@ -103,7 +103,7 @@ def JS(v,uhat,iq,p,s,Hc,angle):
 
 def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle):
     """
-    The variational form of the PDE residual for the electromagnetic problem
+    The variational form of the PDE residual for the magnetostatic problem
     """
     res = 0.
     gradu = gradx(u,uhat)
@@ -114,4 +114,3 @@ def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle):
                 *dot(gradu,gradv)*J(uhat)*dx(i + 1)
     res -= JS(v,uhat,iq,p,s,Hc,angle)
     return res
-

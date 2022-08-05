@@ -6,7 +6,7 @@ import dolfinx
 from dolfinx.io import XDMFFile
 from ufl import (Identity, dot, derivative, TestFunction, TrialFunction, 
                 inner, ds, dx, grad, inv, as_vector, sqrt, conditional, lt, 
-                det, Measure, exp)
+                det, Measure, exp, tr)
 from dolfinx.mesh import (create_unit_square, create_rectangle, 
                             locate_entities_boundary, locate_entities,
                             meshtags)
@@ -16,7 +16,7 @@ from dolfinx.fem import (form, assemble_scalar, Function, FunctionSpace,
 from dolfinx.fem.petsc import (assemble_vector, assemble_matrix,
                         NonlinearProblem, apply_lifting, set_bc,
                         create_matrix, _assemble_matrix_mat,)
-from dolfinx.nls.petsc import NewtonSolver
+from dolfinx.nls.petsc import NewtonSolver as PETScNewtonSolver
 from dolfinx import la
 from petsc4py import PETSc
 from scipy.spatial import KDTree
@@ -215,6 +215,14 @@ def computeMatVecProductFwd(A, x):
     y.assemble()
     return y.getArray()
 
+def applyBC(res, u, bcs):
+    a = form(derivative(res, u))
+    L = form(res)
+    b = assemble_vector(L)
+    apply_lifting(b, [a], [bcs])
+    b.ghostUpdate(PETSc.InsertMode.ADD_VALUES, PETSc.ScatterMode.REVERSE)
+    dolfinx.fem.petsc.set_bc(b, bcs)
+    return b.array
 
 def computeMatVecProductBwd(A, R):
     """
@@ -260,6 +268,20 @@ def computePartials(form, function):
 def createFunction(function):
     return Function(function.function_space)
 
+def solveNonlinear(res, func, bc, solver, report):
+    from timeit import default_timer
+    start = default_timer()
+    if solver == 'Newton':
+        newton_solver = NewtonSolver(res, func, bc, report=report)
+        newton_solver.solve(func)
+    elif solver == 'SNES':
+        snes_solver = SNESSolver(res, func, bc, report=report)
+        snes_solver.solve(None, func.vector)
+        print("Converged reason:", snes_solver.getConvergedReason())
+    stop = default_timer()
+    if report is True:
+        print("Solve nonlinear finished in ",stop-start, "seconds")
+
 import ufl
 class NonlinearSNESProblem:
 
@@ -298,53 +320,53 @@ class NonlinearSNESProblem:
         assemble_matrix(J, self.a, bcs=self.bcs)
         J.assemble()
 
-# TODO
-def solveNonlinearSNES(F, w, bcs=[],
-                    abs_tol=1e-15,
-                    rel_tol=1e-15,
-                    max_it=10,
+
+def SNESSolver(F, w, bcs=[],
+                    abs_tol=1e-6,
+                    rel_tol=1e-6,
+                    max_it=30,
                     report=False):
     """
     https://github.com/FEniCS/dolfinx/blob/main/python/test/unit/nls/test_newton.py#L182-L205
     """
     # Create nonlinear problem
-    w.x.array[:] = 0.1
     problem = NonlinearSNESProblem(F, w, bcs)
-    if report is True:
-        dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
+
     W = w.function_space
     b = la.create_petsc_vector(W.dofmap.index_map, W.dofmap.index_map_bs)
     J = create_matrix(problem.a)
-    opts = PETSc.Options()
-    opts["error_on_nonconvergence"] = False
     # Create Newton solver and solve
     snes = PETSc.SNES().create()
-    snes.setFromOptions() 
-    snes.setFunction(problem.F, b)
-    snes.setJacobian(problem.J, J)
-
+    opts = PETSc.Options()
+    opts['snes_type'] = 'newtonls'
+    opts['snes_linesearch_type'] = 'basic'
+    # Ru: the choice of damping parameter seems to be mesh dependent; 
+    # for the fine motor mesh, it is 0.8; for the coarse mesh, it is 0.6.
+    opts['snes_linesearch_damping'] = 0.61
+    opts["error_on_nonconvergence"] = False
+    if report is True:
+        # dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
+        opts['snes_monitor'] = None
+        opts['snes_linesearch_monitor'] = None
     snes.setTolerances(atol=abs_tol, rtol=rel_tol, max_it=max_it)
     snes.getKSP().setType("preonly")
     snes.getKSP().setTolerances(atol=abs_tol,rtol=rel_tol)
     snes.getKSP().getPC().setType("lu")
     snes.getKSP().getPC().setFactorSolverType('mumps')
 
-    snes.setConvergenceHistory()
-    snes.solve(None, w.vector)
-    history = snes.getConvergenceHistory()
-    for i in range(len(history[0])):
-        print("SNES iteration " + str(history[1][i]) + 
-            "        residual norm " + str(history[0][i]))
 
-    # snes.view()
-    # print("Total SNES iterations:", snes.getIterationNumber())
-    # print("Norm:", snes.getFunctionNorm())
-    # print("Converged reason:", snes.getConvergedReason())
+    snes.setFunction(problem.F, b)
+    snes.setJacobian(problem.J, J)
 
-def solveNonlinear(F, w, bcs=[],
+    snes.setFromOptions()
+
+    return snes
+    
+
+def NewtonSolver(F, w, bcs=[],
                     abs_tol=1e-50,
                     rel_tol=1e-30,
-                    max_it=3,
+                    max_it=10,
                     error_on_nonconvergence=False,
                     report=False):
 
@@ -352,12 +374,11 @@ def solveNonlinear(F, w, bcs=[],
     Wrap up the nonlinear solver for the problem F(w)=0 and
     returns the solution
     """
-
     problem = NonlinearProblem(F, w, bcs)
     # Set the initial guess of the solution
-    with w.vector.localForm() as w_local:
-        w_local.set(0.1)
-    solver = NewtonSolver(MPI.COMM_WORLD, problem)
+    # with w.vector.localForm() as w_local:
+    #     w_local.set(0.1)
+    solver = PETScNewtonSolver(MPI.COMM_WORLD, problem)
     if report is True:
         dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
 
@@ -369,7 +390,7 @@ def solveNonlinear(F, w, bcs=[],
     solver.error_on_nonconvergence = error_on_nonconvergence
     opts = PETSc.Options()
     opts["nls_solve_pc_factor_mat_solver_type"] = "mumps"
-    solver.solve(w)
+    return solver
 
 def solveKSP(A, b, x):
     """
@@ -414,7 +435,48 @@ def solveKSP_mumps(A, b, x):
     # solve
     ksp.setUp()
     ksp.solve(b, x)
+
+def move(mesh, u):
+    x = mesh.geometry.x
+    gdim = mesh.geometry.dim
+    # u_x = u.compute_point_values()
+    for i in range(gdim):
+        ui = u.sub(i).collapse().x.array
+        x[:,i] += ui
+
+def moveBackward(mesh, u):
+    x = mesh.geometry.x
+    gdim = mesh.geometry.dim
+    # u_x = u.compute_point_values()
+    for i in range(gdim):
+        ui = u.sub(i).collapse().x.array
+        x[:,i] += -ui
     
+def meshSize(mesh):
+    tdim = mesh.topology.dim
+    num_cells = mesh.topology.index_map(tdim).size_local
+    h = dolfinx.cpp.mesh.h(mesh, tdim, range(num_cells))
+    return h
+
+def getDisplacementSteps(uhat, edge_deltas, mesh):
+    """
+    Divide the edge movements into steps based on the current mesh size
+    """
+    STEPS = 2
+    max_disp = np.max(np.abs(edge_deltas))
+    h = meshSize(mesh)
+    move(mesh, uhat)
+    min_cell_size = h.min()
+    moveBackward(mesh, uhat)
+    min_STEPS = round(max_disp/min_cell_size)
+    # print("maximum_disp:", max_disp)
+    # print("minimum cell size:", min_cell_size)
+    # print("minimum steps:",min_STEPS)
+    if min_STEPS >= STEPS:
+        STEPS = min_STEPS
+    increment_deltas = edge_deltas/STEPS
+    return STEPS, increment_deltas
+
 def project(v, target_func, bcs=[]):
 
     """ 
@@ -442,3 +504,34 @@ def project(v, target_func, bcs=[]):
     solver.setOperators(A)
     solver.solve(b, target_func.vector)
 
+
+from scipy.spatial import KDTree
+def findNodeIndices(node_coordinates, coordinates):
+    """
+    Find the indices of the closest nodes, given the `node_coordinates`
+    for a set of nodes and the `coordinates` for all of the vertices
+    in the mesh, by using scipy.spatial.KDTree
+    """
+    tree = KDTree(coordinates)
+    dist, node_indices = tree.query(node_coordinates)
+    return node_indices
+
+def locateDOFs(coords,V):
+    """
+    Find the indices of the dofs for setting up the boundary condition
+    in the mesh motion subproblem
+    """
+    coordinates = V.tabulate_dof_coordinates()[:,:-1]
+
+    # Use KDTree to find the node indices of the points on the edge
+    # in the mesh object in FEniCS
+    node_indices = findNodeIndices(np.reshape(coords, (-1,2)),
+                                    coordinates)
+
+    # Convert the node indices to edge indices, where each node has 2 dofs
+    edge_indices = np.empty(2*len(node_indices))
+    for i in range(len(node_indices)):
+        edge_indices[2*i] = 2*node_indices[i]
+        edge_indices[2*i+1] = 2*node_indices[i]+1
+
+    return edge_indices.astype('int')

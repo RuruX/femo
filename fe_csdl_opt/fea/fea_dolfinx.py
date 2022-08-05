@@ -77,15 +77,23 @@ class FEA(object):
 
         self.mesh = mesh
 
-        self.weak_bc = weak_bc
-        self.sym_nitsche = sym_nitsche
 
         self.inputs_dict = dict()
         self.states_dict = dict()
         self.outputs_dict = dict()
         self.bc = []
+
         self.PDE_SOLVER = "Newton"
-        self.REPORT = 'True'
+        self.SOLVE_INCREMENTAL = False
+        self.REPORT = True
+
+        self.weak_bc = weak_bc
+        self.sym_nitsche = sym_nitsche
+
+        self.ubc = None
+        self.solver = None
+
+
 
     def add_input(self, name, function):
         if name in self.inputs_dict:
@@ -96,7 +104,7 @@ class FEA(object):
             shape=len(getFuncArray(function)),
         )
 
-    def add_state(self, name, function, residual_form, arguments):
+    def add_state(self, name, function, residual_form, arguments, dR_du=None, dR_df_list=None):
         self.states_dict[name] = dict(
             function=function,
             residual_form=residual_form,
@@ -104,6 +112,8 @@ class FEA(object):
             shape=len(getFuncArray(function)),
             d_residual=Function(function.function_space),
             d_state=Function(function.function_space),
+            dR_du=dR_du,
+            dR_df_list=dR_df_list,
             arguments=arguments,
         )
 
@@ -132,23 +142,69 @@ class FEA(object):
         f_ex.interpolate(f_analytic.eval)
         return f_ex
 
-    def add_strong_bc(self, ubc, locate_BC_list, function_space):
-        for locate_BC in locate_BC_list:
-            self.bc.append(dirichletbc(ubc, locate_BC, function_space))
+    def add_strong_bc(self, ubc, locate_BC_list, 
+                    function_space=None):
+        if function_space == None:
+            for locate_BC in locate_BC_list:
+                self.bc.append(dirichletbc(ubc, locate_BC))
+        else:
+            for locate_BC in locate_BC_list:
+                self.bc.append(dirichletbc(ubc, locate_BC, function_space))
 
-    def solve(self, res, func, bc, solver='Newton', report=False):
+    def solve(self, res, func, bc):
         """
         Solve the PDE problem
         """
-        from timeit import default_timer
-        start = default_timer()
-        if solver == 'Newton':
-            solveNonlinear(res, func, bc, report=report)
-        elif solver == 'SNES':
-            solveNonlinearSNES(res, func, bc, report=report)
-        stop = default_timer()
-        if report is True:
-            print("Solve nonlinear finished in ",stop-start, "seconds")
+        solver_type=self.PDE_SOLVER
+        incremental=self.SOLVE_INCREMENTAL
+        report=self.REPORT
+        if incremental is not True:
+            solveNonlinear(res,func,bc,solver_type,report)
+        else:
+            # self.solveNonlinear(res,func,bc,solver,report)
+            if (incremental is True and solver_type=='SNES'):
+
+                func_old = self.ubc
+
+                # func_bc is the final step solution of the bc values
+                func_bc = Function(func.function_space)
+                func_bc.vector[:] = func_old.vector
+
+                # Get the relative movements from the previous step
+                relative_edge_deltas = func_bc.vector[:] - func.vector[:]
+                STEPS, increment_deltas = getDisplacementSteps(func_bc, 
+                                                            relative_edge_deltas,
+                                                            self.mesh)
+                print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
+                # newton_solver = NewtonSolver(res, func, bc, rel_tol=1e-6, report=report)
+
+                snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
+                # Incrementally set the BCs to increase to `edge_deltas`
+                print(80*"=")
+                print(' FEA: total steps for mesh motion:', STEPS)
+                print(80*"=")
+                for i in range(STEPS):
+                    if report == True:
+                        print(80*"=")
+                        print("  FEA: Step "+str(i+1)+" of mesh movement")
+                        print(80*"=")
+                    func_old.vector[:] = func.vector
+
+                    # func_old.vector[:] += increment_deltas
+                    func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
+                    print(func_old.x.array[np.nonzero(relative_edge_deltas)])
+                    print(func.x.array[np.nonzero(relative_edge_deltas)])
+                    print(assemble_vector(form(res)))
+                    # newton_solver.solve(func)
+                    snes_solver.solve(None, func.vector)
+
+                if report == True:
+                    print(80*"=")
+                    print(' FEA: L2 error of the mesh motion on the edges:',
+                                np.linalg.norm(func.vector[np.nonzero(relative_edge_deltas)]
+                                         - relative_edge_deltas[np.nonzero(relative_edge_deltas)]))
+                    print(80*"=")
+
 
 
     def solveLinearFwd(self, du, A, dR, dR_array):
