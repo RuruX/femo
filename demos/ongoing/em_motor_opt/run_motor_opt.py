@@ -119,6 +119,9 @@ def B(A_z, uhat):
 1. Define the mesh
 '''
 
+# mesh_name = "motor_mesh_test_1"
+# data_path = "motor_data_latest_coarse/"
+
 mesh_name = "motor_mesh_coarse_1"
 data_path = "motor_data_old/"
 mesh_file = data_path + mesh_name
@@ -127,19 +130,6 @@ mesh, boundaries_mf, subdomains_mf, association_table = import_mesh(
     dim=2,
     subdomains=True
 )
-dx = Measure('dx', domain=mesh, subdomain_data=subdomains_mf)
-dS = Measure('dS', domain=mesh, subdomain_data=boundaries_mf)
-# mesh = create_unit_square(MPI.COMM_WORLD, 12, 15)
-winding_id = [15,]
-magnet_id = [3,]
-steel_id = [1,2,51]
-winding_range = range(15,50+1)
-
-# Subdomains for calculating power losses
-ec_loss_subdomain = [1,2,] # rotor and stator core
-hysteresis_loss_subdomain = [1,2,]
-pm_loss_subdomain = range(3, 14+1)
-
 
 '''
 The boundary movement data
@@ -152,6 +142,19 @@ f = open(data_path+'edge_coord_deltas_coarse_1.txt', 'r+')
 edge_deltas = np.fromstring(f.read(), dtype=float, sep=' ')
 f.close()
 
+
+dx = Measure('dx', domain=mesh, subdomain_data=subdomains_mf)
+dS = Measure('dS', domain=mesh, subdomain_data=boundaries_mf)
+# mesh = create_unit_square(MPI.COMM_WORLD, 12, 15)
+winding_id = [15,]
+magnet_id = [3,]
+steel_id = [1,2,51]
+winding_range = range(15,50+1)
+
+# Subdomains for calculating power losses
+ec_loss_subdomain = [1,2,] # rotor and stator core
+hysteresis_loss_subdomain = [1,2,]
+pm_loss_subdomain = range(3, 14+1)
 
 '''
 2. Set up the PDE problem
@@ -169,7 +172,7 @@ fea_mm = FEA(mesh)
 fea_mm.PDE_SOLVER = 'SNES'
 fea_mm.REPORT = True
 fea_mm.SOLVE_INCREMENTAL = True
-
+fea_mm.record = True
 # inputs for mesh motion subproblem
 input_name_mm = 'uhat_bc'
 input_function_space_mm = VectorFunctionSpace(mesh, ('CG', 1))
@@ -330,7 +333,7 @@ magnetic_flux_density = B(state_function_em, state_function_mm)
 # print(sim[output_name_1])
 # print(sim[output_name_2])
 ############# Check the derivatives #############
-sim.check_partials(compact_print=True)
+# sim.check_partials(compact_print=True)
 #sim.prob.check_totals(compact_print=True)  
 
 # '''

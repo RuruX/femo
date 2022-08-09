@@ -160,9 +160,10 @@ fea.add_output(name=output_name,
 4. Set up the CSDL model
 '''
 
+
 fea.PDE_SOLVER = 'Newton'
-fea.REPORT = True
-fea_model = FEAModel(fea=fea)
+# fea.REPORT = True
+fea_model = FEAModel(fea=[fea])
 fea_model.create_input("{}".format(input_name),
                             shape=fea.inputs_dict[input_name]['shape'],
                             val=np.random.random(fea.inputs_dict[input_name]['shape']) * 0.86)
@@ -171,7 +172,6 @@ fea_model.add_design_variable(input_name)
 fea_model.add_objective(output_name)
 
 sim = Simulator(fea_model)
-
 ########### Test the forward solve ##############
 #sim[input_name] = getFuncArray(f_ex)
 
@@ -196,7 +196,7 @@ driver.options['print_results'] = False
 
 sim.prob.driver = driver
 sim.prob.setup()
-# sim.prob.run_driver()
+sim.prob.run_driver()
 
 
 print("Objective value: ", sim[output_name])

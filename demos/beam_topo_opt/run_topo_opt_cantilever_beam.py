@@ -156,7 +156,7 @@ fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
 4. Set up the CSDL model
 '''
 
-fea_model = FEAModel(fea=fea)
+fea_model = FEAModel(fea=[fea])
 
 
 pre_processor_name = 'general_filter_model'

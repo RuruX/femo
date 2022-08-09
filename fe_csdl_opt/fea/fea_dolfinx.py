@@ -15,6 +15,7 @@ from ufl import (grad, SpatialCoordinate, CellDiameter, FacetNormal,
 import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix
 
+import os.path
 
 
 class AbstractFEA(object):
@@ -93,7 +94,8 @@ class FEA(object):
         self.ubc = None
         self.solver = None
 
-
+        self.opt_iter = 0
+        self.record = False
 
     def add_input(self, name, function):
         if name in self.inputs_dict:
@@ -102,6 +104,7 @@ class FEA(object):
             function=function,
             function_space=function.function_space,
             shape=len(getFuncArray(function)),
+            recorder=self.createRecorder(name, self.record)
         )
 
     def add_state(self, name, function, residual_form, arguments, dR_du=None, dR_df_list=None):
@@ -115,6 +118,7 @@ class FEA(object):
             dR_du=dR_du,
             dR_df_list=dR_df_list,
             arguments=arguments,
+            recorder=self.createRecorder(name, self.record)
         )
 
     def add_output(self, name, type, form, arguments):
@@ -231,3 +235,10 @@ class FEA(object):
         dR.vector.assemble()
         dR.vector.ghostUpdate()
         return dR.vector.getArray()
+
+    def createRecorder(self, name, record=True):
+        recorder = None
+        if record:
+            recorder = XDMFFile(MPI.COMM_WORLD, "records/record_"+name+".xdmf", "w")
+            recorder.write_mesh(self.mesh)
+        return recorder

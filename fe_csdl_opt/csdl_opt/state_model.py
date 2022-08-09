@@ -86,15 +86,20 @@ class StateOperation(CustomImplicitOperation):
             print("="*40)
             print("CSDL: Running solve_residual_equations()...")
             print("="*40)
+        
+        self.fea.opt_iter += 1
         for arg_name in inputs:
             arg = self.args_dict[arg_name]
             update(arg['function'], inputs[arg_name])
+            if self.fea.record:
+                arg['recorder'].write_function(arg['function'], self.fea.opt_iter)
         self.fea.solve(self.state['residual_form'],
                         self.state['function'],
                         self.bcs)
 
         outputs[self.state_name] = getFuncArray(self.state['function'])
-
+        if self.fea.record:
+            self.state['recorder'].write_function(self.state['function'], self.fea.opt_iter)
 
     def compute_derivatives(self, inputs, outputs, derivatives):
         if self.debug_mode == True:
