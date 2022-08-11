@@ -9,7 +9,7 @@ from csdl_om import Simulator
 from matplotlib import pyplot as plt
 import argparse
 
-from motor_pde_old import pdeResEM
+from motor_pde import pdeResEM
 
 I = Identity(2)
 # def pdeResMM(uhat, duhat):
@@ -27,7 +27,7 @@ I = Identity(2)
 #     res_m = (inner(F_m*S_m,grad(duhat)))*dx
 #     return res_m
 
-def pdeResMM(uhat, duhat, uhat_bc=None, 
+def pdeResMM(uhat, duhat, uhat_bc=None,
             nitsche=False, sym=False, overpenalty=False, ds_=ds):
     """
     Formulation of mesh motion as a hyperelastic problem
@@ -108,7 +108,7 @@ def B(A_z, uhat):
     gradA_z = gradx(A_z,uhat)
     B_form = as_vector((gradA_z[1], -gradA_z[0]))
     # dB_dAz = derivative(B_form, state_function_em)
-    
+
     VB = VectorFunctionSpace(mesh,('DG',0))
     B = Function(VB)
     project(B_form,B)
@@ -119,11 +119,11 @@ def B(A_z, uhat):
 1. Define the mesh
 '''
 
-# mesh_name = "motor_mesh_test_1"
-# data_path = "motor_data_latest_coarse/"
+mesh_name = "motor_mesh_test_1"
+data_path = "motor_data_latest_coarse/"
 
-mesh_name = "motor_mesh_coarse_1"
-data_path = "motor_data_old/"
+# mesh_name = "motor_mesh_coarse_1"
+# data_path = "motor_data_old/"
 mesh_file = data_path + mesh_name
 mesh, boundaries_mf, subdomains_mf, association_table = import_mesh(
     prefix=mesh_file,
@@ -182,7 +182,7 @@ edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
 
 input_function_mm.vector.set(0.0)
 for i in range(len(edge_deltas)):
-    input_function_mm.vector[edge_indices[i]] = 0.1*edge_deltas[i]
+    input_function_mm.vector[edge_indices[i]] = 0.01*edge_deltas[i]
 input_array = input_function_mm.x.array
 # states for mesh motion subproblem
 state_name_mm = 'uhat'
@@ -193,7 +193,7 @@ v_mm = TestFunction(state_function_space_mm)
 
 
 # ############ Strongly enforced boundary conditions (mesh_new)#############=
-
+#
 # residual_form_mm = pdeResMM(state_function_mm, v_mm)
 # ubc_mm = Function(state_function_space_mm)
 # ubc_mm.vector[:] = input_function_mm.vector
@@ -202,30 +202,30 @@ v_mm = TestFunction(state_function_space_mm)
 # locate_BC1_mm = locate_dofs_topological(input_function_space_mm, mesh.topology.dim-1, boundary_facets)
 # locate_BC_list_mm = [locate_BC1_mm,]
 # fea_mm.add_strong_bc(ubc_mm, locate_BC_list_mm)
-
-
-# # TODO: move the incremental solver outside of the FEA class, 
+#
+#
+# # TODO: move the incremental solver outside of the FEA class,
 # # and make it user-defined instead.
 # fea_mm.ubc = ubc_mm
 # #########################################################
 # dR_duhat_bc = getBCDerivatives(state_function_mm, edge_indices)
-# fea_mm.add_input(name=input_name_mm, 
+# fea_mm.add_input(name=input_name_mm,
 #                 function=input_function_mm)
 # fea_mm.add_state(name=state_name_mm,
 #                 function=state_function_mm,
 #                 residual_form=residual_form_mm,
 #                 dR_df_list=[dR_duhat_bc],
 #                 arguments=[input_name_mm])
-
+#
 
 
 ############ Weakly enforced boundary conditions #############
 ubc_mm = Function(state_function_space_mm)
 ubc_mm.vector[:] = input_function_mm.vector
 fea_mm.ubc = ubc_mm
-residual_form_mm = pdeResMM(state_function_mm, v_mm, input_function_mm, 
+residual_form_mm = pdeResMM(state_function_mm, v_mm, input_function_mm,
                                 nitsche=True, sym=True, overpenalty=True,ds_=dS(1000))
-fea_mm.add_input(name=input_name_mm, 
+fea_mm.add_input(name=input_name_mm,
                 function=input_function_mm)
 fea_mm.add_state(name=state_name_mm,
                 function=state_function_mm,
@@ -233,7 +233,7 @@ fea_mm.add_state(name=state_name_mm,
                 arguments=[input_name_mm])
 
 
-##############################################################
+#############################################################
 
 ##################### electomagnetic subproblem ######################
 fea_em = FEA(mesh)
@@ -293,7 +293,7 @@ fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
 
 
 
-fea_em.add_input(name=state_name_mm, 
+fea_em.add_input(name=state_name_mm,
                 function=state_function_mm)
 fea_em.add_state(name=state_name_em,
                 function=state_function_em,
@@ -334,7 +334,7 @@ magnetic_flux_density = B(state_function_em, state_function_mm)
 # print(sim[output_name_2])
 ############# Check the derivatives #############
 # sim.check_partials(compact_print=True)
-#sim.prob.check_totals(compact_print=True)  
+#sim.prob.check_totals(compact_print=True)
 
 # '''
 # 5. Set up the optimization problem
@@ -383,12 +383,3 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/magnetic_flux_density.xdmf", "w") as xd
     xdmf.write_mesh(fea_em.mesh)
     magnetic_flux_density.name = "B"
     xdmf.write_function(magnetic_flux_density)
-
-    
-    
-    
-    
-    
-    
-
-

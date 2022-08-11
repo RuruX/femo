@@ -146,7 +146,7 @@ class FEA(object):
         f_ex.interpolate(f_analytic.eval)
         return f_ex
 
-    def add_strong_bc(self, ubc, locate_BC_list, 
+    def add_strong_bc(self, ubc, locate_BC_list,
                     function_space=None):
         if function_space == None:
             for locate_BC in locate_BC_list:
@@ -176,10 +176,10 @@ class FEA(object):
 
                 # Get the relative movements from the previous step
                 relative_edge_deltas = func_bc.vector[:] - func.vector[:]
-                STEPS, increment_deltas = getDisplacementSteps(func_bc, 
+                STEPS, increment_deltas = getDisplacementSteps(func_bc,
                                                             relative_edge_deltas,
                                                             self.mesh)
-                print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
+                # print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
                 # newton_solver = NewtonSolver(res, func, bc, rel_tol=1e-6, report=report)
 
                 snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
@@ -196,9 +196,9 @@ class FEA(object):
 
                     # func_old.vector[:] += increment_deltas
                     func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
-                    print(func_old.x.array[np.nonzero(relative_edge_deltas)])
-                    print(func.x.array[np.nonzero(relative_edge_deltas)])
-                    print(assemble_vector(form(res)))
+                    # print(func_old.x.array[np.nonzero(relative_edge_deltas)])
+                    # print(func.x.array[np.nonzero(relative_edge_deltas)])
+                    # print(assemble_vector(form(res)))
                     # newton_solver.solve(func)
                     snes_solver.solve(None, func.vector)
 

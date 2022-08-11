@@ -4,10 +4,10 @@ Reusable functions for the PETSc and UFL operations
 
 import dolfinx
 from dolfinx.io import XDMFFile
-from ufl import (Identity, dot, derivative, TestFunction, TrialFunction, 
-                inner, ds, dx, grad, inv, as_vector, sqrt, conditional, lt, 
+from ufl import (Identity, dot, derivative, TestFunction, TrialFunction,
+                inner, ds, dx, grad, inv, as_vector, sqrt, conditional, lt,
                 det, Measure, exp, tr)
-from dolfinx.mesh import (create_unit_square, create_rectangle, 
+from dolfinx.mesh import (create_unit_square, create_rectangle,
                             locate_entities_boundary, locate_entities,
                             meshtags)
 from dolfinx.cpp.mesh import CellType
@@ -340,9 +340,9 @@ def SNESSolver(F, w, bcs=[],
     opts = PETSc.Options()
     opts['snes_type'] = 'newtonls'
     opts['snes_linesearch_type'] = 'basic'
-    # Ru: the choice of damping parameter seems to be mesh dependent; 
-    # for the fine motor mesh, it is 0.8; for the coarse mesh, it is 0.6.
-    opts['snes_linesearch_damping'] = 0.61
+    # Ru: the choice of damping parameter seems to be mesh dependent;
+    # for the fine motor mesh, it is 0.8; for the coarse mesh, it is 0.61.
+    opts['snes_linesearch_damping'] = 0.6
     opts["error_on_nonconvergence"] = False
     if report is True:
         # dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
@@ -361,7 +361,7 @@ def SNESSolver(F, w, bcs=[],
     snes.setFromOptions()
 
     return snes
-    
+
 
 def NewtonSolver(F, w, bcs=[],
                     abs_tol=1e-50,
@@ -451,7 +451,7 @@ def moveBackward(mesh, u):
     for i in range(gdim):
         ui = u.sub(i).collapse().x.array
         x[:,i] += -ui
-    
+
 def meshSize(mesh):
     tdim = mesh.topology.dim
     num_cells = mesh.topology.index_map(tdim).size_local
@@ -479,12 +479,12 @@ def getDisplacementSteps(uhat, edge_deltas, mesh):
 
 def project(v, target_func, bcs=[]):
 
-    """ 
-    Solution from 
+    """
+    Solution from
     https://fenicsproject.discourse.group/t/problem-interpolating-mixed-
     function-dolfinx/4142/6
     """
-    
+
     # Ensure we have a mesh and attach to measure
     V = target_func.function_space
     # Define variational problem for projection
@@ -499,7 +499,7 @@ def project(v, target_func, bcs=[]):
     apply_lifting(b, [form(a)], [bcs])
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
     set_bc(b, bcs)
-    
+
     solver = PETSc.KSP().create(A.getComm())
     solver.setOperators(A)
     solver.solve(b, target_func.vector)
