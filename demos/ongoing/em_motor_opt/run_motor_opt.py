@@ -114,6 +114,48 @@ def B(A_z, uhat):
     project(B_form,B)
     return B
 
+def advance(func_old,func,i,increment_deltas):
+    func_old.vector[:] = func.vector
+    func_old.vector[edge_indices.astype(np.int32)] = (i+1)*increment_deltas[edge_indices.astype(np.int32)]
+
+def solveIncremental(res,func,bc,report):
+    func_old = input_function_mm
+    # Get the relative movements from the previous step
+    relative_edge_deltas = func_old.vector[:] - func.vector[:]
+    STEPS, increment_deltas = getDisplacementSteps(func_old,
+                                                relative_edge_deltas,
+                                                mesh)
+    # print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
+    # newton_solver = NewtonSolver(res, func, bc, rel_tol=1e-6, report=report)
+
+    snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
+    # Incrementally set the BCs to increase to `edge_deltas`
+    print(80*"=")
+    print(' FEA: total steps for mesh motion:', STEPS)
+    print(80*"=")
+    for i in range(STEPS):
+        if report == True:
+            print(80*"=")
+            print("  FEA: Step "+str(i+1)+" of mesh movement")
+            print(80*"=")
+        advance(func_old,func,i,increment_deltas)
+        # func_old.vector[:] = func.vector
+        # # func_old.vector[edge_indices] = 0.0
+        # func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
+        # print(assemble_vector(form(res)))
+        # newton_solver.solve(func)
+        snes_solver.solve(None, func.vector)
+        print(func_old.x.array[np.nonzero(relative_edge_deltas)][:10])
+        print(func.x.array[np.nonzero(relative_edge_deltas)][:10])
+    # Ru: A temporary correction for the mesh movement solution to make the inner boundary
+    # curves not moving
+    advance(func,func,i,increment_deltas)
+    if report == True:
+        print(80*"=")
+        print(' FEA: L2 error of the mesh motion on the edges:',
+                    np.linalg.norm(func.vector[np.nonzero(relative_edge_deltas)]
+                             - relative_edge_deltas[np.nonzero(relative_edge_deltas)]))
+        print(80*"=")
 '''
 1. Define the mesh
 '''
@@ -171,7 +213,6 @@ fea_mm = FEA(mesh)
 
 fea_mm.PDE_SOLVER = 'SNES'
 fea_mm.REPORT = True
-fea_mm.SOLVE_INCREMENTAL = True
 fea_mm.record = True
 
 
@@ -181,10 +222,7 @@ input_function_space_mm = VectorFunctionSpace(mesh, ('CG', 1))
 input_function_mm = Function(input_function_space_mm)
 
 edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
-def advance(func_old,func,i,increment_deltas):
-    func_old.vector[:] = func.vector
-    func_old.vector[edge_indices.astype(np.int32)] = (i+1)*increment_deltas[edge_indices.astype(np.int32)]
-fea_mm.advance = advance
+fea_mm.custom_solve = solveIncremental
 input_function_mm.vector.set(0.0)
 for i in range(len(edge_deltas)):
     input_function_mm.vector[edge_indices[i]] = 0.1*edge_deltas[i]

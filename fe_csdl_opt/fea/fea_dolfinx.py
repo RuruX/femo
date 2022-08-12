@@ -27,7 +27,6 @@ class AbstractFEA(object):
     def __init__(self, **args):
 
         self.mesh = None
-        self.weak_bc = False
         self.sym_nitsche = False
         self.initFunctionSpace(self.mesh)
         self.res = None
@@ -74,7 +73,7 @@ class FEA(object):
     with methods to compute the variational forms, partial derivatives,
     and solve the nonlinear/linear subproblems.
     """
-    def __init__(self, mesh, weak_bc=False, sym_nitsche=False):
+    def __init__(self, mesh):
 
         self.mesh = mesh
 
@@ -85,19 +84,13 @@ class FEA(object):
         self.bc = []
 
         self.PDE_SOLVER = "Newton"
-        self.SOLVE_INCREMENTAL = False
         self.REPORT = True
-
-        self.weak_bc = weak_bc
-        self.sym_nitsche = sym_nitsche
 
         self.ubc = None
         self.custom_solve = None
 
         self.opt_iter = 0
         self.record = False
-
-        self.advance = None
 
     def add_input(self, name, function):
         if name in self.inputs_dict:
@@ -162,51 +155,11 @@ class FEA(object):
         Solve the PDE problem
         """
         solver_type=self.PDE_SOLVER
-        incremental=self.SOLVE_INCREMENTAL
         report=self.REPORT
-        if incremental is not True:
+        if self.custom_solve == None:
             solveNonlinear(res,func,bc,solver_type,report)
         else:
-            # self.solveNonlinear(res,func,bc,solver,report)
-            if (incremental is True and solver_type=='SNES'):
-
-                func_old = self.ubc
-                # Get the relative movements from the previous step
-                relative_edge_deltas = func_old.vector[:] - func.vector[:]
-                STEPS, increment_deltas = getDisplacementSteps(func_old,
-                                                            relative_edge_deltas,
-                                                            self.mesh)
-                # print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
-                # newton_solver = NewtonSolver(res, func, bc, rel_tol=1e-6, report=report)
-
-                snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
-                # Incrementally set the BCs to increase to `edge_deltas`
-                print(80*"=")
-                print(' FEA: total steps for mesh motion:', STEPS)
-                print(80*"=")
-                for i in range(STEPS):
-                    if report == True:
-                        print(80*"=")
-                        print("  FEA: Step "+str(i+1)+" of mesh movement")
-                        print(80*"=")
-                    self.advance(func_old,func,i,increment_deltas)
-                    # func_old.vector[:] = func.vector
-                    # # func_old.vector[edge_indices] = 0.0
-                    # func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
-                    # print(assemble_vector(form(res)))
-                    # newton_solver.solve(func)
-                    snes_solver.solve(None, func.vector)
-                    print(func_old.x.array[np.nonzero(relative_edge_deltas)][:10])
-                    print(func.x.array[np.nonzero(relative_edge_deltas)][:10])
-                # Ru: A temporary correction for the mesh movement solution to make the inner boundary
-                # curves not moving
-                self.advance(func,func,i,increment_deltas)
-                if report == True:
-                    print(80*"=")
-                    print(' FEA: L2 error of the mesh motion on the edges:',
-                                np.linalg.norm(func.vector[np.nonzero(relative_edge_deltas)]
-                                         - relative_edge_deltas[np.nonzero(relative_edge_deltas)]))
-                    print(80*"=")
+            self.custom_solve(res,func,bc,report)
 
 
     def solveLinearFwd(self, du, A, dR, dR_array):
