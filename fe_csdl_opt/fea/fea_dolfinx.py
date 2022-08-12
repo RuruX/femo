@@ -169,14 +169,9 @@ class FEA(object):
             if (incremental is True and solver_type=='SNES'):
 
                 func_old = self.ubc
-
-                # func_bc is the final step solution of the bc values
-                func_bc = Function(func.function_space)
-                func_bc.vector[:] = func_old.vector
-
                 # Get the relative movements from the previous step
-                relative_edge_deltas = func_bc.vector[:] - func.vector[:]
-                STEPS, increment_deltas = getDisplacementSteps(func_bc,
+                relative_edge_deltas = func_old.vector[:] - func.vector[:]
+                STEPS, increment_deltas = getDisplacementSteps(func_old,
                                                             relative_edge_deltas,
                                                             self.mesh)
                 # print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
@@ -193,14 +188,13 @@ class FEA(object):
                         print("  FEA: Step "+str(i+1)+" of mesh movement")
                         print(80*"=")
                     func_old.vector[:] = func.vector
-
-                    # func_old.vector[:] += increment_deltas
+                    # func_old.vector[edge_indices] = 0.0
                     func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
-                    # print(func_old.x.array[np.nonzero(relative_edge_deltas)])
-                    # print(func.x.array[np.nonzero(relative_edge_deltas)])
                     # print(assemble_vector(form(res)))
                     # newton_solver.solve(func)
                     snes_solver.solve(None, func.vector)
+                    print(func_old.x.array[np.nonzero(relative_edge_deltas)][:10])
+                    print(func.x.array[np.nonzero(relative_edge_deltas)][:10])
 
                 if report == True:
                     print(80*"=")
@@ -208,7 +202,6 @@ class FEA(object):
                                 np.linalg.norm(func.vector[np.nonzero(relative_edge_deltas)]
                                          - relative_edge_deltas[np.nonzero(relative_edge_deltas)]))
                     print(80*"=")
-
 
 
     def solveLinearFwd(self, du, A, dR, dR_array):

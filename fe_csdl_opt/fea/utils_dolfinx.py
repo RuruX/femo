@@ -6,7 +6,7 @@ import dolfinx
 from dolfinx.io import XDMFFile
 from ufl import (Identity, dot, derivative, TestFunction, TrialFunction,
                 inner, ds, dx, grad, inv, as_vector, sqrt, conditional, lt,
-                det, Measure, exp, tr)
+                det, Measure, exp, tr, CellDiameter)
 from dolfinx.mesh import (create_unit_square, create_rectangle,
                             locate_entities_boundary, locate_entities,
                             meshtags)
@@ -342,7 +342,7 @@ def SNESSolver(F, w, bcs=[],
     opts['snes_linesearch_type'] = 'basic'
     # Ru: the choice of damping parameter seems to be mesh dependent;
     # for the fine motor mesh, it is 0.8; for the coarse mesh, it is 0.61.
-    opts['snes_linesearch_damping'] = 0.6
+    opts['snes_linesearch_damping'] = 0.8
     opts["error_on_nonconvergence"] = False
     if report is True:
         # dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
@@ -469,9 +469,9 @@ def getDisplacementSteps(uhat, edge_deltas, mesh):
     min_cell_size = h.min()
     moveBackward(mesh, uhat)
     min_STEPS = round(max_disp/min_cell_size)
-    # print("maximum_disp:", max_disp)
-    # print("minimum cell size:", min_cell_size)
-    # print("minimum steps:",min_STEPS)
+    print("maximum_disp:", max_disp)
+    print("minimum cell size:", min_cell_size)
+    print("minimum steps:",min_STEPS)
     if min_STEPS >= STEPS:
         STEPS = min_STEPS
     increment_deltas = edge_deltas/STEPS

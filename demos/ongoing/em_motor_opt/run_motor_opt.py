@@ -1,4 +1,5 @@
 
+from requests import post
 from fe_csdl_opt.fea.fea_dolfinx import *
 from fe_csdl_opt.csdl_opt.fea_model import FEAModel
 from fe_csdl_opt.csdl_opt.state_model import StateModel
@@ -10,22 +11,9 @@ from matplotlib import pyplot as plt
 import argparse
 
 from motor_pde import pdeResEM
+from power_loss_model import LossSumModel, PowerLossModel
 
 I = Identity(2)
-# def pdeResMM(uhat, duhat):
-#     """
-#     The variational form of the PDE residual for the mesh motion
-#     subproblem as a fictitious elastic problem
-#     """
-#     F_m = grad(uhat) + I
-#     E_m = 0.5*(F_m.T*F_m - I)
-#     m_jac_stiff_pow = 3
-#     # Artificially stiffen the mesh where it is getting crushed:
-#     K_m = 1/pow(det(F_m),m_jac_stiff_pow)
-#     mu_m = 1/pow(det(F_m),m_jac_stiff_pow)
-#     S_m = K_m*tr(E_m)*I + 2.0*mu_m*(E_m - tr(E_m)*I/3.0)
-#     res_m = (inner(F_m*S_m,grad(duhat)))*dx
-#     return res_m
 
 def pdeResMM(uhat, duhat, uhat_bc=None,
             nitsche=False, sym=False, overpenalty=False, ds_=ds):
@@ -55,7 +43,7 @@ def pdeResMM(uhat, duhat, uhat_bc=None,
 
 
     if nitsche is True:
-        beta = 10/pow(det(F_m),3)
+        beta = 100/pow(det(F_m),3)
         sgn = 1.0
         if sym is not True:
             sgn = -1.0
@@ -64,7 +52,7 @@ def pdeResMM(uhat, duhat, uhat_bc=None,
         g = uhat_bc
         f0 = -div(P(g))
         res_m += -dot(f0, duhat)*dx
-        nitsche_1 = - inner(dot(_sigma(uhat),n),duhat)
+        nitsche_1 = - inner(dot(P_m,n),duhat)
         nitsches_term_1 = nitsche_1("+")*ds_ + nitsche_1("-")*ds_
         dP = derivative(P_m, uhat, duhat)
         nitsche_2 = sgn * inner(dP*n,uhat-g)
@@ -103,6 +91,19 @@ def B_power_form(A_z, uhat, n, dx, subdomains):
     for subdomain_id in subdomains:
         B_power_form += pow(B_magnitude, n)*J(uhat)*dx(subdomain_id)
     return B_power_form
+
+def area_form(uhat, dx, subdomains):
+    """
+    Return the ufl form of `uhat*dx(subdomains)`
+    """
+    if type(subdomains) == int:
+        subdomain_group = [subdomains]
+    else:
+        subdomain_group = subdomains
+    area = 0
+    for subdomain_id in subdomain_group:
+        area += J(uhat)*dx(subdomain_id)
+    return area
 
 def B(A_z, uhat):
     gradA_z = gradx(A_z,uhat)
@@ -166,6 +167,7 @@ s = 3 * p
 vacuum_perm = 4e-7 * np.pi
 angle = 0.
 iq = 282.2  / 0.00016231
+# iq = 282.2  / 1.0
 ##################### mesh motion subproblem ######################
 fea_mm = FEA(mesh)
 
@@ -182,8 +184,9 @@ edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
 
 input_function_mm.vector.set(0.0)
 for i in range(len(edge_deltas)):
-    input_function_mm.vector[edge_indices[i]] = 0.01*edge_deltas[i]
+    input_function_mm.vector[edge_indices[i]] = 0.1*edge_deltas[i]
 input_array = input_function_mm.x.array
+
 # states for mesh motion subproblem
 state_name_mm = 'uhat'
 state_function_space_mm = VectorFunctionSpace(mesh, ('CG', 1))
@@ -191,9 +194,31 @@ state_function_mm = Function(state_function_space_mm)
 state_function_mm.vector.set(0.0)
 v_mm = TestFunction(state_function_space_mm)
 
+# Add output to the PDE problem:
+output_name_mm_1 = 'winding_area'
+output_form_mm_1 = area_form(state_function_mm, dx, winding_id)
+output_name_mm_2 = 'magnet_area'
+output_form_mm_2 = area_form(state_function_mm, dx, magnet_id)
+output_name_mm_3 = 'steel_area'
+output_form_mm_3 = area_form(state_function_mm, dx, steel_id)
+
+# ############ Strongly enforced boundary conditions #############
+# ubc_mm = Function(state_function_space_mm)
+# ubc_mm.vector.set(0.0)
+# ######## new mesh ############
+# locate_BC1_mm = locate_dofs_geometrical((state_function_space_mm, state_function_space_mm),
+#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
+# locate_BC2_mm = locate_dofs_geometrical((state_function_space_mm, state_function_space_mm),
+#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
+
+# locate_BC_list_mm = [locate_BC1_mm, locate_BC2_mm,]
+
+
+# fea_mm.add_strong_bc(ubc_mm, locate_BC_list_mm, state_function_space_mm)
+
 
 # ############ Strongly enforced boundary conditions (mesh_new)#############=
-#
+
 # residual_form_mm = pdeResMM(state_function_mm, v_mm)
 # ubc_mm = Function(state_function_space_mm)
 # ubc_mm.vector[:] = input_function_mm.vector
@@ -202,8 +227,8 @@ v_mm = TestFunction(state_function_space_mm)
 # locate_BC1_mm = locate_dofs_topological(input_function_space_mm, mesh.topology.dim-1, boundary_facets)
 # locate_BC_list_mm = [locate_BC1_mm,]
 # fea_mm.add_strong_bc(ubc_mm, locate_BC_list_mm)
-#
-#
+
+
 # # TODO: move the incremental solver outside of the FEA class,
 # # and make it user-defined instead.
 # fea_mm.ubc = ubc_mm
@@ -216,15 +241,14 @@ v_mm = TestFunction(state_function_space_mm)
 #                 residual_form=residual_form_mm,
 #                 dR_df_list=[dR_duhat_bc],
 #                 arguments=[input_name_mm])
-#
+
 
 
 ############ Weakly enforced boundary conditions #############
-ubc_mm = Function(state_function_space_mm)
-ubc_mm.vector[:] = input_function_mm.vector
-fea_mm.ubc = ubc_mm
+
+fea_mm.ubc = input_function_mm
 residual_form_mm = pdeResMM(state_function_mm, v_mm, input_function_mm,
-                                nitsche=True, sym=True, overpenalty=True,ds_=dS(1000))
+                                nitsche=True, sym=True, overpenalty=False,ds_=dS(1000))
 fea_mm.add_input(name=input_name_mm,
                 function=input_function_mm)
 fea_mm.add_state(name=state_name_mm,
@@ -233,6 +257,18 @@ fea_mm.add_state(name=state_name_mm,
                 arguments=[input_name_mm])
 
 
+fea_mm.add_output(name=output_name_mm_1,
+                type='scalar',
+                form=output_form_mm_1,
+                arguments=[state_name_mm])
+fea_mm.add_output(name=output_name_mm_2,
+                type='scalar',
+                form=output_form_mm_2,
+                arguments=[state_name_mm])
+fea_mm.add_output(name=output_name_mm_3,
+                type='scalar',
+                form=output_form_mm_3,
+                arguments=[state_name_mm])
 #############################################################
 
 ##################### electomagnetic subproblem ######################
@@ -244,7 +280,7 @@ fea_em.REPORT = True
 # Add input to the PDE problem: the inputs as the previous states
 
 # Add state to the PDE problem:
-# states for electromagnetic equation
+# states for electromagnetic equation: magnetic potential vector
 state_name_em = 'A_z'
 state_function_space_em = FunctionSpace(mesh, ('CG', 1))
 state_function_em = Function(state_function_space_em)
@@ -275,19 +311,20 @@ output_form_2 = B_power_form(state_function_em, state_function_mm,
 ############ Strongly enforced boundary conditions #############
 ubc_em = Function(state_function_space_em)
 ubc_em.vector.set(0.0)
-######### new mesh ############
-# locate_BC1 = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
-#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
-# locate_BC2 = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
-#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
-
-# locate_BC_list = [locate_BC1, locate_BC2,]
-
-######### old mesh ############
+######## new mesh ############
 locate_BC1_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
+locate_BC2_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
+                            lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
 
-locate_BC_list_em = [locate_BC1_em, ]
+locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
+
+# ######### old mesh ############
+# locate_BC1_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
+#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
+
+# locate_BC_list_em = [locate_BC1_em, ]
+
 fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
 
 
@@ -315,23 +352,41 @@ fea_em.add_output(name=output_name_2,
 '''
 fea_model = FEAModel(fea=[fea_mm,fea_em])
 # fea_model = FEAModel(fea=[fea_mm])
-fea_model.create_input("{}".format(input_name_mm),
+
+# Case-to-case postprocessor model
+model = csdl.Model()
+power_loss_model = PowerLossModel()
+loss_sum_model = LossSumModel()
+model.add(fea_model, name='fea_model', promotes=['*'])
+model.add(power_loss_model, name='power_loss_model', promotes=['*'])
+model.add(loss_sum_model, name='loss_sum_model', promotes=['*'])
+model.create_input("{}".format(input_name_mm),
                             shape=fea_mm.inputs_dict[input_name_mm]['shape'],
-                            val=input_array)
-# fea_model.add_design_variable(input_name)
-# fea_model.add_objective(output_name)
+                            val=0.0)
+model.add_design_variable(input_name_mm)
+model.add_objective('loss_sum')
 
-sim = Simulator(fea_model)
+sim = Simulator(model)
 
-########### Test the forward solve ##############
-#sim[input_name] = getFuncArray(f_ex)
+########### Generate the N2 diagram #############
+# sim.visualize_implementation()
 
+
+# ########### Test the forward solve ##############
+sim[input_name_mm] = input_array
 sim.run()
 
 magnetic_flux_density = B(state_function_em, state_function_mm)
 
-# print(sim[output_name_1])
-# print(sim[output_name_2])
+print("Actual B_influence_eddy_current", sim[output_name_1])
+print("Actual B_influence_hysteresis", sim[output_name_2])
+print("Winding area", sim[output_name_mm_1])
+print("Magnet area", sim[output_name_mm_2])
+print("Steel area", sim[output_name_mm_3])
+print("Eddy current loss", sim['eddy_current_loss'])
+print("Hysteresis loss", sim['hysteresis_loss'])
+print("Loss sum", sim['loss_sum'])
+
 ############# Check the derivatives #############
 # sim.check_partials(compact_print=True)
 #sim.prob.check_totals(compact_print=True)
@@ -363,8 +418,6 @@ magnetic_flux_density = B(state_function_em, state_function_mm)
 # print("="*40)
 
 
-move(fea_mm.mesh, state_function_mm)
-move(fea_em.mesh, state_function_mm)
 with XDMFFile(MPI.COMM_WORLD, "solutions/input_"+input_name_mm+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea_mm.mesh)
     fea_mm.inputs_dict[input_name_mm]['function'].name = input_name_mm
@@ -374,6 +427,8 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_mm+".xdmf", "w") as 
     fea_mm.states_dict[state_name_mm]['function'].name = state_name_mm
     xdmf.write_function(fea_mm.states_dict[state_name_mm]['function'])
 
+move(fea_mm.mesh, state_function_mm)
+move(fea_em.mesh, state_function_mm)
 with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_em+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea_em.mesh)
     fea_em.states_dict[state_name_em]['function'].name = state_name_em
