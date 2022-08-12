@@ -92,10 +92,12 @@ class FEA(object):
         self.sym_nitsche = sym_nitsche
 
         self.ubc = None
-        self.solver = None
+        self.custom_solve = None
 
         self.opt_iter = 0
         self.record = False
+
+        self.advance = None
 
     def add_input(self, name, function):
         if name in self.inputs_dict:
@@ -187,15 +189,18 @@ class FEA(object):
                         print(80*"=")
                         print("  FEA: Step "+str(i+1)+" of mesh movement")
                         print(80*"=")
-                    func_old.vector[:] = func.vector
-                    # func_old.vector[edge_indices] = 0.0
-                    func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
+                    self.advance(func_old,func,i,increment_deltas)
+                    # func_old.vector[:] = func.vector
+                    # # func_old.vector[edge_indices] = 0.0
+                    # func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
                     # print(assemble_vector(form(res)))
                     # newton_solver.solve(func)
                     snes_solver.solve(None, func.vector)
                     print(func_old.x.array[np.nonzero(relative_edge_deltas)][:10])
                     print(func.x.array[np.nonzero(relative_edge_deltas)][:10])
-
+                # Ru: A temporary correction for the mesh movement solution to make the inner boundary
+                # curves not moving
+                self.advance(func,func,i,increment_deltas)
                 if report == True:
                     print(80*"=")
                     print(' FEA: L2 error of the mesh motion on the edges:',

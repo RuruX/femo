@@ -15,7 +15,7 @@ from power_loss_model import LossSumModel, PowerLossModel
 
 I = Identity(2)
 
-def pdeResMM(uhat, duhat, uhat_bc=None,
+def pdeResMM(uhat, duhat, g=None,
             nitsche=False, sym=False, overpenalty=False, ds_=ds):
     """
     Formulation of mesh motion as a hyperelastic problem
@@ -43,13 +43,12 @@ def pdeResMM(uhat, duhat, uhat_bc=None,
 
 
     if nitsche is True:
-        beta = 100/pow(det(F_m),3)
+        beta = 50/pow(det(F_m),3)
         sgn = 1.0
         if sym is not True:
             sgn = -1.0
         n = FacetNormal(mesh)
         h_E = CellDiameter(mesh)
-        g = uhat_bc
         f0 = -div(P(g))
         res_m += -dot(f0, duhat)*dx
         nitsche_1 = - inner(dot(P_m,n),duhat)
@@ -115,7 +114,6 @@ def B(A_z, uhat):
     project(B_form,B)
     return B
 
-
 '''
 1. Define the mesh
 '''
@@ -175,13 +173,18 @@ fea_mm.PDE_SOLVER = 'SNES'
 fea_mm.REPORT = True
 fea_mm.SOLVE_INCREMENTAL = True
 fea_mm.record = True
+
+
 # inputs for mesh motion subproblem
 input_name_mm = 'uhat_bc'
 input_function_space_mm = VectorFunctionSpace(mesh, ('CG', 1))
 input_function_mm = Function(input_function_space_mm)
 
 edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
-
+def advance(func_old,func,i,increment_deltas):
+    func_old.vector[:] = func.vector
+    func_old.vector[edge_indices.astype(np.int32)] = (i+1)*increment_deltas[edge_indices.astype(np.int32)]
+fea_mm.advance = advance
 input_function_mm.vector.set(0.0)
 for i in range(len(edge_deltas)):
     input_function_mm.vector[edge_indices[i]] = 0.1*edge_deltas[i]
@@ -247,7 +250,7 @@ output_form_mm_3 = area_form(state_function_mm, dx, steel_id)
 ############ Weakly enforced boundary conditions #############
 
 fea_mm.ubc = input_function_mm
-residual_form_mm = pdeResMM(state_function_mm, v_mm, input_function_mm,
+residual_form_mm = pdeResMM(state_function_mm, v_mm, g=input_function_mm,
                                 nitsche=True, sym=True, overpenalty=False,ds_=dS(1000))
 fea_mm.add_input(name=input_name_mm,
                 function=input_function_mm)
@@ -428,7 +431,6 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_mm+".xdmf", "w") as 
     xdmf.write_function(fea_mm.states_dict[state_name_mm]['function'])
 
 move(fea_mm.mesh, state_function_mm)
-move(fea_em.mesh, state_function_mm)
 with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_em+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea_em.mesh)
     fea_em.states_dict[state_name_em]['function'].name = state_name_em
