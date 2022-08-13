@@ -115,3 +115,131 @@ def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle):
     res -= JS(v,uhat,iq,p,s,Hc,angle)
     return res
 
+
+I = Identity(2)
+
+def pdeResMM(uhat, duhat, g=None,
+            nitsche=False, sym=False, overpenalty=False, ds_=ds):
+    """
+    Formulation of mesh motion as a hyperelastic problem
+    """
+    mesh = uhat.function_space.mesh
+    # Residual for mesh, which satisfies a fictitious elastic problem:
+    def _F(u):
+        return grad(u)+I
+    def _sigma(u):
+        F = _F(u)
+        E = 0.5*(F.T*F-I)
+        m_jac_stiff_pow = 3
+        # Artificially stiffen the mesh where it is getting crushed:
+        K = 1/pow(det(F),m_jac_stiff_pow)
+        mu = 1/pow(det(F),m_jac_stiff_pow)
+        S = K*tr(E)*I + 2.0*mu*(E - tr(E)*I/3.0)
+        return S
+    def P(u):
+        return _F(u)*_sigma(u)
+
+    F_m = _F(uhat)
+    S_m = _sigma(uhat)
+    P_m = P(uhat)
+    dS_m = _sigma(duhat)
+    res_m = (inner(P_m,grad(duhat)))*dx
+
+
+    if nitsche is True:
+        beta = 50/pow(det(F_m),3)
+        sgn = 1.0
+        if sym is not True:
+            sgn = -1.0
+        n = FacetNormal(mesh)
+        h_E = CellDiameter(mesh)
+        f0 = -div(P(g))
+        res_m += -dot(f0, duhat)*dx
+        nitsche_1 = - inner(dot(P_m,n),duhat)
+        nitsches_term_1 = nitsche_1("+")*ds_ + nitsche_1("-")*ds_
+        dP = derivative(P_m, uhat, duhat)
+        nitsche_2 = sgn * inner(dP*n,uhat-g)
+        nitsches_term_2 = nitsche_2("+")*ds_ + nitsche_2("-")*ds_
+        penalty = beta/h_E*inner(duhat,uhat-g)
+        penalty_term = penalty("+")*ds_ + penalty("-")*ds_
+        res_m += nitsches_term_1
+        res_m += nitsches_term_2
+        if sym is True or overpenalty is True:
+            res_m += penalty_term
+    return res_m
+
+# Ru: not used in Nitsche's method
+# def getBCDerivatives(uhat, bc_indices):
+#     """
+#     Compute the derivatives of the PDE residual of the mesh motion
+#     subproblem wrt the BCs, which is a fixed sparse matrix with "-1"s
+#     on the entries corresponding to the edge indices.
+#     """
+#     total_dofs = len(uhat.x.array)
+#     total_dofs_bc = len(bc_indices)
+#     row_ind = bc_indices
+#     col_ind = bc_indices
+#     data = -1.0*np.ones(total_dofs_bc)
+#     M = csr_matrix((data, (row_ind, col_ind)),
+#                     shape=(total_dofs, total_dofs))
+#     M_petsc = PETSc.Mat().createAIJ(size=M.shape,csr=(M.indptr,M.indices,M.data))
+#     return M_petsc
+
+def B_power_form(A_z, uhat, n, dx, subdomains):
+    """
+    Return the ufl form of `B**n*dx(subdomains)`
+    """
+
+    mesh = uhat.function_space.mesh
+    gradA_z = gradx(A_z,uhat)
+    B_power_form = 0.
+    B_magnitude = sqrt(gradA_z[0]**2+gradA_z[1]**2)
+    for subdomain_id in subdomains:
+        B_power_form += pow(B_magnitude, n)*J(uhat)*dx(subdomain_id)
+    return B_power_form
+
+def area_form(uhat, dx, subdomains):
+    """
+    Return the ufl form of `uhat*dx(subdomains)`
+    """
+    if type(subdomains) == int:
+        subdomain_group = [subdomains]
+    else:
+        subdomain_group = subdomains
+    area = 0
+    for subdomain_id in subdomain_group:
+        area += J(uhat)*dx(subdomain_id)
+    return area
+
+def B(A_z, uhat):
+    gradA_z = gradx(A_z,uhat)
+    B_form = as_vector((gradA_z[1], -gradA_z[0]))
+    # dB_dAz = derivative(B_form, state_function_em)
+
+    mesh = uhat.function_space.mesh
+    VB = VectorFunctionSpace(mesh,('DG',0))
+    B = Function(VB)
+    project(B_form,B)
+    return B
+
+def getDisplacementSteps(uhat, edge_deltas):
+    """
+    Divide the edge movements into steps based on the current mesh size
+    """
+
+    mesh = uhat.function_space.mesh
+    STEPS = 2
+    max_disp = np.max(np.abs(edge_deltas))
+    h = meshSize(mesh)
+    move(mesh, uhat)
+    min_cell_size = h.min()
+    moveBackward(mesh, uhat)
+    min_STEPS = 4*round(max_disp/min_cell_size)
+    print("maximum_disp:", max_disp)
+    print("minimum cell size:", min_cell_size)
+    print("minimum steps:",min_STEPS)
+    if min_STEPS >= STEPS:
+        STEPS = min_STEPS
+    increment_deltas = edge_deltas/STEPS
+    return STEPS, increment_deltas
+

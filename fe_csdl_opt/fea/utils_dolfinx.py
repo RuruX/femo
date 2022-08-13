@@ -468,7 +468,7 @@ def getDisplacementSteps(uhat, edge_deltas, mesh):
     move(mesh, uhat)
     min_cell_size = h.min()
     moveBackward(mesh, uhat)
-    min_STEPS = round(max_disp/min_cell_size)
+    min_STEPS = 10*round(max_disp/min_cell_size)
     print("maximum_disp:", max_disp)
     print("minimum cell size:", min_cell_size)
     print("minimum steps:",min_STEPS)

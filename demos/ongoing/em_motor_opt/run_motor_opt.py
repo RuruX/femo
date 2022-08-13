@@ -10,158 +10,20 @@ from csdl_om import Simulator
 from matplotlib import pyplot as plt
 import argparse
 
-from motor_pde import pdeResEM
+import motor_pde as pde
 from power_loss_model import LossSumModel, PowerLossModel
-
-I = Identity(2)
-
-def pdeResMM(uhat, duhat, g=None,
-            nitsche=False, sym=False, overpenalty=False, ds_=ds):
-    """
-    Formulation of mesh motion as a hyperelastic problem
-    """
-    # Residual for mesh, which satisfies a fictitious elastic problem:
-    def _F(u):
-        return grad(u)+I
-    def _sigma(u):
-        F = _F(u)
-        E = 0.5*(F.T*F-I)
-        m_jac_stiff_pow = 3
-        # Artificially stiffen the mesh where it is getting crushed:
-        K = 1/pow(det(F),m_jac_stiff_pow)
-        mu = 1/pow(det(F),m_jac_stiff_pow)
-        S = K*tr(E)*I + 2.0*mu*(E - tr(E)*I/3.0)
-        return S
-    def P(u):
-        return _F(u)*_sigma(u)
-
-    F_m = _F(uhat)
-    S_m = _sigma(uhat)
-    P_m = P(uhat)
-    dS_m = _sigma(duhat)
-    res_m = (inner(P_m,grad(duhat)))*dx
+from ffd_model import FFDModel
 
 
-    if nitsche is True:
-        beta = 50/pow(det(F_m),3)
-        sgn = 1.0
-        if sym is not True:
-            sgn = -1.0
-        n = FacetNormal(mesh)
-        h_E = CellDiameter(mesh)
-        f0 = -div(P(g))
-        res_m += -dot(f0, duhat)*dx
-        nitsche_1 = - inner(dot(P_m,n),duhat)
-        nitsches_term_1 = nitsche_1("+")*ds_ + nitsche_1("-")*ds_
-        dP = derivative(P_m, uhat, duhat)
-        nitsche_2 = sgn * inner(dP*n,uhat-g)
-        nitsches_term_2 = nitsche_2("+")*ds_ + nitsche_2("-")*ds_
-        penalty = beta/h_E*inner(duhat,uhat-g)
-        penalty_term = penalty("+")*ds_ + penalty("-")*ds_
-        res_m += nitsches_term_1
-        res_m += nitsches_term_2
-        if sym is True or overpenalty is True:
-            res_m += penalty_term
-    return res_m
-
-def getBCDerivatives(uhat, bc_indices):
-    """
-    Compute the derivatives of the PDE residual of the mesh motion
-    subproblem wrt the BCs, which is a fixed sparse matrix with "-1"s
-    on the entries corresponding to the edge indices.
-    """
-    total_dofs = len(uhat.x.array)
-    total_dofs_bc = len(bc_indices)
-    row_ind = bc_indices
-    col_ind = bc_indices
-    data = -1.0*np.ones(total_dofs_bc)
-    M = csr_matrix((data, (row_ind, col_ind)),
-                    shape=(total_dofs, total_dofs))
-    M_petsc = PETSc.Mat().createAIJ(size=M.shape,csr=(M.indptr,M.indices,M.data))
-    return M_petsc
-
-def B_power_form(A_z, uhat, n, dx, subdomains):
-    """
-    Return the ufl form of `B**n*dx(subdomains)`
-    """
-    gradA_z = gradx(A_z,uhat)
-    B_power_form = 0.
-    B_magnitude = sqrt(gradA_z[0]**2+gradA_z[1]**2)
-    for subdomain_id in subdomains:
-        B_power_form += pow(B_magnitude, n)*J(uhat)*dx(subdomain_id)
-    return B_power_form
-
-def area_form(uhat, dx, subdomains):
-    """
-    Return the ufl form of `uhat*dx(subdomains)`
-    """
-    if type(subdomains) == int:
-        subdomain_group = [subdomains]
-    else:
-        subdomain_group = subdomains
-    area = 0
-    for subdomain_id in subdomain_group:
-        area += J(uhat)*dx(subdomain_id)
-    return area
-
-def B(A_z, uhat):
-    gradA_z = gradx(A_z,uhat)
-    B_form = as_vector((gradA_z[1], -gradA_z[0]))
-    # dB_dAz = derivative(B_form, state_function_em)
-
-    VB = VectorFunctionSpace(mesh,('DG',0))
-    B = Function(VB)
-    project(B_form,B)
-    return B
-
-def advance(func_old,func,i,increment_deltas):
-    func_old.vector[:] = func.vector
-    func_old.vector[edge_indices.astype(np.int32)] = (i+1)*increment_deltas[edge_indices.astype(np.int32)]
-
-def solveIncremental(res,func,bc,report):
-    func_old = input_function_mm
-    # Get the relative movements from the previous step
-    relative_edge_deltas = func_old.vector[:] - func.vector[:]
-    STEPS, increment_deltas = getDisplacementSteps(func_old,
-                                                relative_edge_deltas,
-                                                mesh)
-    # print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
-    # newton_solver = NewtonSolver(res, func, bc, rel_tol=1e-6, report=report)
-
-    snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
-    # Incrementally set the BCs to increase to `edge_deltas`
-    print(80*"=")
-    print(' FEA: total steps for mesh motion:', STEPS)
-    print(80*"=")
-    for i in range(STEPS):
-        if report == True:
-            print(80*"=")
-            print("  FEA: Step "+str(i+1)+" of mesh movement")
-            print(80*"=")
-        advance(func_old,func,i,increment_deltas)
-        # func_old.vector[:] = func.vector
-        # # func_old.vector[edge_indices] = 0.0
-        # func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
-        # print(assemble_vector(form(res)))
-        # newton_solver.solve(func)
-        snes_solver.solve(None, func.vector)
-        print(func_old.x.array[np.nonzero(relative_edge_deltas)][:10])
-        print(func.x.array[np.nonzero(relative_edge_deltas)][:10])
-    # Ru: A temporary correction for the mesh movement solution to make the inner boundary
-    # curves not moving
-    advance(func,func,i,increment_deltas)
-    if report == True:
-        print(80*"=")
-        print(' FEA: L2 error of the mesh motion on the edges:',
-                    np.linalg.norm(func.vector[np.nonzero(relative_edge_deltas)]
-                             - relative_edge_deltas[np.nonzero(relative_edge_deltas)]))
-        print(80*"=")
 '''
 1. Define the mesh
 '''
 
 mesh_name = "motor_mesh_test_1"
-data_path = "motor_data_latest_coarse/"
+data_path = "motor_data_latest_medium/"
+# data_path = "motor_data_latest_coarse/"
+
+
 
 # mesh_name = "motor_mesh_coarse_1"
 # data_path = "motor_data_old/"
@@ -221,8 +83,72 @@ input_name_mm = 'uhat_bc'
 input_function_space_mm = VectorFunctionSpace(mesh, ('CG', 1))
 input_function_mm = Function(input_function_space_mm)
 
-edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
+edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)############ User-defined incremental solver ###########
+def getDisplacementSteps(uhat, edge_deltas):
+    """
+    Divide the edge movements into steps based on the current mesh size
+    """
+
+    mesh = uhat.function_space.mesh
+    STEPS = 2
+    max_disp = np.max(np.abs(edge_deltas))
+    h = meshSize(mesh)
+    move(mesh, uhat)
+    min_cell_size = h.min()
+    moveBackward(mesh, uhat)
+    min_STEPS = 4*round(max_disp/min_cell_size)
+    print("maximum_disp:", max_disp)
+    print("minimum cell size:", min_cell_size)
+    print("minimum steps:",min_STEPS)
+    if min_STEPS >= STEPS:
+        STEPS = min_STEPS
+    increment_deltas = edge_deltas/STEPS
+    return STEPS, increment_deltas
+
+def advance(func_old,func,i,increment_deltas):
+    func_old.vector[:] = func.vector
+    func_old.vector[edge_indices.astype(np.int32)] = (i+1)*increment_deltas[edge_indices.astype(np.int32)]
+
+def solveIncremental(res,func,bc,report):
+    func_old = input_function_mm
+    # Get the relative movements from the previous step
+    relative_edge_deltas = func_old.vector[:] - func.vector[:]
+    STEPS, increment_deltas = getDisplacementSteps(func_old,
+                                                relative_edge_deltas)
+    # print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
+    # newton_solver = NewtonSolver(res, func, bc, rel_tol=1e-6, report=report)
+
+    snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
+    # Incrementally set the BCs to increase to `edge_deltas`
+    print(80*"=")
+    print(' FEA: total steps for mesh motion:', STEPS)
+    print(80*"=")
+    for i in range(STEPS):
+        if report == True:
+            print(80*"=")
+            print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of mesh movement")
+            print(80*"=")
+        advance(func_old,func,i,increment_deltas)
+        # func_old.vector[:] = func.vector
+        # # func_old.vector[edge_indices] = 0.0
+        # func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
+        # print(assemble_vector(form(res)))
+        # newton_solver.solve(func)
+        snes_solver.solve(None, func.vector)
+        # print(func_old.x.array[np.nonzero(relative_edge_deltas)][:10])
+        # print(func.x.array[np.nonzero(relative_edge_deltas)][:10])
+    # Ru: A temporary correction for the mesh movement solution to make the inner boundary
+    # curves not moving
+    advance(func,func,i,increment_deltas)
+    if report == True:
+        print(80*"=")
+        print(' FEA: L2 error of the mesh motion on the edges:',
+                    np.linalg.norm(func.vector[np.nonzero(relative_edge_deltas)]
+                             - relative_edge_deltas[np.nonzero(relative_edge_deltas)]))
+        print(80*"=")
+
 fea_mm.custom_solve = solveIncremental
+
 input_function_mm.vector.set(0.0)
 for i in range(len(edge_deltas)):
     input_function_mm.vector[edge_indices[i]] = 0.1*edge_deltas[i]
@@ -237,11 +163,11 @@ v_mm = TestFunction(state_function_space_mm)
 
 # Add output to the PDE problem:
 output_name_mm_1 = 'winding_area'
-output_form_mm_1 = area_form(state_function_mm, dx, winding_id)
+output_form_mm_1 = pde.area_form(state_function_mm, dx, winding_id)
 output_name_mm_2 = 'magnet_area'
-output_form_mm_2 = area_form(state_function_mm, dx, magnet_id)
+output_form_mm_2 = pde.area_form(state_function_mm, dx, magnet_id)
 output_name_mm_3 = 'steel_area'
-output_form_mm_3 = area_form(state_function_mm, dx, steel_id)
+output_form_mm_3 = pde.area_form(state_function_mm, dx, steel_id)
 
 # ############ Strongly enforced boundary conditions #############
 # ubc_mm = Function(state_function_space_mm)
@@ -288,7 +214,7 @@ output_form_mm_3 = area_form(state_function_mm, dx, steel_id)
 ############ Weakly enforced boundary conditions #############
 
 fea_mm.ubc = input_function_mm
-residual_form_mm = pdeResMM(state_function_mm, v_mm, g=input_function_mm,
+residual_form_mm = pde.pdeResMM(state_function_mm, v_mm, g=input_function_mm,
                                 nitsche=True, sym=True, overpenalty=False,ds_=dS(1000))
 fea_mm.add_input(name=input_name_mm,
                 function=input_function_mm)
@@ -327,7 +253,7 @@ state_function_space_em = FunctionSpace(mesh, ('CG', 1))
 state_function_em = Function(state_function_space_em)
 v_em = TestFunction(state_function_space_em)
 
-residual_form_em = pdeResEM(state_function_em,v_em,state_function_mm,iq,dx,p,s,Hc,vacuum_perm,angle)
+residual_form_em = pde.pdeResEM(state_function_em,v_em,state_function_mm,iq,dx,p,s,Hc,vacuum_perm,angle)
 
 
 
@@ -335,13 +261,13 @@ residual_form_em = pdeResEM(state_function_em,v_em,state_function_mm,iq,dx,p,s,H
 output_name_1 = 'B_influence_eddy_current'
 exponent_1 = 2
 subdomains_1 = [1,2]
-output_form_1 = B_power_form(state_function_em, state_function_mm,
+output_form_1 = pde.B_power_form(state_function_em, state_function_mm,
                             exponent_1, dx, subdomains_1)
 
 output_name_2 = 'B_influence_hysteresis'
 exponent_2 = 1.76835 # Material parameter for Hiperco 50
 subdomains_2 = [1,2]
-output_form_2 = B_power_form(state_function_em, state_function_mm,
+output_form_2 = pde.B_power_form(state_function_em, state_function_mm,
                             exponent_2, dx, subdomains_2)
 
 
@@ -417,7 +343,7 @@ sim = Simulator(model)
 sim[input_name_mm] = input_array
 sim.run()
 
-magnetic_flux_density = B(state_function_em, state_function_mm)
+magnetic_flux_density = pde.B(state_function_em, state_function_mm)
 
 print("Actual B_influence_eddy_current", sim[output_name_1])
 print("Actual B_influence_hysteresis", sim[output_name_2])
@@ -429,7 +355,7 @@ print("Hysteresis loss", sim['hysteresis_loss'])
 print("Loss sum", sim['loss_sum'])
 
 ############# Check the derivatives #############
-# sim.check_partials(compact_print=True)
+sim.check_partials(compact_print=True)
 #sim.prob.check_totals(compact_print=True)
 
 # '''
@@ -468,7 +394,7 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_mm+".xdmf", "w") as 
     fea_mm.states_dict[state_name_mm]['function'].name = state_name_mm
     xdmf.write_function(fea_mm.states_dict[state_name_mm]['function'])
 
-move(fea_mm.mesh, state_function_mm)
+move(fea_em.mesh, state_function_mm)
 with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_em+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea_em.mesh)
     fea_em.states_dict[state_name_em]['function'].name = state_name_em
