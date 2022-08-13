@@ -458,24 +458,7 @@ def meshSize(mesh):
     h = dolfinx.cpp.mesh.h(mesh, tdim, range(num_cells))
     return h
 
-def getDisplacementSteps(uhat, edge_deltas, mesh):
-    """
-    Divide the edge movements into steps based on the current mesh size
-    """
-    STEPS = 2
-    max_disp = np.max(np.abs(edge_deltas))
-    h = meshSize(mesh)
-    move(mesh, uhat)
-    min_cell_size = h.min()
-    moveBackward(mesh, uhat)
-    min_STEPS = 10*round(max_disp/min_cell_size)
-    print("maximum_disp:", max_disp)
-    print("minimum cell size:", min_cell_size)
-    print("minimum steps:",min_STEPS)
-    if min_STEPS >= STEPS:
-        STEPS = min_STEPS
-    increment_deltas = edge_deltas/STEPS
-    return STEPS, increment_deltas
+
 
 def project(v, target_func, bcs=[]):
 
