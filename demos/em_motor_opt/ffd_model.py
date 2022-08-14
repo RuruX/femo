@@ -11,7 +11,7 @@ class ShapeParameterUpdateModel(csdl.Model):
 
     def define(self):
         unique_shape_parameter_list = self.parameters['unique_shape_parameter_list']
-        print(unique_shape_parameter_list)
+        # print(unique_shape_parameter_list)
         '''
         COMPUTATION OF MAP BETWEEN DESIGN VARIABLES AND SHAPE PARAMETERS
 
@@ -122,10 +122,10 @@ if __name__ == '__main__':
     mm.create_motor_mesh()
     parametrization_dict    = mm.ffd_param_dict # dictionary holding parametrization parameters
     unique_sp_list = sorted(set(parametrization_dict['shape_parameter_list_input']))
-    print(unique_sp_list)
+    # print(unique_sp_list)
 
     ''' FFD MODEL '''
-    print('Starting FFD CSDL Model')
+    # print('Starting FFD CSDL Model')
     ffd_connection_model = FFDModel(
         parametrization_dict=parametrization_dict
     )

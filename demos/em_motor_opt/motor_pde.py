@@ -222,24 +222,4 @@ def B(A_z, uhat):
     project(B_form,B)
     return B
 
-def getDisplacementSteps(uhat, edge_deltas):
-    """
-    Divide the edge movements into steps based on the current mesh size
-    """
-
-    mesh = uhat.function_space.mesh
-    STEPS = 2
-    max_disp = np.max(np.abs(edge_deltas))
-    h = meshSize(mesh)
-    move(mesh, uhat)
-    min_cell_size = h.min()
-    moveBackward(mesh, uhat)
-    min_STEPS = 4*round(max_disp/min_cell_size)
-    print("maximum_disp:", max_disp)
-    print("minimum cell size:", min_cell_size)
-    print("minimum steps:",min_STEPS)
-    if min_STEPS >= STEPS:
-        STEPS = min_STEPS
-    increment_deltas = edge_deltas/STEPS
-    return STEPS, increment_deltas
 

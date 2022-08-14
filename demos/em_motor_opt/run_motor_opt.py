@@ -45,10 +45,8 @@ mm.baseline_geometry=True
 mm.create_motor_mesh()
 parametrization_dict    = mm.ffd_param_dict # dictionary holding parametrization parameters
 unique_sp_list = sorted(set(parametrization_dict['shape_parameter_list_input']))
-# print(unique_sp_list)
 
-''' FFD MODEL '''
-print('Starting FFD CSDL Model')
+# FFD MODEL 
 ffd_connection_model = FFDModel(
     parametrization_dict=parametrization_dict
 )
@@ -62,10 +60,6 @@ mesh_name = "motor_mesh_test_1"
 data_path = "motor_data_latest_medium/"
 # data_path = "motor_data_latest_coarse/"
 
-
-
-# mesh_name = "motor_mesh_coarse_1"
-# data_path = "motor_data_old/"
 mesh_file = data_path + mesh_name
 mesh, boundaries_mf, subdomains_mf, association_table = import_mesh(
     prefix=mesh_file,
@@ -151,6 +145,7 @@ boundary_input_model = BoundaryInputModel(edge_indices=edge_indices,
 
 # print("error in edge_deltas:", np.linalg.norm(edge_deltas_csdl-edge_deltas))
 # print("error in uhat_bc:", np.where(uhat_bc_csdl-input_array > 1e-4))
+
 ############ User-defined incremental solver ###########
 def getDisplacementSteps(uhat, edge_deltas):
     """
@@ -165,9 +160,9 @@ def getDisplacementSteps(uhat, edge_deltas):
     min_cell_size = h.min()
     moveBackward(mesh, uhat)
     min_STEPS = 4*round(max_disp/min_cell_size)
-    print("maximum_disp:", max_disp)
-    print("minimum cell size:", min_cell_size)
-    print("minimum steps:",min_STEPS)
+    # print("maximum_disp:", max_disp)
+    # print("minimum cell size:", min_cell_size)
+    # print("minimum steps:",min_STEPS)
     if min_STEPS >= STEPS:
         STEPS = min_STEPS
     increment_deltas = edge_deltas/STEPS
@@ -217,11 +212,6 @@ def solveIncremental(res,func,bc,report):
 
 fea_mm.custom_solve = solveIncremental
 
-# input_function_mm.vector.set(0.0)
-# for i in range(len(edge_deltas)):
-#     input_function_mm.vector[edge_indices[i]] = 0.1*edge_deltas[i]
-# input_array = input_function_mm.x.array
-
 # states for mesh motion subproblem
 state_name_mm = 'uhat'
 state_function_space_mm = VectorFunctionSpace(mesh, ('CG', 1))
@@ -237,22 +227,8 @@ output_form_mm_2 = pde.area_form(state_function_mm, dx, magnet_id)
 output_name_mm_3 = 'steel_area'
 output_form_mm_3 = pde.area_form(state_function_mm, dx, steel_id)
 
-# ############ Strongly enforced boundary conditions #############
-# ubc_mm = Function(state_function_space_mm)
-# ubc_mm.vector.set(0.0)
-# ######## new mesh ############
-# locate_BC1_mm = locate_dofs_geometrical((state_function_space_mm, state_function_space_mm),
-#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
-# locate_BC2_mm = locate_dofs_geometrical((state_function_space_mm, state_function_space_mm),
-#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
 
-# locate_BC_list_mm = [locate_BC1_mm, locate_BC2_mm,]
-
-
-# fea_mm.add_strong_bc(ubc_mm, locate_BC_list_mm, state_function_space_mm)
-
-
-# ############ Strongly enforced boundary conditions (mesh_new)#############=
+# ############ Strongly enforced boundary conditions #############=
 
 # residual_form_mm = pdeResMM(state_function_mm, v_mm)
 # ubc_mm = Function(state_function_space_mm)
@@ -304,6 +280,8 @@ fea_mm.add_output(name=output_name_mm_3,
                 type='scalar',
                 form=output_form_mm_3,
                 arguments=[state_name_mm])
+
+
 #############################################################
 ################### electomagnetic subproblem ###############
 fea_em = FEA(mesh)
@@ -392,6 +370,7 @@ fea_model = FEAModel(fea=[fea_mm,fea_em])
 model = csdl.Model()
 power_loss_model = PowerLossModel()
 loss_sum_model = LossSumModel()
+
 ###########################################################
 ######################## Connect ##########################
 model.add(ffd_connection_model, name='ffd_model', promotes=['*'])
@@ -399,24 +378,20 @@ model.add(boundary_input_model, name='boundary_input_model', promotes=['*'])
 model.add(fea_model, name='fea_model', promotes=['*'])
 model.add(power_loss_model, name='power_loss_model', promotes=['*'])
 model.add(loss_sum_model, name='loss_sum_model', promotes=['*'])
-# model.create_input("{}".format(input_name_mm),
-#                             shape=fea_mm.inputs_dict[input_name_mm]['shape'],
-#                             val=0.0)
-# model.add_design_variable(input_name_mm)
-
+# model.create_input('magnet_thickness_dv', val=0.0)
 # model.add_design_variable('magnet_thickness_dv')
 # model.add_objective('loss_sum')
 
 sim = Simulator(model)
-
-########### Generate the N2 diagram #############
-# sim.visualize_implementation()
 
 
 # ########### Test the forward solve ##############
 # sim[input_name_mm] = input_array
 sim['magnet_thickness_dv'] = -0.02
 sim.run()
+
+########### Generate the N2 diagram #############
+# sim.visualize_implementation()
 
 magnetic_flux_density = pde.B(state_function_em, state_function_mm)
 
@@ -430,7 +405,7 @@ print("Hysteresis loss", sim['hysteresis_loss'])
 print("Loss sum", sim['loss_sum'])
 
 ############# Check the derivatives #############
-sim.check_partials(compact_print=True)
+# sim.check_partials(compact_print=True)
 #sim.prob.check_totals(compact_print=True)
 
 # '''
