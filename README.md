@@ -1,5 +1,5 @@
 # fe-csdl-framework
-This fe-csdl-opt module is a general framework for PDE-constrained optimization problems. The code is still under active developement and we expect it to be available to the public for their research applications by 2022 Fall.
+The fe-csdl-opt module is a general framework for PDE-constrained optimization problems. The code is still under active developement and we expect it to be available to the public for their research applications by 2022 Fall.
 
 Currently, the implementation is based on previous stable versions of csdl and csdl_om:
 
