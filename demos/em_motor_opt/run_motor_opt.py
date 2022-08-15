@@ -1,5 +1,5 @@
 
-from requests import post
+# from requests import post
 from fe_csdl_opt.fea.fea_dolfinx import *
 from fe_csdl_opt.csdl_opt.fea_model import FEAModel
 from fe_csdl_opt.csdl_opt.state_model import StateModel
@@ -7,13 +7,12 @@ from fe_csdl_opt.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
 from csdl_om import Simulator
-from matplotlib import pyplot as plt
 import argparse
 
 import motor_pde as pde
-from power_loss_model import LossSumModel, PowerLossModel
-from ffd_model import FFDModel, MotorMesh
-from boundary_input_model import BoundaryInputModel
+from postprocessor.power_loss_model import LossSumModel, PowerLossModel
+from preprocessor.ffd_model import FFDModel, MotorMesh
+from preprocessor.boundary_input_model import BoundaryInputModel
 
 ###########################################################
 #################### Preprocessing ########################
@@ -27,7 +26,7 @@ coarse_test = True
 
 if coarse_test:
     mm = MotorMesh(
-        file_name='motor_data_test/motor_mesh',
+        file_name='motor_data/motor_data_test/motor_mesh',
         popup=False,
         rotation_angles=rotor_rotations,
         base_angle=shift * np.pi/180,
@@ -35,7 +34,7 @@ if coarse_test:
     )
 else:
     mm = MotorMesh(
-        file_name='motor_data_test/motor_mesh',
+        file_name='motor_data/motor_data_test/motor_mesh',
         popup=False,
         rotation_angles=rotor_rotations,
         base_angle=shift * np.pi/180,
@@ -57,8 +56,8 @@ ffd_connection_model = FFDModel(
 '''
 # TODO: write the msh2xdmf convertor in DOLFINx
 mesh_name = "motor_mesh_test_1"
-data_path = "motor_data_latest_medium/"
-# data_path = "motor_data_latest_coarse/"
+data_path = "motor_data/motor_data_medium/"
+# data_path = "motor_data/motor_data_coarse/"
 
 mesh_file = data_path + mesh_name
 mesh, boundaries_mf, subdomains_mf, association_table = import_mesh(
@@ -383,8 +382,8 @@ model.add(loss_sum_model, name='loss_sum_model', promotes=['*'])
 # model.add_objective('loss_sum')
 
 sim = Simulator(model)
-
-
+sim['motor_length'] = 0.1 # unit: m
+sim['frequency'] = 300 # unit: Hz
 # ########### Test the forward solve ##############
 # sim[input_name_mm] = input_array
 sim['magnet_thickness_dv'] = -0.02
