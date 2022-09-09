@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import csdl
-from csdl_om import Simulator
+# from csdl_om import Simulator
 from motor_project.geometry.motor_mesh_class import MotorMesh
 from lsdo_mesh.csdl_mesh_models import ShapeParameterModel, EdgeUpdateModel
 
@@ -27,9 +27,9 @@ class ShapeParameterUpdateModel(csdl.Model):
             - winding_width_sp
         '''
 
-        # THE IDEA HERE IS TO REGISTER ALL OF THE SHAPE PARAMETERS WITHIN 
+        # THE IDEA HERE IS TO REGISTER ALL OF THE SHAPE PARAMETERS WITHIN
         # unique_shape_parameter_list AS OUTPUTS TO FEED INTO THE FFD MODELS
-        # OR WE USE THE SHAPE PARAMETER AS DESIGN VARIABLES 
+        # OR WE USE THE SHAPE PARAMETER AS DESIGN VARIABLES
         # shaft_radius_dv = self.create_input('shaft_radius_dv')
         # shaft_radius_sp = self.register_output(
         #     'shaft_radius_sp',
@@ -43,7 +43,7 @@ class ShapeParameterUpdateModel(csdl.Model):
         )
 
         '''
-        THE FINAL OUTPUTS HERE ARE THE SHAPE PARAMETERS THAT FEED INTO THE 
+        THE FINAL OUTPUTS HERE ARE THE SHAPE PARAMETERS THAT FEED INTO THE
         INDIVIDUAL MESH MODELS WITHIN INSTANCE MODELS
         LIST OF SHAPE PARAMETERS:
             - inner_stator_radius_sp
@@ -117,7 +117,7 @@ if __name__ == '__main__':
             rotation_angles=rotor_rotations,
             base_angle=shift * np.pi/180,
         )
-        
+
     mm.baseline_geometry=True
     mm.create_motor_mesh()
     parametrization_dict    = mm.ffd_param_dict # dictionary holding parametrization parameters

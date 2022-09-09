@@ -1,7 +1,7 @@
 from csdl import Model, CustomExplicitOperation
 import csdl
 import numpy as np
-from csdl_om import Simulator
+# from csdl_om import Simulator
 from scipy.sparse import csr_matrix
 
 class BoundaryInputModel(Model):
@@ -22,10 +22,10 @@ class BoundaryInputModel(Model):
                         val=np.zeros(input_size).reshape(input_size,))
 
         e = LinearMapping(
-                        input_name='edge_deltas', 
-                        output_name='uhat_bc', 
-                        input_size=input_size, 
-                        output_size=output_size, 
+                        input_name='edge_deltas',
+                        output_name='uhat_bc',
+                        input_size=input_size,
+                        output_size=output_size,
                         indices=edge_indices)
         output = csdl.custom(edge_deltas, op=e)
         self.register_output('uhat_bc', output)
@@ -55,7 +55,7 @@ class LinearMapping(CustomExplicitOperation):
         self.add_output(self.output_name,
                         shape=(self.output_size,),)
         self.declare_derivatives('*', '*')
-        
+
     def compute(self, inputs, outputs):
         array_2 = np.zeros(self.output_size)
         for i in range(self.input_size):
