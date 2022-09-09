@@ -5,7 +5,8 @@ from fe_csdl_opt.csdl_opt.state_model import StateModel
 from fe_csdl_opt.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
-from csdl_om import Simulator
+from csdl_om import Simulator as om_simulator
+from python_csdl_backend import Simulator as py_simulator
 from matplotlib import pyplot as plt
 import argparse
 
@@ -95,6 +96,8 @@ class Expression_u:
 
 
 fea = FEA(mesh)
+# Record the function evaluations during optimization process
+fea.record = True
 # Add input to the PDE problem:
 input_name = 'f'
 input_function_space = FunctionSpace(mesh, ('DG', 0))
@@ -112,7 +115,7 @@ f_ex = fea.add_exact_solution(Expression_f, input_function_space)
 
 ALPHA = 1e-6
 # Add output to the PDE problem:
-output_name = 'output'
+output_name = 'l2_functional'
 output_form = outputForm(state_function, input_function, u_ex)
 
 
@@ -138,7 +141,7 @@ fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
 
 ############ Weakly enforced boundary conditions #############
 ############### Unsymmetric Nitsche's method #################
-# residual_form = pdeRes(state_function, v, input_function, 
+# residual_form = pdeRes(state_function, v, input_function,
 #                         u_exact=u_ex, weak_bc=True, sym=False)
 ##############################################################
 
@@ -166,40 +169,83 @@ fea.PDE_SOLVER = 'Newton'
 fea_model = FEAModel(fea=[fea])
 fea_model.create_input("{}".format(input_name),
                             shape=fea.inputs_dict[input_name]['shape'],
-                            val=np.random.random(fea.inputs_dict[input_name]['shape']) * 0.86)
+                            val=0.1*np.ones(fea.inputs_dict[input_name]['shape']) * 0.86)
+
+# fea_model.connect('f','u_state_model.f')
+# fea_model.connect('f','l2_functional_output_model.f')
+# fea_model.connect('u_state_model.u','l2_functional_output_model.u')
 
 fea_model.add_design_variable(input_name)
 fea_model.add_objective(output_name)
 
-sim = Simulator(fea_model)
+# Ru: the new Python backend of CSDL has issue for promotions or connecting
+# the variables for custom operations as from Aug 30.
+sim = py_simulator(fea_model)
+
+# sim = om_simulator(fea_model)
 ########### Test the forward solve ##############
 #sim[input_name] = getFuncArray(f_ex)
 
 sim.run()
 
+########### Generate the N2 diagram #############
+# sim.visualize_implementation()
+
 ############# Check the derivatives #############
-#sim.check_partials(compact_print=True)
-#sim.prob.check_totals(compact_print=True)  
+# sim.check_totals()
+# sim.check_partials(compact_print=False)
 
 '''
 5. Set up the optimization problem
 '''
-############## Run the optimization with pyOptSparse #############
-import openmdao.api as om
-####### Driver = SNOPT #########
-driver = om.pyOptSparseDriver()
-driver.options['optimizer']='SNOPT'
+# ############## Run the optimization with pyOptSparse #############
+# import openmdao.api as om
+# ####### Driver = SNOPT #########
+# driver = om.pyOptSparseDriver()
+# driver.options['optimizer']='SNOPT'
 
-driver.opt_settings['Major feasibility tolerance'] = 1e-12
-driver.opt_settings['Major optimality tolerance'] = 1e-14
-driver.options['print_results'] = False
+# driver.opt_settings['Major feasibility tolerance'] = 1e-12
+# driver.opt_settings['Major optimality tolerance'] = 1e-14
+# driver.options['print_results'] = False
+#
+# sim.prob.driver = driver
+# sim.prob.setup()
 
-sim.prob.driver = driver
-sim.prob.setup()
-sim.prob.run_driver()
+# sim.prob.run_driver()
 
+############## Run the optimization with modOpt #############
+from modopt.csdl_library import CSDLProblem
 
-print("Objective value: ", sim[output_name])
+prob = CSDLProblem(
+    problem_name='poisson_opt',
+    simulator=sim,
+)
+
+from modopt.snopt_library import SNOPT
+
+from modopt.scipy_library import SLSQP
+
+# optimizer = SNOPT(prob,
+#                   # feasibility_tolerance=1e-13, # not implemented
+#                   Optimality_tolerance=1e-14,)
+#                   #   append2file=True)
+#                   # append2file=False)
+
+# optimizer = SLSQP(
+#     prob,
+#     ftol=1e-13,
+#     maxiter=20,
+# )
+
+# # Check first derivatives at the initial guess, if needed
+# optimizer.check_first_derivatives(prob.x0)
+#
+# # Solve your optimization problem
+# optimizer.solve()
+print("="*40)
+# optimizer.print_results()
+
+print("Objective value: ", sim['l2_functional_output_model.'+output_name])
 print("="*40)
 control_error = errorNorm(f_ex, input_function)
 print("Error in controls:", control_error)
@@ -215,8 +261,3 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/input_"+input_name+".xdmf", "w") as xdm
     xdmf.write_mesh(fea.mesh)
     fea.inputs_dict[input_name]['function'].name = input_name
     xdmf.write_function(fea.inputs_dict[input_name]['function'])
-    
-    
-    
-
-

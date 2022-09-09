@@ -2,7 +2,6 @@ from fe_csdl_opt.fea.fea_dolfinx import *
 from csdl import Model, CustomExplicitOperation
 import csdl
 import numpy as np
-from csdl_om import Simulator
 
 
 class OutputModel(Model):
@@ -71,8 +70,8 @@ class OutputOperation(CustomExplicitOperation):
             arg = self.args_dict[arg_name]
             update(arg['function'], inputs[arg_name])
 
-        outputs[self.output_name] = assemble(self.output['form'],
-                                        dim=self.output_dim)
+        outputs[self.output_name] = np.array(assemble(self.output['form'],
+                                        dim=self.output_dim))
 
     def compute_derivatives(self, inputs, derivatives):
         for arg_name in inputs:

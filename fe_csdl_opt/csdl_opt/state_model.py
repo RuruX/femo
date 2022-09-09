@@ -3,7 +3,6 @@ from fe_csdl_opt.fea.fea_dolfinx import *
 from csdl import Model, CustomImplicitOperation
 import csdl
 import numpy as np
-from csdl_om import Simulator
 
 class StateModel(Model):
 
@@ -86,7 +85,7 @@ class StateOperation(CustomImplicitOperation):
             print("="*40)
             print("CSDL: Running solve_residual_equations()...")
             print("="*40)
-        
+
         self.fea.opt_iter += 1
         for arg_name in inputs:
             arg = self.args_dict[arg_name]
@@ -194,5 +193,3 @@ class StateOperation(CustomImplicitOperation):
         else:
             d_residuals[state_name] = self.fea.solveLinearBwd(
                                             self.dR, self.A, self.du, d_outputs[state_name])
-
-
