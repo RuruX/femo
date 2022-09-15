@@ -1,8 +1,8 @@
 import numpy as np
 import csdl
 from csdl import Model
-from csdl_om import Simulator
-
+from csdl_om import Simulator as om_simulator
+from python_csdl_backend import Simulator as py_simulator
 
 class LossSumModel(Model):
     def define(self):
@@ -16,7 +16,7 @@ class LossSumModel(Model):
             name='loss_sum',
             var=loss_sum
         )
-        
+
 class PowerLossModel(Model):
     def define(self):
 
@@ -142,8 +142,9 @@ class PowerLossModel(Model):
 
 if __name__ == '__main__':
     aaa = PowerLossModel()
-    sim = Simulator(aaa)
+    sim = py_simulator(aaa)
 
     sim.run()
 
     print(sim['eddy_current_loss'])
+    sim.check_partials(compact_print=True)

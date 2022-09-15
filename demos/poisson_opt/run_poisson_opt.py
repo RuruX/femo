@@ -180,9 +180,8 @@ fea_model.add_objective(output_name)
 
 # Ru: the new Python backend of CSDL has issue for promotions or connecting
 # the variables for custom operations as from Aug 30.
-sim = py_simulator(fea_model)
-
-# sim = om_simulator(fea_model)
+# sim = py_simulator(fea_model)
+sim = om_simulator(fea_model)
 ########### Test the forward solve ##############
 #sim[input_name] = getFuncArray(f_ex)
 
@@ -193,7 +192,7 @@ sim.run()
 
 ############# Check the derivatives #############
 # sim.check_totals()
-# sim.check_partials(compact_print=False)
+sim.check_partials(compact_print=True)
 
 '''
 5. Set up the optimization problem
@@ -203,17 +202,17 @@ sim.run()
 # ####### Driver = SNOPT #########
 # driver = om.pyOptSparseDriver()
 # driver.options['optimizer']='SNOPT'
-
+#
 # driver.opt_settings['Major feasibility tolerance'] = 1e-12
 # driver.opt_settings['Major optimality tolerance'] = 1e-14
 # driver.options['print_results'] = False
 #
 # sim.prob.driver = driver
 # sim.prob.setup()
-
+#
 # sim.prob.run_driver()
 
-############## Run the optimization with modOpt #############
+############# Run the optimization with modOpt #############
 from modopt.csdl_library import CSDLProblem
 
 prob = CSDLProblem(
@@ -225,11 +224,11 @@ from modopt.snopt_library import SNOPT
 
 from modopt.scipy_library import SLSQP
 
-# optimizer = SNOPT(prob,
-#                   # feasibility_tolerance=1e-13, # not implemented
-#                   Optimality_tolerance=1e-14,)
-#                   #   append2file=True)
-#                   # append2file=False)
+optimizer = SNOPT(prob,
+                  # feasibility_tolerance=1e-13, # not implemented
+                  Optimality_tolerance=1e-14,)
+                  #   append2file=True)
+                  # append2file=False)
 
 # optimizer = SLSQP(
 #     prob,

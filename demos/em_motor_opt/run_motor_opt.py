@@ -13,9 +13,9 @@ from matplotlib import pyplot as plt
 import argparse
 
 import motor_pde as pde
-from power_loss_model import LossSumModel, PowerLossModel
-from ffd_model import FFDModel, MotorMesh
-from boundary_input_model import BoundaryInputModel
+from postprocessor.power_loss_model import LossSumModel, PowerLossModel
+from preprocessor.ffd_model import FFDModel, MotorMesh
+from preprocessor.boundary_input_model import BoundaryInputModel
 
 ###########################################################
 #################### Preprocessing ########################
@@ -27,23 +27,16 @@ instances       = len(rotor_rotations)
 
 coarse_test = True
 
-if coarse_test:
-    mm = MotorMesh(
-        file_name='motor_data_test/motor_mesh',
-        popup=False,
-        rotation_angles=rotor_rotations,
-        base_angle=shift * np.pi/180,
-        test=True
-    )
-else:
-    mm = MotorMesh(
-        file_name='motor_data_test/motor_mesh',
-        popup=False,
-        rotation_angles=rotor_rotations,
-        base_angle=shift * np.pi/180,
-    )
+mm = MotorMesh(
+    file_name='motor_data/motor_data_test/motor_mesh_test_1',
+    popup=False,
+    rotation_angles=rotor_rotations,
+    base_angle=shift * np.pi/180,
+    test=True
+)
 
 mm.baseline_geometry=True
+mm.magnet_shift_only = True
 mm.create_motor_mesh()
 parametrization_dict    = mm.ffd_param_dict # dictionary holding parametrization parameters
 unique_sp_list = sorted(set(parametrization_dict['shape_parameter_list_input']))
@@ -59,7 +52,7 @@ ffd_connection_model = FFDModel(
 '''
 # TODO: write the msh2xdmf convertor in DOLFINx
 mesh_name = "motor_mesh_test_1"
-data_path = "motor_data_latest_medium/"
+data_path = "motor_data/motor_data_medium/"
 # data_path = "motor_data_latest_coarse/"
 
 mesh_file = data_path + mesh_name
@@ -125,29 +118,6 @@ edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
 
 boundary_input_model = BoundaryInputModel(edge_indices=edge_indices,
                                         output_size=len(input_function_mm.x.array))
-
-###### Test #######
-# model = csdl.Model()
-# model.add(ffd_connection_model, name='ffd_model', promotes=['*'])
-# model.add(boundary_input_model, name='boundary_input_model', promotes=['*'])
-
-# sim = Simulator(model)
-# sim['magnet_thickness_dv'] = -0.02
-
-# ########### Generate the N2 diagram #############
-# # sim.visualize_implementation()
-# sim.run()
-# edge_deltas_csdl = sim['edge_deltas']
-# uhat_bc_csdl = sim['uhat_bc']
-
-# input_function_mm.vector.set(0.0)
-# for i in range(len(edge_deltas)):
-#     input_function_mm.vector[edge_indices[i]] = 0.1*edge_deltas_csdl[i]
-# input_array = input_function_mm.x.array
-
-# print("error in edge_deltas:", np.linalg.norm(edge_deltas_csdl-edge_deltas))
-# print("error in uhat_bc:", np.where(uhat_bc_csdl-input_array > 1e-4))
-
 ############ User-defined incremental solver ###########
 def getDisplacementSteps(uhat, edge_deltas):
     """
@@ -365,7 +335,6 @@ fea_em.add_output(name=output_name_2,
 4. Set up the CSDL model
 '''
 fea_model = FEAModel(fea=[fea_mm,fea_em])
-# fea_model = FEAModel(fea=[fea_mm])
 ###########################################################
 #################### Postprocessing #######################
 # Case-to-case postprocessor model
@@ -380,66 +349,82 @@ loss_sum_model = LossSumModel()
 # model.add(fea_model, name='fea_model', promotes=['*'])
 # model.add(power_loss_model, name='power_loss_model', promotes=['*'])
 # model.add(loss_sum_model, name='loss_sum_model', promotes=['*'])
-model.add(ffd_connection_model, name='ffd_model', promotes=['magnet_thickness_dv'])
-model.add(boundary_input_model, name='boundary_input_model', promotes=['*'])
-model.add(fea_model, name='fea_model', promotes=['*'])
-model.add(power_loss_model, name='power_loss_model', promotes=['*'])
-model.add(loss_sum_model, name='loss_sum_model', promotes=['*'])
+#
+# # model.create_input('magnet_thickness_dv', val=0.0)
+# # model.add_design_variable('magnet_thickness_dv')
+# # model.add_objective('loss_sum')
+#
+# sim = om_simulator(model)
+
+
+model.add(ffd_connection_model, name='ffd_model')
+model.add(boundary_input_model, name='boundary_input_model')
+model.add(fea_model, name='fea_model')
+model.add(power_loss_model, name='power_loss_model')
+model.add(loss_sum_model, name='loss_sum_model')
+
 # model.create_input('magnet_thickness_dv', val=0.0)
 # model.add_design_variable('magnet_thickness_dv')
 # model.add_objective('loss_sum')
 
-sim = om_simulator(model)
+sim = py_simulator(model)
 sim['motor_length'] = 0.1 #unit: m
 sim['frequency'] = 300 #unit: Hz
 
 # ########### Test the forward solve ##############
-# sim[input_name_mm] = input_array
-xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test/record_uhat.xdmf", "w")
-xdmf_B = XDMFFile(MPI.COMM_WORLD, "test/record_B.xdmf", "w")
-xdmf_uhat.write_mesh(mesh)
-xdmf_B.write_mesh(mesh)
 
-delta = -0.022
-N = 20
-ec_loss_array = np.zeros(N)
-hyst_loss_array = np.zeros(N)
-loss_sum_array = np.zeros(N)
-for i in range(N):
-    print(str(i)*40)
-    sim['magnet_thickness_dv'] = delta/N*i
+####### Single steps of movement ##########
+# sim['magnet_pos_delta_dv'] = -0.0002
+sim['magnet_width_dv'] = -0.005
+sim.run()
+magnetic_flux_density = pde.B(state_function_em, state_function_mm)
 
-    setFuncArray(input_function_mm, np.zeros(len(input_function_mm.x.array)))
-        # setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
-    setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
-    # setFuncArray(state_function_em, np.zeros(len(state_function_em.x.array)))
-    sim.run()
-    magnetic_flux_density = pde.B(state_function_em, state_function_mm)
+####### Multiple steps of movement ##########
+# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test/record_uhat.xdmf", "w")
+# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test/record_B.xdmf", "w")
+# xdmf_uhat.write_mesh(mesh)
+# xdmf_B.write_mesh(mesh)
+#
+# delta = -0.022
+# N = 20
+# ec_loss_array = np.zeros(N)
+# hyst_loss_array = np.zeros(N)
+# loss_sum_array = np.zeros(N)
+# for i in range(N):
+#     print(str(i)*40)
+#     sim['magnet_thickness_dv'] = delta/N*i
+#
+#     setFuncArray(input_function_mm, np.zeros(len(input_function_mm.x.array)))
+#         # setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
+#     setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
+#     # setFuncArray(state_function_em, np.zeros(len(state_function_em.x.array)))
+#     sim.run()
+#     magnetic_flux_density = pde.B(state_function_em, state_function_mm)
+#
+#     print("Actual B_influence_eddy_current", sim[output_name_1])
+#     print("Actual B_influence_hysteresis", sim[output_name_2])
+#     print("Winding area", sim[output_name_mm_1])
+#     print("Magnet area", sim[output_name_mm_2])
+#     print("Steel area", sim[output_name_mm_3])
+#     print("Eddy current loss", sim['eddy_current_loss'])
+#     print("Hysteresis loss", sim['hysteresis_loss'])
+#     print("Loss sum", sim['loss_sum'])
+#
+#     ec_loss_array[i] = sim['eddy_current_loss']
+#     hyst_loss_array[i] = sim['hysteresis_loss']
+#     loss_sum_array[i] = sim['loss_sum']
+#
+#     # move(mesh, state_function_mm)
+#     # xdmf_uhat.write_mesh(mesh)
+#     xdmf_uhat.write_function(state_function_mm,i)
+#     # xdmf_B.write_mesh(mesh)
+#     xdmf_B.write_function(magnetic_flux_density,i)
+#     # moveBackward(mesh, state_function_mm)
 
-    print("Actual B_influence_eddy_current", sim[output_name_1])
-    print("Actual B_influence_hysteresis", sim[output_name_2])
-    print("Winding area", sim[output_name_mm_1])
-    print("Magnet area", sim[output_name_mm_2])
-    print("Steel area", sim[output_name_mm_3])
-    print("Eddy current loss", sim['eddy_current_loss'])
-    print("Hysteresis loss", sim['hysteresis_loss'])
-    print("Loss sum", sim['loss_sum'])
-
-    ec_loss_array[i] = sim['eddy_current_loss']
-    hyst_loss_array[i] = sim['hysteresis_loss']
-    loss_sum_array[i] = sim['loss_sum']
-
-    # move(mesh, state_function_mm)
-    # xdmf_uhat.write_mesh(mesh)
-    xdmf_uhat.write_function(state_function_mm,i)
-    # xdmf_B.write_mesh(mesh)
-    xdmf_B.write_function(magnetic_flux_density,i)
-    # moveBackward(mesh, state_function_mm)
-
-
-print("ec loss", ec_loss_array)
-print("hysteresis loss", hyst_loss_array)
-print("loss sum", loss_sum_array)
+#
+# print("ec loss", ec_loss_array)
+# print("hysteresis loss", hyst_loss_array)
+# print("loss sum", loss_sum_array)
 ########### Generate the N2 diagram #############
 # sim.visualize_implementation()
 
