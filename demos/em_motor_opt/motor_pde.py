@@ -26,9 +26,9 @@ def RelativePermeability(subdomain, u, uhat):
             )
         )
     elif subdomain >= 3 and subdomain <= 14: # NEODYMIUM
-        mu = 1.05 
+        mu = 1.05
     elif subdomain >= 15 and subdomain <= 50: # COPPER
-        mu = 1.00  
+        mu = 1.00
     elif subdomain == 51: # insert value for titanium or shaft material
         mu = 1.00
     elif subdomain >= 52: # AIR
@@ -43,7 +43,7 @@ def compute_i_abc(iq, angle=0.0):
         iq * np.sin(angle + 2*np.pi/3),
     ])
     return i_abc
-    
+
 def JS(v,uhat,iq,p,s,Hc,angle):
     """
     The variational form for the source term (current) of the
@@ -75,7 +75,7 @@ def JS(v,uhat,iq,p,s,Hc,angle):
     # NEW METHOD
     # for i in range(int((num_windings) / (num_phases * coil_per_phase))):
     #     coil_start_ind = i * num_phases * coil_per_phase
-        
+
     #     J_list = [
     #         JB * (-1)**(2*i+1) * v * dx(stator_winding_index_start + coil_start_ind),
     #         JA * (-1)**(2*i) * v * dx(stator_winding_index_start + coil_start_ind + 1),
@@ -222,4 +222,46 @@ def B(A_z, uhat):
     project(B_form,B)
     return B
 
+def getFuncAverageSubdomain(func, uhat, dx, subdomain):
+    """
+    Compute the average function value over a subdomain
+    """
+    func_unit = Function(func.function_space)
+    func_unit.vector.set(1.0)
+    integral = inner(func, func_unit)*J(uhat)*dx(subdomain)
+    area = area_form(uhat, dx, subdomain)
+    print('subdomain:', subdomain)
+    print('area:', assemble(area))
+    avg_func = assemble(integral)/assemble(area)
+    print('avg func over subdomain:', avg_func)
+    print('avg func over subdomain:', assemble(avg_func))
+    return avg_func
 
+# TODO
+def getFuncAverageSubdomainDerivatives(func, uhat, dx, subdomain):
+    '''
+    Get the partial derivatives of the area-integrated function
+    w.r.t. A_z and uhat
+    '''
+    F = getFuncAverageSubdomain(func, subdomain)
+    dFdAz = derivative(F, func)
+    dFdAz_array = assemble(dFdAz).get_local()
+    dFduhat =  derivative(F, uhat)
+    dFduhat_array = assemble(dFduhat).get_local()
+
+    return dFdAz_array, dFduhat_array
+
+def calcAreaIntegratedAz(A_z, uhat, dx, slot_subdomains):
+    """
+    Compute the average function value over a subdomain
+    """
+    A_bar_slot = np.zeros(len(slot_subdomains),)
+    for i, ind in enumerate(slot_subdomains):
+        A_bar_slot_ind = getFuncAverageSubdomain(A_z,uhat,dx,ind)
+        A_bar_slot[i] = A_bar_slot_ind
+    return A_bar_slot
+
+# TODO
+def calcAreaIntegratedAzDerivatives(A_z, uhat, dx, subdomain):
+    dFdAz_array, dFduhat_array = getFuncAverageSubdomainDerivatives(A_z, uhat, dx, subdomain)
+    return dFdAz_array, dFduhat_array

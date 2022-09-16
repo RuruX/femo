@@ -79,7 +79,7 @@ dS = Measure('dS', domain=mesh, subdomain_data=boundaries_mf)
 # mesh = create_unit_square(MPI.COMM_WORLD, 12, 15)
 winding_id = [15,]
 magnet_id = [3,]
-steel_id = [1,2,51]
+steel_id = [1,2]
 winding_range = range(15,50+1)
 
 # Subdomains for calculating power losses
@@ -367,7 +367,7 @@ model.add(loss_sum_model, name='loss_sum_model')
 # model.add_design_variable('magnet_thickness_dv')
 # model.add_objective('loss_sum')
 
-sim = py_simulator(model)
+sim = py_simulator(model, analytics=True)
 sim['motor_length'] = 0.1 #unit: m
 sim['frequency'] = 300 #unit: Hz
 
@@ -378,6 +378,8 @@ sim['frequency'] = 300 #unit: Hz
 sim['magnet_width_dv'] = -0.005
 sim.run()
 magnetic_flux_density = pde.B(state_function_em, state_function_mm)
+
+# A_z = pde.calcAreaIntegratedAz(state_function_em,state_function_mm,dx,winding_range)
 
 ####### Multiple steps of movement ##########
 # xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test/record_uhat.xdmf", "w")
