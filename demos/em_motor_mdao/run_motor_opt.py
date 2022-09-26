@@ -199,7 +199,6 @@ output_form_mm_2 = pde.area_form(state_function_mm, dx, magnet_id)
 output_name_mm_3 = 'steel_area'
 output_form_mm_3 = pde.area_form(state_function_mm, dx, steel_id)
 
-
 # ############ Strongly enforced boundary conditions #############=
 
 # residual_form_mm = pdeResMM(state_function_mm, v_mm)
@@ -374,8 +373,8 @@ sim['frequency'] = 300 #unit: Hz
 # ########### Test the forward solve ##############
 
 ####### Single steps of movement ##########
-sim['magnet_pos_delta_dv'] = -0.0002
-# sim['magnet_width_dv'] = -0.005
+# sim['magnet_pos_delta_dv'] = -0.0002
+sim['magnet_width_dv'] = -0.005
 sim.run()
 magnetic_flux_density = pde.B(state_function_em, state_function_mm)
 

@@ -163,7 +163,7 @@ def pdeResMM(uhat, duhat, g=None,
         penalty = beta/h_E*inner(duhat,uhat-g)
         penalty_term = penalty("+")*ds_ + penalty("-")*ds_
         res_m += nitsches_term_1
-        # res_m += nitsches_term_2
+        res_m += nitsches_term_2
         if sym is True or overpenalty is True:
             res_m += penalty_term
     return res_m

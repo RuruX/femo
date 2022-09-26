@@ -180,8 +180,8 @@ fea_model.add_objective(output_name)
 
 # Ru: the new Python backend of CSDL has issue for promotions or connecting
 # the variables for custom operations as from Aug 30.
-# sim = py_simulator(fea_model)
-sim = om_simulator(fea_model)
+sim = py_simulator(fea_model)
+# sim = om_simulator(fea_model)
 ########### Test the forward solve ##############
 #sim[input_name] = getFuncArray(f_ex)
 
@@ -192,8 +192,8 @@ sim.run()
 
 ############# Check the derivatives #############
 # sim.check_totals()
-sim.check_partials(compact_print=True)
-
+# sim.check_partials(compact_print=True)
+# sim.check_totals(compact_print=True)
 '''
 5. Set up the optimization problem
 '''
