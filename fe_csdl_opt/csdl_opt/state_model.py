@@ -157,6 +157,7 @@ class StateOperation(CustomImplicitOperation):
         state_name = self.state_name
         args_dict = self.args_dict
         if mode == 'fwd':
+            print('forward')
             if state_name in d_residuals:
                 if state_name in d_outputs:
                     update(self.du, d_outputs[state_name])
@@ -170,6 +171,7 @@ class StateOperation(CustomImplicitOperation):
                                 dRdf, self.dRdf_dict[arg_name]['df'])
 
         if mode == 'rev':
+            print('reverse')
             if state_name in d_residuals:
                 update(self.dR, d_residuals[state_name])
                 if state_name in d_outputs:

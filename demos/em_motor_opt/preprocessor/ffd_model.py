@@ -36,13 +36,14 @@ class ShapeParameterUpdateModel(csdl.Model):
         #     1*shaft_radius_dv
         # )
 
-        magnet_pos_delta_dv = self.create_input('magnet_pos_delta_dv', val=0.)
+        # magnet_pos_delta_dv = self.create_input('magnet_pos_delta_dv', val=0.)
+        magnet_pos_delta_dv = self.declare_variable('magnet_pos_delta_dv', val=0.)
         magnet_pos_delta_sp = self.register_output(
             'magnet_pos_delta_sp',
             1*magnet_pos_delta_dv
         )
 
-        magnet_width_dv = self.create_input('magnet_width_dv', val=0.)
+        magnet_width_dv = self.declare_variable('magnet_width_dv', val=0.)
         magnet_width_sp = self.register_output(
             'magnet_width_sp',
             1*magnet_width_dv

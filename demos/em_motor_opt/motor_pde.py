@@ -119,7 +119,8 @@ def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle):
 I = Identity(2)
 
 def pdeResMM(uhat, duhat, g=None,
-            nitsche=False, sym=False, overpenalty=False, ds_=ds):
+            nitsche=False, sym=False, overpenalty=False,
+            dS_=dS, ds_=ds):
     """
     Formulation of mesh motion as a hyperelastic problem
     """
@@ -147,7 +148,7 @@ def pdeResMM(uhat, duhat, g=None,
 
 
     if nitsche is True:
-        beta = 50/pow(det(F_m),3)
+        beta = 5e3/pow(det(F_m),3)
         sgn = 1.0
         if sym is not True:
             sgn = -1.0
@@ -156,14 +157,14 @@ def pdeResMM(uhat, duhat, g=None,
         f0 = -div(P(g))
         res_m += -dot(f0, duhat)*dx
         nitsche_1 = - inner(dot(P_m,n),duhat)
-        nitsches_term_1 = nitsche_1("+")*ds_ + nitsche_1("-")*ds_
+        nitsches_term_1 = nitsche_1("+")*dS_ + nitsche_1("-")*dS_ + nitsche_1*ds_
         dP = derivative(P_m, uhat, duhat)
         nitsche_2 = sgn * inner(dP*n,uhat-g)
-        nitsches_term_2 = nitsche_2("+")*ds_ + nitsche_2("-")*ds_
+        nitsches_term_2 = nitsche_2("+")*dS_ + nitsche_2("-")*dS_ + nitsche_2*ds_
         penalty = beta/h_E*inner(duhat,uhat-g)
-        penalty_term = penalty("+")*ds_ + penalty("-")*ds_
+        penalty_term = penalty("+")*dS_ + penalty("-")*dS_ + penalty*ds_
         res_m += nitsches_term_1
-        # res_m += nitsches_term_2
+        res_m += nitsches_term_2
         if sym is True or overpenalty is True:
             res_m += penalty_term
     return res_m

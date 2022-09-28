@@ -70,12 +70,13 @@ init_edge_coords = np.fromstring(f.read(), dtype=float, sep=' ')
 f.close()
 
 f = open(data_path+'edge_coord_deltas_coarse_1.txt', 'r+')
-edge_deltas = np.fromstring(f.read(), dtype=float, sep=' ')
+edge_deltas_from_file = np.fromstring(f.read(), dtype=float, sep=' ')
 f.close()
 
 
 dx = Measure('dx', domain=mesh, subdomain_data=subdomains_mf)
 dS = Measure('dS', domain=mesh, subdomain_data=boundaries_mf)
+ds = Measure('ds', domain=mesh, subdomain_data=boundaries_mf)
 # mesh = create_unit_square(MPI.COMM_WORLD, 12, 15)
 winding_id = [15,]
 magnet_id = [3,]
@@ -101,7 +102,6 @@ s = 3 * p
 vacuum_perm = 4e-7 * np.pi
 angle = 0.
 iq = 282.2  / 0.00016231
-# iq = 282.2  / 1.0
 ##################### mesh motion subproblem ######################
 fea_mm = FEA(mesh)
 
@@ -132,16 +132,13 @@ def getDisplacementSteps(uhat, edge_deltas):
     min_cell_size = h.min()
     moveBackward(mesh, uhat)
     min_STEPS = 4*round(max_disp/min_cell_size)
-    # print("maximum_disp:", max_disp)
-    # print("minimum cell size:", min_cell_size)
-    # print("minimum steps:",min_STEPS)
     if min_STEPS >= STEPS:
         STEPS = min_STEPS
     increment_deltas = edge_deltas/STEPS
     return STEPS, increment_deltas
 
 def advance(func_old,func,i,increment_deltas):
-    func_old.vector[:] = func.vector
+    # func_old.vector[:] = func.vector
     func_old.vector[edge_indices.astype(np.int32)] = (i+1)*increment_deltas[edge_indices.astype(np.int32)]
 
 def solveIncremental(res,func,bc,report):
@@ -150,9 +147,6 @@ def solveIncremental(res,func,bc,report):
     relative_edge_deltas = func_old.vector[:] - func.vector[:]
     STEPS, increment_deltas = getDisplacementSteps(func_old,
                                                 relative_edge_deltas)
-    # print("Nonzero edge movements:",increment_deltas[np.nonzero(increment_deltas)])
-    # newton_solver = NewtonSolver(res, func, bc, rel_tol=1e-6, report=report)
-
     snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
     # Incrementally set the BCs to increase to `edge_deltas`
     print(80*"=")
@@ -164,17 +158,7 @@ def solveIncremental(res,func,bc,report):
             print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of mesh movement")
             print(80*"=")
         advance(func_old,func,i,increment_deltas)
-        # func_old.vector[:] = func.vector
-        # # func_old.vector[edge_indices] = 0.0
-        # func_old.vector[np.nonzero(relative_edge_deltas)] = (i+1)*increment_deltas[np.nonzero(relative_edge_deltas)]
-        # print(assemble_vector(form(res)))
-        # newton_solver.solve(func)
         snes_solver.solve(None, func.vector)
-        # print(func_old.x.array[np.nonzero(relative_edge_deltas)][:10])
-        # print(func.x.array[np.nonzero(relative_edge_deltas)][:10])
-    # Ru: A temporary correction for the mesh movement solution to make the inner boundary
-    # curves not moving
-    advance(func,func,i,increment_deltas)
     if report == True:
         print(80*"=")
         print(' FEA: L2 error of the mesh motion on the edges:',
@@ -200,38 +184,11 @@ output_name_mm_3 = 'steel_area'
 output_form_mm_3 = pde.area_form(state_function_mm, dx, steel_id)
 
 
-# ############ Strongly enforced boundary conditions #############=
-
-# residual_form_mm = pdeResMM(state_function_mm, v_mm)
-# ubc_mm = Function(state_function_space_mm)
-# ubc_mm.vector[:] = input_function_mm.vector
-# winding_cells = subdomains_mf.find(winding_id[0])
-# boundary_facets = boundaries_mf.find(1000)
-# locate_BC1_mm = locate_dofs_topological(input_function_space_mm, mesh.topology.dim-1, boundary_facets)
-# locate_BC_list_mm = [locate_BC1_mm,]
-# fea_mm.add_strong_bc(ubc_mm, locate_BC_list_mm)
-
-
-# # TODO: move the incremental solver outside of the FEA class,
-# # and make it user-defined instead.
-# fea_mm.ubc = ubc_mm
-# #########################################################
-# dR_duhat_bc = getBCDerivatives(state_function_mm, edge_indices)
-# fea_mm.add_input(name=input_name_mm,
-#                 function=input_function_mm)
-# fea_mm.add_state(name=state_name_mm,
-#                 function=state_function_mm,
-#                 residual_form=residual_form_mm,
-#                 dR_df_list=[dR_duhat_bc],
-#                 arguments=[input_name_mm])
-
-
-
 ############ Weakly enforced boundary conditions #############
 
-fea_mm.ubc = input_function_mm
+# fea_mm.ubc = input_function_mm
 residual_form_mm = pde.pdeResMM(state_function_mm, v_mm, g=input_function_mm,
-                                nitsche=True, sym=True, overpenalty=False,ds_=dS(1000))
+                                nitsche=True, sym=True, overpenalty=False,dS_=dS(1000),ds_=ds(1000))
 fea_mm.add_input(name=input_name_mm,
                 function=input_function_mm)
 fea_mm.add_state(name=state_name_mm,
@@ -295,19 +252,12 @@ output_form_2 = pde.B_power_form(state_function_em, state_function_mm,
 ############ Strongly enforced boundary conditions #############
 ubc_em = Function(state_function_space_em)
 ubc_em.vector.set(0.0)
-######## new mesh ############
 locate_BC1_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
 locate_BC2_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
 
 locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
-
-# ######### old mesh ############
-# locate_BC1_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
-#                             lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
-
-# locate_BC_list_em = [locate_BC1_em, ]
 
 fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
 
@@ -344,6 +294,8 @@ loss_sum_model = LossSumModel()
 
 ###########################################################
 ######################## Connect ##########################
+
+## csdl_om
 # model.add(ffd_connection_model, name='ffd_model', promotes=['*'])
 # model.add(boundary_input_model, name='boundary_input_model', promotes=['*'])
 # model.add(fea_model, name='fea_model', promotes=['*'])
@@ -357,37 +309,43 @@ loss_sum_model = LossSumModel()
 # sim = om_simulator(model)
 
 
+# python_csdl_backend
 model.add(ffd_connection_model, name='ffd_model')
 model.add(boundary_input_model, name='boundary_input_model')
 model.add(fea_model, name='fea_model')
 model.add(power_loss_model, name='power_loss_model')
 model.add(loss_sum_model, name='loss_sum_model')
 
-# model.create_input('magnet_thickness_dv', val=0.0)
-# model.add_design_variable('magnet_thickness_dv')
-# model.add_objective('loss_sum')
+model.create_input('magnet_pos_delta_dv', val=0.0)
+model.add_design_variable('magnet_pos_delta_dv')
+model.add_objective('loss_sum')
 
 sim = py_simulator(model, analytics=True)
-sim['motor_length'] = 0.1 #unit: m
-sim['frequency'] = 300 #unit: Hz
 
 # ########### Test the forward solve ##############
 
+sim['motor_length'] = 0.1 #unit: m
+sim['frequency'] = 300 #unit: Hz
 ####### Single steps of movement ##########
-sim['magnet_pos_delta_dv'] = -0.0002
-# sim['magnet_width_dv'] = -0.005
+
+# magnet_pos_delta_dv [-0.0028,0]
+# magnet_width_dv [-0.017,0.017]
+sim['magnet_pos_delta_dv'] = -0.002
+# sim['magnet_width_dv'] = 0.01
 sim.run()
-magnetic_flux_density = pde.B(state_function_em, state_function_mm)
-
-# A_z = pde.calcAreaIntegratedAz(state_function_em,state_function_mm,dx,winding_range)
-
-####### Multiple steps of movement ##########
+# sim.check_partials(compact_print=True)
+#
+# magnetic_flux_density = pde.B(state_function_em, state_function_mm)
+#
+# # A_z = pde.calcAreaIntegratedAz(state_function_em,state_function_mm,dx,winding_range)
+#
+# ###### Multiple steps of movement ##########
 # xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test/record_uhat.xdmf", "w")
 # xdmf_B = XDMFFile(MPI.COMM_WORLD, "test/record_B.xdmf", "w")
 # xdmf_uhat.write_mesh(mesh)
 # xdmf_B.write_mesh(mesh)
 #
-# delta = -0.022
+# delta = -0.0022
 # N = 20
 # ec_loss_array = np.zeros(N)
 # hyst_loss_array = np.zeros(N)
@@ -422,45 +380,13 @@ magnetic_flux_density = pde.B(state_function_em, state_function_mm)
 #     # xdmf_B.write_mesh(mesh)
 #     xdmf_B.write_function(magnetic_flux_density,i)
 #     # moveBackward(mesh, state_function_mm)
-
+#
 #
 # print("ec loss", ec_loss_array)
 # print("hysteresis loss", hyst_loss_array)
 # print("loss sum", loss_sum_array)
-########### Generate the N2 diagram #############
-# sim.visualize_implementation()
 
-############# Check the derivatives #############
-# sim.check_partials(compact_print=True)
-#sim.prob.check_totals(compact_print=True)
-
-# '''
-# 5. Set up the optimization problem
-# '''
-# ############## Run the optimization with pyOptSparse #############
-# import openmdao.api as om
-# ####### Driver = SNOPT #########
-# driver = om.pyOptSparseDriver()
-# driver.options['optimizer']='SNOPT'
-
-# driver.opt_settings['Major feasibility tolerance'] = 1e-12
-# driver.opt_settings['Major optimality tolerance'] = 1e-14
-# driver.options['print_results'] = False
-
-# sim.prob.driver = driver
-# sim.prob.setup()
-# sim.prob.run_driver()
-
-
-# print("Objective value: ", sim[output_name])
-# print("="*40)
-# control_error = errorNorm(f_ex, input_function)
-# print("Error in controls:", control_error)
-# state_error = errorNorm(u_ex, state_function_em)
-# print("Error in states:", state_error)
-# print("="*40)
-
-
+# fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])
 with XDMFFile(MPI.COMM_WORLD, "solutions/input_"+input_name_mm+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea_mm.mesh)
     fea_mm.inputs_dict[input_name_mm]['function'].name = input_name_mm
@@ -470,13 +396,13 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_mm+".xdmf", "w") as 
     fea_mm.states_dict[state_name_mm]['function'].name = state_name_mm
     xdmf.write_function(fea_mm.states_dict[state_name_mm]['function'])
 
-move(fea_em.mesh, state_function_mm)
-with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_em+".xdmf", "w") as xdmf:
-    xdmf.write_mesh(fea_em.mesh)
-    fea_em.states_dict[state_name_em]['function'].name = state_name_em
-    xdmf.write_function(fea_em.states_dict[state_name_em]['function'])
-
-with XDMFFile(MPI.COMM_WORLD, "solutions/magnetic_flux_density.xdmf", "w") as xdmf:
-    xdmf.write_mesh(fea_em.mesh)
-    magnetic_flux_density.name = "B"
-    xdmf.write_function(magnetic_flux_density)
+# move(fea_em.mesh, state_function_mm)
+# with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_em+".xdmf", "w") as xdmf:
+#     xdmf.write_mesh(fea_em.mesh)
+#     fea_em.states_dict[state_name_em]['function'].name = state_name_em
+#     xdmf.write_function(fea_em.states_dict[state_name_em]['function'])
+#
+# with XDMFFile(MPI.COMM_WORLD, "solutions/magnetic_flux_density.xdmf", "w") as xdmf:
+#     xdmf.write_mesh(fea_em.mesh)
+#     magnetic_flux_density.name = "B"
+#     xdmf.write_function(magnetic_flux_density)

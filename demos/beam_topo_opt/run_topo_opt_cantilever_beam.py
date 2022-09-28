@@ -9,7 +9,8 @@ from fe_csdl_opt.csdl_opt.pre_processor.general_filter_model \
 import numpy as np
 import csdl
 from csdl import Model
-from csdl_om import Simulator
+from csdl_om import Simulator as om_simulator
+from python_csdl_backend import Simulator as py_simulator
 from matplotlib import pyplot as plt
 import argparse
 
@@ -47,9 +48,9 @@ def TractionBoundary(x):
     return np.logical_and(abs(x[1] - LENGTH_Y/2) < LENGTH_Y/num_el_y + DOLFIN_EPS,
                             abs(x[0] - LENGTH_X) < DOLFIN_EPS*1e5)
 
-fdim = mesh.topology.dim - 1 
+fdim = mesh.topology.dim - 1
 traction_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
-facet_tag = meshtags(mesh, fdim, traction_facets, 
+facet_tag = meshtags(mesh, fdim, traction_facets,
                     np.full(len(traction_facets),100,dtype=np.int32))
 
 #### Defining measures ####
@@ -100,19 +101,19 @@ state_function = Function(state_function_space)
 v = TestFunction(state_function_space)
 method = 'SIMP'
 f = Constant(mesh, (0,-1/4))
-residual_form = pdeRes(state_function, 
-                        v, 
+residual_form = pdeRes(state_function,
+                        v,
                         input_function,
                         f,
                         dss=ds_(100),
                         method=method)
-                        
+
 # Add output to the PDE problem:
 output_name_1 = 'avg_density'
 output_form_1 = averageFunc(input_function)
 output_name_2 = 'compliance'
-output_form_2 = compliance(state_function, 
-                            f, 
+output_form_2 = compliance(state_function,
+                            f,
                             dss=ds_(100))
 
 
@@ -130,7 +131,7 @@ fea.add_output(name=output_name_2,
                 type='scalar',
                 form=output_form_2,
                 arguments=[state_name])
-                
+
 '''
     2.3. Define the boundary conditions
 '''
@@ -145,7 +146,7 @@ fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
 
 ############ Weakly enforced boundary conditions #############
 ############### Unsymmetric Nitsche's method #################
-# residual_form = pdeRes(state_function, v, input_function, 
+# residual_form = pdeRes(state_function, v, input_function,
 #                         u_exact=u_ex, weak_bc=True, sym=False)
 ##############################################################
 
@@ -168,12 +169,12 @@ h = dolfinx.cpp.mesh.h(mesh, tdim, range(num_cells))
 h_avg = (h.max() + h.min())/2
 nel = mesh.topology.index_map(mesh.topology.dim).size_local
 # Case-to-case preprocessor model
-pre_processor_model = GeneralFilterModel(nel=nel, 
-                                            coordinates=coords, 
+pre_processor_model = GeneralFilterModel(nel=nel,
+                                            coordinates=coords,
                                             h_avg=h_avg)
-fea_model.add(pre_processor_model, name=pre_processor_name, promotes=['*'])
+fea_model.add(pre_processor_model, name=pre_processor_name)
 
-np.random.seed(0) 
+np.random.seed(0)
 fea_model.create_input("{}".format('density_unfiltered'),
                             shape=nel,
                             val=np.random.random(nel) * 0.86)
@@ -181,61 +182,85 @@ fea_model.create_input("{}".format('density_unfiltered'),
 fea_model.add_design_variable('density_unfiltered', upper=1.0, lower=1e-4)
 fea_model.add_objective('compliance')
 fea_model.add_constraint('avg_density', upper=0.40)
-sim = Simulator(fea_model)
-
+sim = py_simulator(fea_model,analytics=True)
+# sim = om_simulator(fea_model)
 ########### Test the forward solve ##############
-
 sim.run()
 
 ########### Generate the N2 diagram #############
-#sim.visualize_implementation()
+# sim.visualize_implementation()
 
 
 ############# Check the derivatives #############
-#sim.check_partials(compact_print=True)
-# sim.prob.check_totals(compact_print=True)  
+# sim.check_partials(compact_print=True)
+# sim.executable.check_totals(of='avg_density', wrt='density',
+#                             compact_print=True)
 
 '''
 5. Set up the optimization problem
 '''
-############# Run the optimization with pyOptSparse #############
-import openmdao.api as om
-###### Driver = SNOPT #########
-driver = om.pyOptSparseDriver()
-driver.options['optimizer']='SNOPT'
-driver.opt_settings['Verify level'] = 0
+# ############# Run the optimization with pyOptSparse #############
+# import openmdao.api as om
+# ###### Driver = SNOPT #########
+# driver = om.pyOptSparseDriver()
+# driver.options['optimizer']='SNOPT'
+# driver.opt_settings['Verify level'] = 0
+#
+# driver.opt_settings['Major iterations limit'] = 100000
+# driver.opt_settings['Minor iterations limit'] = 100000
+# driver.opt_settings['Iterations limit'] = 100000000
+# driver.opt_settings['Major step limit'] = 2.0
+#
+# driver.opt_settings['Major feasibility tolerance'] = 1e-6
+# driver.opt_settings['Major optimality tolerance'] = 1e-8
+# driver.options['print_results'] = False
+#
+# sim.prob.driver = driver
+# sim.prob.setup()
+#
+# from timeit import default_timer
+# start = default_timer()
+#
+# sim.prob.run_driver()
+#
+# stop = default_timer()
+# print('Optimization runtime:', str(stop-start), 'seconds')
+############# Run the optimization with modOpt #############
+from modopt.csdl_library import CSDLProblem
 
-driver.opt_settings['Major iterations limit'] = 100000
-driver.opt_settings['Minor iterations limit'] = 100000
-driver.opt_settings['Iterations limit'] = 100000000
-driver.opt_settings['Major step limit'] = 2.0
+prob = CSDLProblem(
+    problem_name='beam_topo_opt',
+    simulator=sim,
+)
 
-driver.opt_settings['Major feasibility tolerance'] = 1e-6
-driver.opt_settings['Major optimality tolerance'] = 1e-8
-driver.options['print_results'] = False
+from modopt.snopt_library import SNOPT
 
-sim.prob.driver = driver
-sim.prob.setup()
+optimizer = SNOPT(prob,
+                  Major_iterations = 100,
+                  Major_optimality=1e-9,
+                  Major_feasibility=1e-8,)
+                  #   append2file=True)
+                  # append2file=False)
 
-from timeit import default_timer
-start = default_timer()
 
-sim.prob.run_driver()
+# # Check first derivatives at the initial guess, if needed
+# optimizer.check_first_derivatives(prob.x0)
 
-stop = default_timer()
-print('Optimization runtime:', str(stop-start), 'seconds')
-
+# Solve your optimization problem
+optimizer.solve()
+print("="*40)
+# optimizer.print_results()
 
 print("Compliance value: ", sim['compliance'])
 print("Constraint value: ", sim['avg_density'])
 
 penalized_density = Function(input_function_space)
 if method =='SIMP':
-    project(input_function**3, penalized_density) 
+    project(input_function**3, penalized_density)
 else:
     project(input_function/(1 + 8. * (1. - input_function)),
-                                 penalized_density) 
-    
+                                 penalized_density)
+
 with XDMFFile(MPI.COMM_WORLD, "solutions/"+state_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
     xdmf.write_function(fea.states_dict[state_name]['function'])
@@ -245,11 +270,9 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/penalized_density.xdmf", "w") as xdmf:
 with XDMFFile(MPI.COMM_WORLD, "solutions/"+input_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
     xdmf.write_function(fea.inputs_dict[input_name]['function'])
-    
+
 # Plot the traction bc
 #with XDMFFile(MPI.COMM_WORLD, "solutions/traction_bc.xdmf", "w") as xdmf:
 #    xdmf.write_mesh(mesh)
 #    mesh.topology.create_connectivity(mesh.topology.dim-1,mesh.topology.dim)
 #    xdmf.write_meshtags(facet_tag)
-
-

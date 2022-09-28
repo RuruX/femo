@@ -183,7 +183,7 @@ fea_model.add_objective(output_name)
 sim = py_simulator(fea_model)
 # sim = om_simulator(fea_model)
 ########### Test the forward solve ##############
-#sim[input_name] = getFuncArray(f_ex)
+# sim[input_name] = getFuncArray(f_ex)
 
 sim.run()
 
@@ -193,7 +193,7 @@ sim.run()
 ############# Check the derivatives #############
 # sim.check_totals()
 # sim.check_partials(compact_print=True)
-# sim.check_totals(compact_print=True)
+# sim.executable.check_totals(of='l2_functional', wrt='f',compact_print=True)
 '''
 5. Set up the optimization problem
 '''
@@ -225,11 +225,10 @@ from modopt.snopt_library import SNOPT
 from modopt.scipy_library import SLSQP
 
 optimizer = SNOPT(prob,
-                  # feasibility_tolerance=1e-13, # not implemented
-                  Optimality_tolerance=1e-14,)
+                  Major_optimality = 1e-14,
+                  Major_feasibility = 1e-13)
                   #   append2file=True)
                   # append2file=False)
-
 # optimizer = SLSQP(
 #     prob,
 #     ftol=1e-13,
@@ -238,9 +237,9 @@ optimizer = SNOPT(prob,
 
 # # Check first derivatives at the initial guess, if needed
 # optimizer.check_first_derivatives(prob.x0)
-#
-# # Solve your optimization problem
-# optimizer.solve()
+
+# Solve your optimization problem
+optimizer.solve()
 print("="*40)
 # optimizer.print_results()
 

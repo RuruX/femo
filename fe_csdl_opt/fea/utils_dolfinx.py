@@ -5,7 +5,7 @@ Reusable functions for the PETSc and UFL operations
 import dolfinx
 from dolfinx.io import XDMFFile
 from ufl import (Identity, dot, derivative, TestFunction, TrialFunction,
-                inner, ds, dx, grad, inv, as_vector, sqrt, conditional, lt,
+                inner, ds, dS, dx, grad, inv, as_vector, sqrt, conditional, lt,
                 det, Measure, exp, tr, CellDiameter)
 from dolfinx.mesh import (create_unit_square, create_rectangle,
                             locate_entities_boundary, locate_entities,
