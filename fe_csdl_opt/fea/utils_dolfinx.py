@@ -26,6 +26,7 @@ from scipy.spatial import KDTree
 from configparser import ConfigParser
 
 DOLFIN_EPS = 3E-16
+comm = MPI.COMM_WORLD
 
 I = Identity(2)
 def gradx(f,uhat):
@@ -38,6 +39,7 @@ def gradx(f,uhat):
     uhat: DOLFIN function for mesh movements
     """
     return dot(grad(f), inv(I + grad(uhat)))
+
 
 def J(uhat):
     """
@@ -77,16 +79,19 @@ def import_mesh(
     boundaries = "{}_boundaries.xdmf".format(prefix)
 
     # Import the converted domain
-    with XDMFFile(MPI.COMM_WORLD, "{}/{}".format(directory, domain), "r") as xdmf:
+    with XDMFFile(MPI.COMM_WORLD,
+                    "{}/{}".format(directory, domain), "r") as xdmf:
         mesh = xdmf.read_mesh(name="Grid")
         tdim = mesh.topology.dim
         mesh.topology.create_connectivity(tdim-1, tdim)
     # Import the boundaries
-    with XDMFFile(MPI.COMM_WORLD, "{}/{}".format(directory, boundaries), "r") as xdmf:
+    with XDMFFile(MPI.COMM_WORLD,
+                    "{}/{}".format(directory, boundaries), "r") as xdmf:
         boundaries_mf = xdmf.read_meshtags(mesh, "Grid")
     # Import the subdomains
     if subdomains:
-        with XDMFFile(MPI.COMM_WORLD, "{}/{}".format(directory, domain), "r") as xdmf:
+        with XDMFFile(MPI.COMM_WORLD,
+                        "{}/{}".format(directory, domain), "r") as xdmf:
             subdomains_mf = xdmf.read_meshtags(mesh, 'Grid')
     # Import the association table
     association_table_name = "{}/{}_{}".format(
@@ -124,7 +129,8 @@ def createRectangleMesh(pt1,pt2,nx,ny):
     """
     Create rectangle mesh for test purposes
     """
-    return create_rectangle(MPI.COMM_WORLD, [pt1, pt2], [nx,ny], cell_type=CellType.quadrilateral)
+    return create_rectangle(MPI.COMM_WORLD, [pt1, pt2], [nx,ny],
+                            cell_type=CellType.quadrilateral)
 
 def getFuncArray(v):
     """
@@ -204,6 +210,14 @@ def transpose(A):
     """
     return A.transpose(PETSc.Mat(MPI.COMM_WORLD))
 
+from scipy.sparse import csr_matrix
+def convertToCOO(A):
+    """
+    Convert a PETSc matrix to scipy.coo Matrix
+    """
+    A_csr = csr_matrix(A.getValuesCSR()[::-1], shape=A.size)
+
+    return A_csr.tocoo()
 
 def computeMatVecProductFwd(A, x):
     """
@@ -301,9 +315,11 @@ class NonlinearSNESProblem:
 
     def F(self, snes, x, b):
         # Reset the residual vector
-        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        x.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+                            mode=PETSc.ScatterMode.FORWARD)
         x.copy(self.u.vector)
-        self.u.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        self.u.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+                                    mode=PETSc.ScatterMode.FORWARD)
 
         with b.localForm() as b_local:
             b_local.set(0.0)
@@ -322,14 +338,15 @@ class NonlinearSNESProblem:
 
 
 def SNESSolver(F, w, bcs=[],
-                    abs_tol=1e-6,
-                    rel_tol=1e-6,
-                    max_it=30,
+                    abs_tol=1e-15,
+                    rel_tol=1e-15,
+                    max_it=100,
                     report=False):
     """
     https://github.com/FEniCS/dolfinx/blob/main/python/test/unit/nls/test_newton.py#L182-L205
     """
     # Create nonlinear problem
+
     problem = NonlinearSNESProblem(F, w, bcs)
 
     W = w.function_space
@@ -342,8 +359,8 @@ def SNESSolver(F, w, bcs=[],
     opts['snes_linesearch_type'] = 'basic'
     # Ru: the choice of damping parameter seems to be mesh dependent;
     # for the fine motor mesh, it is 0.8; for the coarse mesh, it is 0.61.
-    opts['snes_linesearch_damping'] = 0.8
-    opts["error_on_nonconvergence"] = False
+    # opts['snes_linesearch_damping'] = 0.8
+    opts["error_on_nonconvergence"] = True
     if report is True:
         # dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
         opts['snes_monitor'] = None
@@ -390,6 +407,7 @@ def NewtonSolver(F, w, bcs=[],
     solver.error_on_nonconvergence = error_on_nonconvergence
     opts = PETSc.Options()
     opts["nls_solve_pc_factor_mat_solver_type"] = "mumps"
+
     return solver
 
 def solveKSP(A, b, x):

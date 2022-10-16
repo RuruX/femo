@@ -91,6 +91,7 @@ class FEA(object):
 
         self.opt_iter = 0
         self.record = False
+        self.initial_solve = True
 
     def add_input(self, name, function):
         if name in self.inputs_dict:
@@ -102,7 +103,8 @@ class FEA(object):
             recorder=self.createRecorder(name, self.record)
         )
 
-    def add_state(self, name, function, residual_form, arguments, dR_du=None, dR_df_list=None):
+    def add_state(self, name, function, residual_form, arguments,
+                    dR_du=None, dR_df_list=None):
         self.states_dict[name] = dict(
             function=function,
             residual_form=residual_form,
@@ -156,10 +158,11 @@ class FEA(object):
         """
         solver_type=self.PDE_SOLVER
         report=self.REPORT
-        if self.custom_solve == None:
-            solveNonlinear(res,func,bc,solver_type,report)
-        else:
+        if self.custom_solve is not None and self.initial_solve == True:
             self.custom_solve(res,func,bc,report)
+            # self.initial_solve = False
+        else:
+            solveNonlinear(res,func,bc,solver_type,report)
 
 
     def solveLinearFwd(self, du, A, dR, dR_array):
@@ -190,6 +193,7 @@ class FEA(object):
     def createRecorder(self, name, record=True):
         recorder = None
         if record:
-            recorder = XDMFFile(MPI.COMM_WORLD, "records/record_"+name+".xdmf", "w")
+            recorder = XDMFFile(MPI.COMM_WORLD,
+                                "records/record_"+name+".xdmf", "w")
             recorder.write_mesh(self.mesh)
         return recorder

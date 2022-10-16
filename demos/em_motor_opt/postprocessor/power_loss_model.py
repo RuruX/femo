@@ -17,6 +17,8 @@ class LossSumModel(Model):
             var=loss_sum
         )
 
+        self.print_var(loss_sum)
+
 class PowerLossModel(Model):
     def define(self):
 

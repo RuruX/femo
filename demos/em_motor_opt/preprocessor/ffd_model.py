@@ -12,7 +12,6 @@ class ShapeParameterUpdateModel(csdl.Model):
 
     def define(self):
         unique_shape_parameter_list = self.parameters['unique_shape_parameter_list']
-        print(unique_shape_parameter_list)
         '''
         COMPUTATION OF MAP BETWEEN DESIGN VARIABLES AND SHAPE PARAMETERS
         LIST OF SHAPE PARAMETERS:
@@ -40,15 +39,15 @@ class ShapeParameterUpdateModel(csdl.Model):
         magnet_pos_delta_dv = self.declare_variable('magnet_pos_delta_dv', val=0.)
         magnet_pos_delta_sp = self.register_output(
             'magnet_pos_delta_sp',
-            1*magnet_pos_delta_dv
+            -1.e-4*magnet_pos_delta_dv
         )
-
+        self.print_var(magnet_pos_delta_dv)
         magnet_width_dv = self.declare_variable('magnet_width_dv', val=0.)
         magnet_width_sp = self.register_output(
             'magnet_width_sp',
-            1*magnet_width_dv
+            1.e-3*magnet_width_dv
         )
-
+        self.print_var(magnet_width_dv)
         '''
         THE FINAL OUTPUTS HERE ARE THE SHAPE PARAMETERS THAT FEED INTO THE
         INDIVIDUAL MESH MODELS WITHIN INSTANCE MODELS
@@ -97,44 +96,19 @@ class FFDModel(csdl.Model):
             ),
             'edge_update_model'
         )
-if __name__ == '__main__':
-    shift           = 2.5
-    mech_angles     = np.arange(0,30,5)
-    # rotor_rotations = np.pi/180*np.arange(0,30,5)
-    rotor_rotations = np.pi/180*mech_angles[:1]
-    instances       = len(rotor_rotations)
 
-    coarse_test = True
+class MagnetShapeLimitModel(csdl.Model):
+    def define(self):
 
-    if coarse_test:
-        mm = MotorMesh(
-            file_name='../motor_data/motor_data_test/motor_mesh',
-            popup=False,
-            rotation_angles=rotor_rotations,
-            base_angle=shift * np.pi/180,
-            test=True
-        )
-    else:
-        mm = MotorMesh(
-            file_name='../motor_data/motor_data_test/motor_mesh',
-            popup=False,
-            rotation_angles=rotor_rotations,
-            base_angle=shift * np.pi/180,
+        magnet_pos_delta_dv = self.declare_variable('magnet_pos_delta_dv')
+        magnet_width_dv = self.declare_variable('magnet_width_dv')
+
+        magnet_shape_limit = magnet_pos_delta_dv + magnet_width_dv
+
+        magnet_shape_limit = self.register_output(
+            name='magnet_shape_limit',
+            var=magnet_shape_limit
+
         )
 
-    mm.baseline_geometry=True
-
-    mm.magnet_shift_only = True
-    mm.create_motor_mesh()
-    parametrization_dict    = mm.ffd_param_dict # dictionary holding parametrization parameters
-    unique_sp_list = sorted(set(parametrization_dict['shape_parameter_list_input']))
-
-    ''' FFD MODEL '''
-    # print('Starting FFD CSDL Model')
-    ffd_connection_model = FFDModel(
-        parametrization_dict=parametrization_dict
-    )
-    sim = py_simulator(ffd_connection_model)
-    sim['magnet_thickness_dv'] = -0.002
-    sim.run()
-    edge_deltas_csdl = sim['edge_deltas']
+        self.print_var(magnet_shape_limit)

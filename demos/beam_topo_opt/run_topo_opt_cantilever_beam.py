@@ -236,9 +236,9 @@ prob = CSDLProblem(
 from modopt.snopt_library import SNOPT
 
 optimizer = SNOPT(prob,
-                  Major_iterations = 100,
-                  Major_optimality=1e-9,
-                  Major_feasibility=1e-8,)
+                  Major_iterations = 100000,
+                  Major_optimality = 1e-8,
+                  Major_feasibility=1e-6,)
                   #   append2file=True)
                   # append2file=False)
 

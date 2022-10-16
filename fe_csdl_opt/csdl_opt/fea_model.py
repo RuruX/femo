@@ -18,9 +18,6 @@ class FEAModel(Model):
                 promote_list = arg_name_list_state.copy()
                 self.add(state_model,
                         name='{}_state_model'.format(state_name))
-                # self.add(state_model,
-                #         name='{}_state_model'.format(state_name),
-                #         promotes=promote_list.append(state_name))
 
             for output_name in fea.outputs_dict:
                 arg_name_list_output = fea.outputs_dict[output_name]['arguments']
@@ -31,6 +28,3 @@ class FEAModel(Model):
                 promote_list = arg_name_list_output.copy()
                 self.add(output_model,
                         name='{}_output_model'.format(output_name))
-                # self.add(output_model,
-                #         name='{}_output_model'.format(output_name),
-                #         promotes=promote_list.append(output_name))

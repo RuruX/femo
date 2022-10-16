@@ -61,7 +61,7 @@ def JS(v,uhat,iq,p,s,Hc,angle):
         H = as_vector([Hx, Hy])
 
         curl_v = as_vector([gradv[1],-gradv[0]])
-        Jm += inner(H,curl_v)*dx(i + 2 + 1)
+        Jm += inner(H,curl_v)* J(uhat) *dx(i + 2 + 1)
 
     num_phases = 3
     num_windings = s
@@ -92,11 +92,16 @@ def JS(v,uhat,iq,p,s,Hc,angle):
         coil_end_ind    = coil_start_ind + coils_per_pole
 
         J_list = [
-            JB * (-1)**(i+1) * v * dx(coil_start_ind),
-            JA * (-1)**(i) * v * dx(coil_start_ind + 1),
-            JC * (-1)**(i+1) * v * dx(coil_start_ind + 2),
+            JB * (-1)**(i+1) * v * J(uhat) * dx(coil_start_ind),
+            JA * (-1)**(i) * v * J(uhat) * dx(coil_start_ind + 1),
+            JC * (-1)**(i+1) * v * J(uhat) * dx(coil_start_ind + 2),
         ]
 
+        # J_list = [
+        #     JB * (-1)**(i+1) * v * dx(coil_start_ind),
+        #     JA * (-1)**(i) * v * dx(coil_start_ind + 1),
+        #     JC * (-1)**(i+1) * v * dx(coil_start_ind + 2),
+        # ]
         Jw += sum(J_list)
 
     return Jm + Jw
@@ -169,22 +174,6 @@ def pdeResMM(uhat, duhat, g=None,
             res_m += penalty_term
     return res_m
 
-# Ru: not used in Nitsche's method
-# def getBCDerivatives(uhat, bc_indices):
-#     """
-#     Compute the derivatives of the PDE residual of the mesh motion
-#     subproblem wrt the BCs, which is a fixed sparse matrix with "-1"s
-#     on the entries corresponding to the edge indices.
-#     """
-#     total_dofs = len(uhat.x.array)
-#     total_dofs_bc = len(bc_indices)
-#     row_ind = bc_indices
-#     col_ind = bc_indices
-#     data = -1.0*np.ones(total_dofs_bc)
-#     M = csr_matrix((data, (row_ind, col_ind)),
-#                     shape=(total_dofs, total_dofs))
-#     M_petsc = PETSc.Mat().createAIJ(size=M.shape,csr=(M.indptr,M.indices,M.data))
-#     return M_petsc
 
 def B_power_form(A_z, uhat, n, dx, subdomains):
     """

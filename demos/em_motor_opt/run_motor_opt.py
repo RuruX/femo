@@ -14,7 +14,7 @@ import argparse
 
 import motor_pde as pde
 from postprocessor.power_loss_model import LossSumModel, PowerLossModel
-from preprocessor.ffd_model import FFDModel, MotorMesh
+from preprocessor.ffd_model import FFDModel, MotorMesh, MagnetShapeLimitModel
 from preprocessor.boundary_input_model import BoundaryInputModel
 
 ###########################################################
@@ -38,7 +38,8 @@ mm = MotorMesh(
 mm.baseline_geometry=True
 mm.magnet_shift_only = True
 mm.create_motor_mesh()
-parametrization_dict    = mm.ffd_param_dict # dictionary holding parametrization parameters
+ # dictionary holding parametrization parameters
+parametrization_dict = mm.ffd_param_dict
 unique_sp_list = sorted(set(parametrization_dict['shape_parameter_list_input']))
 
 # FFD MODEL
@@ -69,9 +70,9 @@ f = open(data_path+'init_edge_coords_coarse_1.txt', 'r+')
 init_edge_coords = np.fromstring(f.read(), dtype=float, sep=' ')
 f.close()
 
-f = open(data_path+'edge_coord_deltas_coarse_1.txt', 'r+')
-edge_deltas_from_file = np.fromstring(f.read(), dtype=float, sep=' ')
-f.close()
+# f = open(data_path+'edge_coord_deltas_coarse_1.txt', 'r+')
+# edge_deltas_from_file = np.fromstring(f.read(), dtype=float, sep=' ')
+# f.close()
 
 
 dx = Measure('dx', domain=mesh, subdomain_data=subdomains_mf)
@@ -107,7 +108,7 @@ fea_mm = FEA(mesh)
 
 fea_mm.PDE_SOLVER = 'SNES'
 fea_mm.REPORT = True
-fea_mm.record = True
+fea_mm.record = False
 
 
 # inputs for mesh motion subproblem
@@ -117,7 +118,7 @@ input_function_mm = Function(input_function_space_mm)
 edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
 
 boundary_input_model = BoundaryInputModel(edge_indices=edge_indices,
-                                        output_size=len(input_function_mm.x.array))
+                                    output_size=len(input_function_mm.x.array))
 ############ User-defined incremental solver ###########
 def getDisplacementSteps(uhat, edge_deltas):
     """
@@ -137,33 +138,41 @@ def getDisplacementSteps(uhat, edge_deltas):
     increment_deltas = edge_deltas/STEPS
     return STEPS, increment_deltas
 
-def advance(func_old,func,i,increment_deltas):
-    # func_old.vector[:] = func.vector
-    func_old.vector[edge_indices.astype(np.int32)] = (i+1)*increment_deltas[edge_indices.astype(np.int32)]
+def advance(func_old,increment_deltas):
+    func_old.vector[edge_indices.astype(np.int32)] += \
+                    increment_deltas[edge_indices.astype(np.int32)]
 
-def solveIncremental(res,func,bc,report):
+def solveIncremental(res,func,bc,report=False):
+    vec = np.copy(input_function_mm.vector.getArray())
+    nnz_ind = np.nonzero(vec)[0]
     func_old = input_function_mm
     # Get the relative movements from the previous step
     relative_edge_deltas = func_old.vector[:] - func.vector[:]
     STEPS, increment_deltas = getDisplacementSteps(func_old,
                                                 relative_edge_deltas)
-    snes_solver = SNESSolver(res, func, bc, rel_tol=1e-6, report=report)
+
+
+    snes_solver = SNESSolver(res, func, bc, report=report)
+    func_old.vector[:] = func.vector
+
     # Incrementally set the BCs to increase to `edge_deltas`
-    print(80*"=")
-    print(' FEA: total steps for mesh motion:', STEPS)
-    print(80*"=")
+    if report == True:
+        print(80*"=")
+        print(' FEA: total steps for mesh motion:', STEPS)
+        print(80*"=")
     for i in range(STEPS):
         if report == True:
             print(80*"=")
             print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of mesh movement")
             print(80*"=")
-        advance(func_old,func,i,increment_deltas)
+        advance(func_old,increment_deltas)
         snes_solver.solve(None, func.vector)
+    input_function_mm.vector.setArray(vec)
     if report == True:
         print(80*"=")
         print(' FEA: L2 error of the mesh motion on the edges:',
-                    np.linalg.norm(func.vector[np.nonzero(relative_edge_deltas)]
-                             - relative_edge_deltas[np.nonzero(relative_edge_deltas)]))
+                np.linalg.norm(func.vector[nnz_ind.astype(np.int32)]
+                         - input_function_mm.vector[nnz_ind.astype(np.int32)]))
         print(80*"=")
 
 fea_mm.custom_solve = solveIncremental
@@ -188,7 +197,8 @@ output_form_mm_3 = pde.area_form(state_function_mm, dx, steel_id)
 
 # fea_mm.ubc = input_function_mm
 residual_form_mm = pde.pdeResMM(state_function_mm, v_mm, g=input_function_mm,
-                                nitsche=True, sym=True, overpenalty=False,dS_=dS(1000),ds_=ds(1000))
+                                nitsche=True, sym=True, overpenalty=False,
+                                dS_=dS(1000),ds_=ds(1000))
 fea_mm.add_input(name=input_name_mm,
                 function=input_function_mm)
 fea_mm.add_state(name=state_name_mm,
@@ -227,7 +237,34 @@ state_function_space_em = FunctionSpace(mesh, ('CG', 1))
 state_function_em = Function(state_function_space_em)
 v_em = TestFunction(state_function_space_em)
 
-residual_form_em = pde.pdeResEM(state_function_em,v_em,state_function_mm,iq,dx,p,s,Hc,vacuum_perm,angle)
+
+
+########################### Incremental solve ###########################
+############### much slower, but more accurate ##########################
+def solveIncrementalEM(res,func,bc,report=False):
+    STEPS = 5
+    # Incrementally set the BCs to increase to `edge_deltas`
+    if report == True:
+        print(80*"=")
+        print(' FEA: total steps for electromagnet solve:', STEPS)
+        print(80*"=")
+    JS_scaler = 1./STEPS
+    res += pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
+    for i in range(STEPS):
+        if report == True:
+            print(80*"=")
+            print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of electromagnet solve")
+            print(80*"=")
+        res -= JS_scaler*pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
+        # print(np.linalg.norm(getFuncArray(func)))
+        snes_solver = SNESSolver(res, func, bc, report=report)
+        snes_solver.solve(None, func.vector)
+
+fea_em.custom_solve = solveIncrementalEM
+
+#########################################################################
+residual_form_em = pde.pdeResEM(state_function_em,v_em,state_function_mm,
+                        iq,dx,p,s,Hc,vacuum_perm,angle)
 
 
 
@@ -252,17 +289,16 @@ output_form_2 = pde.B_power_form(state_function_em, state_function_mm,
 ############ Strongly enforced boundary conditions #############
 ubc_em = Function(state_function_space_em)
 ubc_em.vector.set(0.0)
-locate_BC1_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
-                            lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
-locate_BC2_em = locate_dofs_geometrical((state_function_space_em, state_function_space_em),
-                            lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
+locate_BC1_em = locate_dofs_geometrical(
+                    (state_function_space_em, state_function_space_em),
+                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
+locate_BC2_em = locate_dofs_geometrical(
+                    (state_function_space_em, state_function_space_em),
+                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
 
 locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
 
 fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
-
-
-
 
 fea_em.add_input(name=state_name_mm,
                 function=state_function_mm)
@@ -291,81 +327,83 @@ fea_model = FEAModel(fea=[fea_mm,fea_em])
 model = csdl.Model()
 power_loss_model = PowerLossModel()
 loss_sum_model = LossSumModel()
+magnet_shape_limit_model = MagnetShapeLimitModel()
 
 ###########################################################
 ######################## Connect ##########################
 
-## csdl_om
-# model.add(ffd_connection_model, name='ffd_model', promotes=['*'])
-# model.add(boundary_input_model, name='boundary_input_model', promotes=['*'])
-# model.add(fea_model, name='fea_model', promotes=['*'])
-# model.add(power_loss_model, name='power_loss_model', promotes=['*'])
-# model.add(loss_sum_model, name='loss_sum_model', promotes=['*'])
-#
-# # model.create_input('magnet_thickness_dv', val=0.0)
-# # model.add_design_variable('magnet_thickness_dv')
-# # model.add_objective('loss_sum')
-#
-# sim = om_simulator(model)
-
-
 # python_csdl_backend
 model.add(ffd_connection_model, name='ffd_model')
+model.add(magnet_shape_limit_model, name='magnet_shape_limit_model')
 model.add(boundary_input_model, name='boundary_input_model')
 model.add(fea_model, name='fea_model')
 model.add(power_loss_model, name='power_loss_model')
 model.add(loss_sum_model, name='loss_sum_model')
 
-model.create_input('magnet_pos_delta_dv', val=0.0)
-model.add_design_variable('magnet_pos_delta_dv')
+
+model.create_input('magnet_pos_delta_dv', val=0.1)
+model.create_input('magnet_width_dv', val=0.0)
+model.create_input('motor_length', val=0.1)
+model.create_input('frequency', val=300)
+model.create_input('hysteresis_coeff', val=55.)
+model.add_design_variable('magnet_pos_delta_dv', lower=-1e-5, upper=20.)
+# model.add_design_variable('magnet_width_dv', lower=-15, upper=24.)
+# model.add_constraint('magnet_shape_limit', upper=38.)
 model.add_objective('loss_sum')
 
+# sim = py_simulator(model)
 sim = py_simulator(model, analytics=True)
-
+# sim = om_simulator(model)
 # ########### Test the forward solve ##############
 
-sim['motor_length'] = 0.1 #unit: m
-sim['frequency'] = 300 #unit: Hz
+# sim['motor_length'] = 0.1 #unit: m
+# sim['frequency'] = 300 #unit: Hz
 ####### Single steps of movement ##########
 
 # magnet_pos_delta_dv [-0.0028,0]
 # magnet_width_dv [-0.017,0.017]
-sim['magnet_pos_delta_dv'] = -0.002
-# sim['magnet_width_dv'] = 0.01
+# sim['magnet_pos_delta_dv'] = 13.58
+# sim['magnet_width_dv'] = 24.
 sim.run()
+# sim['magnet_pos_delta_dv'] += 1e-1
+# sim.run()
+# print(sim['loss_sum'])
 # sim.check_partials(compact_print=True)
-#
-# magnetic_flux_density = pde.B(state_function_em, state_function_mm)
-#
+# sim.check_totals(of='loss_sum', wrt=['magnet_pos_delta_dv','magnet_width_dv'], compact_print=True)
+# sim.check_totals(of=['uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
+# sim.executable.check_totals(of=['uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
+# sim.executable.check_partials(compact_print=True)
+# exit()
 # # A_z = pde.calcAreaIntegratedAz(state_function_em,state_function_mm,dx,winding_range)
 #
 # ###### Multiple steps of movement ##########
-# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test/record_uhat.xdmf", "w")
-# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test/record_B.xdmf", "w")
+# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test1/record_uhat.xdmf", "w")
+# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test1/record_B.xdmf", "w")
 # xdmf_uhat.write_mesh(mesh)
 # xdmf_B.write_mesh(mesh)
 #
-# delta = -0.0022
+# delta = -20.
 # N = 20
 # ec_loss_array = np.zeros(N)
 # hyst_loss_array = np.zeros(N)
 # loss_sum_array = np.zeros(N)
 # for i in range(N):
 #     print(str(i)*40)
-#     sim['magnet_thickness_dv'] = delta/N*i
-#
-#     setFuncArray(input_function_mm, np.zeros(len(input_function_mm.x.array)))
-#         # setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
-#     setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
-#     # setFuncArray(state_function_em, np.zeros(len(state_function_em.x.array)))
+#     sim['magnet_pos_delta_dv'] = delta/N*i
+#     print("magnet_pos_delta_dv:", sim['magnet_pos_delta_dv'])
+#     #
+#     # setFuncArray(input_function_mm, np.zeros(len(input_function_mm.x.array)))
+#     #     # setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
+#     # setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
+#     # # setFuncArray(state_function_em, np.zeros(len(state_function_em.x.array)))
 #     sim.run()
 #     magnetic_flux_density = pde.B(state_function_em, state_function_mm)
-#
-#     print("Actual B_influence_eddy_current", sim[output_name_1])
-#     print("Actual B_influence_hysteresis", sim[output_name_2])
-#     print("Winding area", sim[output_name_mm_1])
-#     print("Magnet area", sim[output_name_mm_2])
-#     print("Steel area", sim[output_name_mm_3])
+#     #
+#     # print("Actual B_influence_eddy_current", sim[output_name_1])
+#     # print("Actual B_influence_hysteresis", sim[output_name_2])
+#     # print("Winding area", sim[output_name_mm_1])
+#     # print("Magnet area", sim[output_name_mm_2])
+#     # print("Steel area", sim[output_name_mm_3])
 #     print("Eddy current loss", sim['eddy_current_loss'])
 #     print("Hysteresis loss", sim['hysteresis_loss'])
 #     print("Loss sum", sim['loss_sum'])
@@ -386,6 +424,31 @@ sim.run()
 # print("hysteresis loss", hyst_loss_array)
 # print("loss sum", loss_sum_array)
 
+############# Run the optimization with modOpt #############
+from modopt.csdl_library import CSDLProblem
+
+prob = CSDLProblem(
+    problem_name='em_motor_opt',
+    simulator=sim,
+)
+
+from modopt.snopt_library import SNOPT
+
+optimizer = SNOPT(prob,
+                  Major_iterations = 100,
+                  Major_optimality =1e-8,
+                  Major_feasibility=1e-6,
+                  append2file=True)
+                  # append2file=False)
+
+# nonlinear solver should converge to a smaller torelance (~1e-12)
+
+
+
+# Solve your optimization problem
+# optimizer.solve()
+print("="*40)
+
 # fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])
 with XDMFFile(MPI.COMM_WORLD, "solutions/input_"+input_name_mm+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea_mm.mesh)
@@ -396,13 +459,14 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_mm+".xdmf", "w") as 
     fea_mm.states_dict[state_name_mm]['function'].name = state_name_mm
     xdmf.write_function(fea_mm.states_dict[state_name_mm]['function'])
 
-# move(fea_em.mesh, state_function_mm)
-# with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_em+".xdmf", "w") as xdmf:
-#     xdmf.write_mesh(fea_em.mesh)
-#     fea_em.states_dict[state_name_em]['function'].name = state_name_em
-#     xdmf.write_function(fea_em.states_dict[state_name_em]['function'])
-#
-# with XDMFFile(MPI.COMM_WORLD, "solutions/magnetic_flux_density.xdmf", "w") as xdmf:
-#     xdmf.write_mesh(fea_em.mesh)
-#     magnetic_flux_density.name = "B"
-#     xdmf.write_function(magnetic_flux_density)
+magnetic_flux_density = pde.B(state_function_em, state_function_mm)
+move(fea_em.mesh, state_function_mm)
+with XDMFFile(MPI.COMM_WORLD, "solutions/state_"+state_name_em+".xdmf", "w") as xdmf:
+    xdmf.write_mesh(fea_em.mesh)
+    fea_em.states_dict[state_name_em]['function'].name = state_name_em
+    xdmf.write_function(fea_em.states_dict[state_name_em]['function'])
+
+with XDMFFile(MPI.COMM_WORLD, "solutions/magnetic_flux_density.xdmf", "w") as xdmf:
+    xdmf.write_mesh(fea_em.mesh)
+    magnetic_flux_density.name = "B"
+    xdmf.write_function(magnetic_flux_density)

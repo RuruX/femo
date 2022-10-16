@@ -35,7 +35,6 @@ class OutputModel(Model):
         output = csdl.custom(*args_list, op=e)
         self.register_output(output_name, output)
 
-
 class OutputOperation(CustomExplicitOperation):
     """
     input: input/state variables
@@ -80,7 +79,7 @@ class OutputOperation(CustomExplicitOperation):
 
         for arg_name in self.args_dict:
             derivatives[self.output_name,arg_name] = assemble(
-                                        computePartials(
-                                            self.output['form'],
-                                            self.args_dict[arg_name]['function']),
-                                        dim=self.output_dim+1)
+                                    computePartials(
+                                        self.output['form'],
+                                        self.args_dict[arg_name]['function']),
+                                    dim=self.output_dim+1)

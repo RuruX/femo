@@ -22,8 +22,6 @@ args = parser.parse_args()
 num_el = int(args.nel)
 mesh = createUnitSquareMesh(num_el)
 
-
-
 '''
 2. Set up the PDE problem
 '''
@@ -225,8 +223,8 @@ from modopt.snopt_library import SNOPT
 from modopt.scipy_library import SLSQP
 
 optimizer = SNOPT(prob,
-                  Major_optimality = 1e-14,
-                  Major_feasibility = 1e-13)
+                  Major_optimality = 1e-13,
+                  Major_feasibility = 1e-12)
                   #   append2file=True)
                   # append2file=False)
 # optimizer = SLSQP(
