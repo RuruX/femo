@@ -275,10 +275,10 @@ locate_BC2_em = locate_dofs_geometrical(
 locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
 
 # fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
-
+#
 # residual_form_em = pde.pdeResEM(state_function_em,v_em,state_function_mm,
 #                         iq,dx,p,s,Hc,vacuum_perm,angle)
-
+#
 
 
 ############ Weakly enforced boundary conditions #############
@@ -346,7 +346,7 @@ model.add(power_loss_model, name='power_loss_model')
 model.add(loss_sum_model, name='loss_sum_model')
 
 
-model.create_input('magnet_pos_delta_dv', val=0.1)
+model.create_input('magnet_pos_delta_dv', val=1.)
 model.create_input('magnet_width_dv', val=0.)
 model.create_input('motor_length', val=0.1)
 model.create_input('frequency', val=300)
@@ -428,7 +428,7 @@ optimizer = SNOPT(prob,
 
 
 # Solve your optimization problem
-optimizer.solve()
+# optimizer.solve()
 print("="*40)
 
 # fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])

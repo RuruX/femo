@@ -38,7 +38,7 @@ def gradx(f,uhat):
     f: DOLFINx function for the solution of the physical problem
     uhat: DOLFIN function for mesh movements
     """
-    return dot(grad(f), inv(I + grad(uhat)))
+    return dot(grad(f), inv(F(uhat)))
 
 
 def J(uhat):
@@ -49,7 +49,17 @@ def J(uhat):
     ---------------------------
     uhat: DOLFINx function for mesh movements
     """
-    return det(I + grad(uhat))
+    return det(F(uhat))
+
+def F(uhat):
+    """
+    Compute the determinant of the deformation gradient used in the
+    integration measure of the deformed configuration wrt the the
+    reference configuration.
+    ---------------------------
+    uhat: DOLFINx function for mesh movements
+    """
+    return I + grad(uhat)
 
 # The dolfinx version for mesh importer from msh2xdmf module
 def import_mesh(
