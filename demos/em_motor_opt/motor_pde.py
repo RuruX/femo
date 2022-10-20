@@ -11,7 +11,6 @@ cubic_bounds = extractCubicBounds()
 # START NEW PERMEABILITY
 def RelativePermeability(subdomain, u, uhat):
     gradu = gradx(u,uhat)
-    # if subdomain == 1: # Electrical/Silicon/Laminated Steel
     if subdomain == 1 or subdomain == 2: # Electrical/Silicon/Laminated Steel
         B = as_vector([gradu[1], -gradu[0]])
         norm_B = sqrt(dot(B, B) + DOLFIN_EPS)
@@ -72,19 +71,6 @@ def JS(v,uhat,iq,p,s,Hc,angle):
     i_abc = compute_i_abc(iq, angle)
     JA, JB, JC = i_abc[0] + DOLFIN_EPS, i_abc[1] + DOLFIN_EPS, i_abc[2] + DOLFIN_EPS
 
-    # NEW METHOD
-    # for i in range(int((num_windings) / (num_phases * coil_per_phase))):
-    #     coil_start_ind = i * num_phases * coil_per_phase
-
-    #     J_list = [
-    #         JB * (-1)**(2*i+1) * v * dx(stator_winding_index_start + coil_start_ind),
-    #         JA * (-1)**(2*i) * v * dx(stator_winding_index_start + coil_start_ind + 1),
-    #         JC * (-1)**(2*i+1) * v * dx(stator_winding_index_start + coil_start_ind + 2),
-    #         JB * (-1)**(2*i) * v * dx(stator_winding_index_start + coil_start_ind + 3),
-    #         JA * (-1)**(2*i+1) * v * dx(stator_winding_index_start + coil_start_ind + 4),
-    #         JC * (-1)**(2*i) * v * dx(stator_winding_index_start + coil_start_ind + 5)
-    #     ]
-    #     Jw += sum(J_list)
 
     coils_per_pole  = 3
     for i in range(p): # assigning current densities for each set of poles
@@ -96,17 +82,12 @@ def JS(v,uhat,iq,p,s,Hc,angle):
             JA * (-1)**(i) * v * J(uhat) * dx(coil_start_ind + 1),
             JC * (-1)**(i+1) * v * J(uhat) * dx(coil_start_ind + 2),
         ]
-
-        # J_list = [
-        #     JB * (-1)**(i+1) * v * dx(coil_start_ind),
-        #     JA * (-1)**(i) * v * dx(coil_start_ind + 1),
-        #     JC * (-1)**(i+1) * v * dx(coil_start_ind + 2),
-        # ]
         Jw += sum(J_list)
 
     return Jm + Jw
 
-def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle):
+def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle,
+                g=None,nitsche=False, sym=False, overpenalty=False,ds_=ds):
     """
     The variational form of the PDE residual for the electromagnetic problem
     """
@@ -118,8 +99,34 @@ def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle):
         res += 1./vacuum_perm*(1/RelativePermeability(i + 1, u, uhat))\
                 *dot(gradu,gradv)*J(uhat)*dx(i + 1)
     res -= JS(v,uhat,iq,p,s,Hc,angle)
-    return res
 
+    # Artificially apply Neumann boundary condition to test the derivatives
+    # boundary_res = inner(u,v)*J(uhat)*ds
+
+    mesh = u.function_space.mesh
+    boundary_res = 0.
+    if nitsche is True:
+        beta = 1e4
+        sgn = 1.0
+        if sym is not True:
+            sgn = -1.0
+        n = FacetNormal(mesh)
+        h_E = CellDiameter(mesh)
+        boundary_components = [0,1]
+        # TODO: change the the integration operator to be consistent with
+        # the current configuration - for those cases where the nodes on the
+        # "outer boundary" would move. 
+        for i in boundary_components:
+            coeff = 1./vacuum_perm*(1/RelativePermeability(i + 1, u, uhat))
+            nitsche_term = coeff*(- inner(dot(gradu,n),v) \
+                            - sgn*inner(dot(gradv,n),u-g))*ds_
+            boundary_res += nitsche_term
+            penalty_term = beta/h_E*coeff*inner(v,u-g)*ds_
+            if sym is True or overpenalty is True:
+                boundary_res += penalty_term
+
+    res += boundary_res
+    return res
 
 I = Identity(2)
 

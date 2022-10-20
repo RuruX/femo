@@ -194,8 +194,6 @@ output_form_mm_3 = pde.area_form(state_function_mm, dx, steel_id)
 
 
 ############ Weakly enforced boundary conditions #############
-
-# fea_mm.ubc = input_function_mm
 residual_form_mm = pde.pdeResMM(state_function_mm, v_mm, g=input_function_mm,
                                 nitsche=True, sym=True, overpenalty=False,
                                 dS_=dS(1000),ds_=ds(1000))
@@ -246,14 +244,14 @@ def solveIncrementalEM(res,func,bc,report=False):
     # Incrementally set the BCs to increase to `edge_deltas`
     if report == True:
         print(80*"=")
-        print(' FEA: total steps for electromagnet solve:', STEPS)
+        print(' FEA: total steps for electromagnetic solve:', STEPS)
         print(80*"=")
     JS_scaler = 1./STEPS
     res += pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
     for i in range(STEPS):
         if report == True:
             print(80*"=")
-            print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of electromagnet solve")
+            print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of electromagnetic solve")
             print(80*"=")
         res -= JS_scaler*pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
         # print(np.linalg.norm(getFuncArray(func)))
@@ -263,10 +261,30 @@ def solveIncrementalEM(res,func,bc,report=False):
 fea_em.custom_solve = solveIncrementalEM
 
 #########################################################################
+
+############ Strongly enforced boundary conditions #############
+ubc_em = Function(state_function_space_em)
+ubc_em.vector.set(0.0)
+locate_BC1_em = locate_dofs_geometrical(
+                    (state_function_space_em, state_function_space_em),
+                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
+locate_BC2_em = locate_dofs_geometrical(
+                    (state_function_space_em, state_function_space_em),
+                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
+
+locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
+
+# fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
+
+# residual_form_em = pde.pdeResEM(state_function_em,v_em,state_function_mm,
+#                         iq,dx,p,s,Hc,vacuum_perm,angle)
+
+
+
+############ Weakly enforced boundary conditions #############
 residual_form_em = pde.pdeResEM(state_function_em,v_em,state_function_mm,
-                        iq,dx,p,s,Hc,vacuum_perm,angle)
-
-
+                        iq,dx,p,s,Hc,vacuum_perm,angle,
+                        g=ubc_em,nitsche=True, sym=True, overpenalty=False,ds_=ds)
 
 # Add output to the PDE problem:
 output_name_1 = 'B_influence_eddy_current'
@@ -286,19 +304,6 @@ output_form_2 = pde.B_power_form(state_function_em, state_function_mm,
 3. Define the boundary conditions
 '''
 
-############ Strongly enforced boundary conditions #############
-ubc_em = Function(state_function_space_em)
-ubc_em.vector.set(0.0)
-locate_BC1_em = locate_dofs_geometrical(
-                    (state_function_space_em, state_function_space_em),
-                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
-locate_BC2_em = locate_dofs_geometrical(
-                    (state_function_space_em, state_function_space_em),
-                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
-
-locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
-
-fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
 
 fea_em.add_input(name=state_name_mm,
                 function=state_function_mm)
@@ -334,7 +339,7 @@ magnet_shape_limit_model = MagnetShapeLimitModel()
 
 # python_csdl_backend
 model.add(ffd_connection_model, name='ffd_model')
-model.add(magnet_shape_limit_model, name='magnet_shape_limit_model')
+# model.add(magnet_shape_limit_model, name='magnet_shape_limit_model')
 model.add(boundary_input_model, name='boundary_input_model')
 model.add(fea_model, name='fea_model')
 model.add(power_loss_model, name='power_loss_model')
@@ -342,7 +347,7 @@ model.add(loss_sum_model, name='loss_sum_model')
 
 
 model.create_input('magnet_pos_delta_dv', val=0.1)
-model.create_input('magnet_width_dv', val=0.0)
+model.create_input('magnet_width_dv', val=0.)
 model.create_input('motor_length', val=0.1)
 model.create_input('frequency', val=300)
 model.create_input('hysteresis_coeff', val=55.)
@@ -351,38 +356,25 @@ model.add_design_variable('magnet_pos_delta_dv', lower=-1e-5, upper=20.)
 # model.add_constraint('magnet_shape_limit', upper=38.)
 model.add_objective('loss_sum')
 
-# sim = py_simulator(model)
 sim = py_simulator(model, analytics=True)
 # sim = om_simulator(model)
 # ########### Test the forward solve ##############
 
-# sim['motor_length'] = 0.1 #unit: m
-# sim['frequency'] = 300 #unit: Hz
 ####### Single steps of movement ##########
 
-# magnet_pos_delta_dv [-0.0028,0]
-# magnet_width_dv [-0.017,0.017]
-# sim['magnet_pos_delta_dv'] = 13.58
-# sim['magnet_width_dv'] = 24.
 sim.run()
-# sim['magnet_pos_delta_dv'] += 1e-1
-# sim.run()
-# print(sim['loss_sum'])
-# sim.check_partials(compact_print=True)
-# sim.check_totals(of='loss_sum', wrt=['magnet_pos_delta_dv','magnet_width_dv'], compact_print=True)
-# sim.check_totals(of=['uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
-# sim.executable.check_totals(of=['uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
-# sim.executable.check_partials(compact_print=True)
-# exit()
-# # A_z = pde.calcAreaIntegratedAz(state_function_em,state_function_mm,dx,winding_range)
+# sim.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
+# sim.executable.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
 #
 # ###### Multiple steps of movement ##########
-# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test1/record_uhat.xdmf", "w")
-# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test1/record_B.xdmf", "w")
+# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test4/record_uhat.xdmf", "w")
+# xdmf_Az = XDMFFile(MPI.COMM_WORLD, "test4/record_Az.xdmf", "w")
+# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test4/record_B.xdmf", "w")
 # xdmf_uhat.write_mesh(mesh)
+# xdmf_Az.write_mesh(mesh)
 # xdmf_B.write_mesh(mesh)
 #
-# delta = -20.
+# delta = 20.
 # N = 20
 # ec_loss_array = np.zeros(N)
 # hyst_loss_array = np.zeros(N)
@@ -391,19 +383,11 @@ sim.run()
 #     print(str(i)*40)
 #     sim['magnet_pos_delta_dv'] = delta/N*i
 #     print("magnet_pos_delta_dv:", sim['magnet_pos_delta_dv'])
-#     #
-#     # setFuncArray(input_function_mm, np.zeros(len(input_function_mm.x.array)))
-#     #     # setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
-#     # setFuncArray(state_function_mm, np.zeros(len(state_function_mm.x.array)))
-#     # # setFuncArray(state_function_em, np.zeros(len(state_function_em.x.array)))
+#     # sim['magnet_width_dv'] = delta/N*i
+#     # print("magnet_width_dv:", sim['magnet_width_dv'])
+#
 #     sim.run()
 #     magnetic_flux_density = pde.B(state_function_em, state_function_mm)
-#     #
-#     # print("Actual B_influence_eddy_current", sim[output_name_1])
-#     # print("Actual B_influence_hysteresis", sim[output_name_2])
-#     # print("Winding area", sim[output_name_mm_1])
-#     # print("Magnet area", sim[output_name_mm_2])
-#     # print("Steel area", sim[output_name_mm_3])
 #     print("Eddy current loss", sim['eddy_current_loss'])
 #     print("Hysteresis loss", sim['hysteresis_loss'])
 #     print("Loss sum", sim['loss_sum'])
@@ -416,6 +400,7 @@ sim.run()
 #     # xdmf_uhat.write_mesh(mesh)
 #     xdmf_uhat.write_function(state_function_mm,i)
 #     # xdmf_B.write_mesh(mesh)
+#     xdmf_Az.write_function(state_function_em,i)
 #     xdmf_B.write_function(magnetic_flux_density,i)
 #     # moveBackward(mesh, state_function_mm)
 #
@@ -441,12 +426,9 @@ optimizer = SNOPT(prob,
                   append2file=True)
                   # append2file=False)
 
-# nonlinear solver should converge to a smaller torelance (~1e-12)
-
-
 
 # Solve your optimization problem
-# optimizer.solve()
+optimizer.solve()
 print("="*40)
 
 # fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])

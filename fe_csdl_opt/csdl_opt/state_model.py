@@ -76,7 +76,6 @@ class StateOperation(CustomImplicitOperation):
             arg = self.args_dict[arg_name]
             update(arg['function'], inputs[arg_name])
         update(self.state['function'], outputs[self.state_name])
-
         residuals[self.state_name] = assembleVector(self.state['residual_form'])
 
 
@@ -85,7 +84,6 @@ class StateOperation(CustomImplicitOperation):
             print(str(self.state_name)+"="*40)
             print("CSDL: Running solve_residual_equations()...")
             print("="*40)
-
 
         self.fea.opt_iter += 1
         for arg_name in inputs:
@@ -103,7 +101,6 @@ class StateOperation(CustomImplicitOperation):
             self.state['recorder'].write_function(self.state['function'],
                                                     self.fea.opt_iter)
 
-
     def compute_derivatives(self, inputs, outputs, derivatives):
         if self.debug_mode == True:
             print(str(self.state_name)+"="*40)
@@ -119,7 +116,6 @@ class StateOperation(CustomImplicitOperation):
         dR_du = state['dR_du']
         if dR_du == None:
             dR_du = computePartials(state['residual_form'],state['function'])
-        self.dR_du = dR_du
         self.dRdu = assembleMatrix(dR_du)
 
         dRdf_dict = dict()
@@ -150,7 +146,7 @@ class StateOperation(CustomImplicitOperation):
                                 d_inputs, d_outputs, d_residuals, mode):
         if self.debug_mode == True:
             print(str(self.state_name)+"="*40)
-            print("CSDL: Running compute_jacvec_product()...")
+            print("CSDL: Running compute_jacvec_product()..."+"mode "+str(mode))
             print("="*40)
 
         ######################
@@ -159,11 +155,9 @@ class StateOperation(CustomImplicitOperation):
             update(self.args_dict[arg_name]['function'], inputs[arg_name])
         update(self.state['function'], outputs[self.state_name])
         ######################
-
         state_name = self.state_name
         args_dict = self.args_dict
         if mode == 'fwd':
-            print('forward')
             if state_name in d_residuals:
                 if state_name in d_outputs:
                     update(self.du, d_outputs[state_name])
@@ -178,7 +172,6 @@ class StateOperation(CustomImplicitOperation):
                                 dRdf, self.dRdf_dict[arg_name]['df'])
 
         if mode == 'rev':
-            print('reverse')
             if state_name in d_residuals:
                 update(self.dR, d_residuals[state_name])
                 if state_name in d_outputs:
@@ -193,14 +186,13 @@ class StateOperation(CustomImplicitOperation):
     def apply_inverse_jacobian(self, d_outputs, d_residuals, mode):
         if self.debug_mode == True:
             print(str(self.state_name)+"="*40)
-            print("CSDL: Running apply_inverse_jacobian()...")
+            print("CSDL: Running apply_inverse_jacobian()..."+"mode "+str(mode))
             print("="*40)
+
         state_name = self.state_name
         if mode == 'fwd':
-            print('fwd')
             d_outputs[state_name] = self.fea.solveLinearFwd(
                             self.du, self.A, self.dR, d_residuals[state_name])
         else:
-            print('rev')
             d_residuals[state_name] = self.fea.solveLinearBwd(
                             self.dR, self.A, self.du, d_outputs[state_name])

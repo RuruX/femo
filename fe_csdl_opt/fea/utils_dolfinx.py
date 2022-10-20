@@ -338,8 +338,8 @@ class NonlinearSNESProblem:
 
 
 def SNESSolver(F, w, bcs=[],
-                    abs_tol=1e-15,
-                    rel_tol=1e-15,
+                    abs_tol=1e-13,
+                    rel_tol=1e-13,
                     max_it=100,
                     report=False):
     """
