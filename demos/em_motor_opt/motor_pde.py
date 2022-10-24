@@ -86,50 +86,6 @@ def JS(v,uhat,iq,p,s,Hc,angle):
 
     return Jm + Jw
 
-# def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle,
-#                 g=None,nitsche=False, sym=False, overpenalty=False,ds_=ds):
-#     """
-#     The variational form of the PDE residual for the electromagnetic problem
-#     """
-#     res = 0.
-#     gradu = gradx(u,uhat)
-#     gradv = gradx(v,uhat)
-#
-#     num_components = 4 * 3 * p + 2 * s
-#     for i in range(num_components):
-#         res += 1./vacuum_perm*(1/RelativePermeability(i + 1, u, uhat))\
-#                 *dot(gradu,gradv)*J(uhat)*dx(i + 1)
-#     res -= JS(v,uhat,iq,p,s,Hc,angle)
-#
-#     # Artificially apply Neumann boundary condition to test the derivatives
-#     # boundary_res = inner(u,v)*J(uhat)*ds
-#
-#     mesh = u.function_space.mesh
-#     boundary_res = 0.
-#     if nitsche is True:
-#         beta = 1e4
-#         sgn = 1.0
-#         if sym is not True:
-#             sgn = -1.0
-#         n = FacetNormal(mesh)
-#         # transform normal and area element by Nanson's formula:
-#         dsx_dsy_n_x = J(uhat)*inv(F(uhat).T)*n
-#         h_E = CellDiameter(mesh)
-#         boundary_components = [0,1]
-#         # TODO: change the the integration operator to be consistent with
-#         # the current configuration - for those cases where the nodes on the
-#         # "outer boundary" would move.
-#         for i in boundary_components:
-#             coeff = 1./vacuum_perm*(1/RelativePermeability(i + 1, u, uhat))
-#             nitsche_term = coeff*(- inner(dot(gradu,n),v) \
-#                             - sgn*inner(dot(gradv,n),u-g))*ds_
-#             boundary_res += nitsche_term
-#             penalty_term = beta/h_E*coeff*inner(v,u-g)*ds_
-#             if sym is True or overpenalty is True:
-#                 boundary_res += penalty_term
-#
-#     res += boundary_res
-#     return res
 
 def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle,
                 g=None,nitsche=False, sym=False, overpenalty=False,ds_=ds):
@@ -146,9 +102,6 @@ def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle,
                 *dot(gradu,gradv)*J(uhat)*dx(i + 1)
     res -= JS(v,uhat,iq,p,s,Hc,angle)
 
-    # Artificially apply Neumann boundary condition to test the derivatives
-    # boundary_res = inner(u,v)*J(uhat)*ds
-
     mesh = u.function_space.mesh
     boundary_res = 0.
     if nitsche is True:
@@ -159,17 +112,17 @@ def pdeResEM(u,v,uhat,iq,dx,p,s,Hc,vacuum_perm,angle,
         n = FacetNormal(mesh)
         # transform normal and area element by Nanson's formula:
         dsx_dsy_n_x = J(uhat)*inv(F(uhat).T)*n
+        norm_dsx_dsy_n_x = ufl.sqrt(ufl.dot(dsx_dsy_n_x, dsx_dsy_n_x))
+
         h_E = CellDiameter(mesh)
         boundary_components = [0,1]
-        # TODO: make sure the integration operator `ds` is consistent with
-        # the current configuration - for those cases where the nodes on the
-        # "outer boundary" would move.
         for i in boundary_components:
             coeff = 1./vacuum_perm*(1/RelativePermeability(i + 1, u, uhat))
             nitsche_term = coeff*(- inner(dot(gradu,dsx_dsy_n_x),v) \
                             - sgn*inner(dot(gradv,dsx_dsy_n_x),u-g))*ds_
             boundary_res += nitsche_term
-            penalty_term = beta/h_E*coeff*inner(v,u-g)*ds_
+
+            penalty_term = beta/h_E*coeff*norm_dsx_dsy_n_x*inner(v,u-g)*ds_
             if sym is True or overpenalty is True:
                 boundary_res += penalty_term
 

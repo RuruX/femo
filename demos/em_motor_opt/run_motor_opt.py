@@ -346,7 +346,7 @@ model.add(power_loss_model, name='power_loss_model')
 model.add(loss_sum_model, name='loss_sum_model')
 
 
-model.create_input('magnet_pos_delta_dv', val=1.)
+model.create_input('magnet_pos_delta_dv', val=1.0)
 model.create_input('magnet_width_dv', val=0.)
 model.create_input('motor_length', val=0.1)
 model.create_input('frequency', val=300)
@@ -356,16 +356,33 @@ model.add_design_variable('magnet_pos_delta_dv', lower=-1e-5, upper=20.)
 # model.add_constraint('magnet_shape_limit', upper=38.)
 model.add_objective('loss_sum')
 
+# from csdl import expand
+# winding_area = model.declare_variable('winding_area')
+# num_windings = 13
+# nel = mesh.topology.index_map(mesh.topology.dim).size_local
+# nn = mesh.topology.index_map(0).size_local
+# i_amp_size = nel
+# current_amplitude = model.create_input('current_amplitude', val=1.)
+# current_density_amplitude = model.register_output(
+#     'i_amp',
+#     expand(current_amplitude / (winding_area/num_windings), (i_amp_size,))
+# )
+
+# current_density_amplitude = model.register_output(
+    # 'i_amp', current_amplitude / (winding_area/num_windings))
+
 sim = py_simulator(model, analytics=True)
 # sim = om_simulator(model)
-# ########### Test the forward solve ##############
+########### Test the forward solve ##############
 
 ####### Single steps of movement ##########
 
 sim.run()
 # sim.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
 # sim.executable.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
-#
+# sim.executable.check_totals(of=['i_amp','winding_area'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
+# print("winding area:",sim['winding_area'])
+# print("current density amplitude:",sim['i_amp'])
 # ###### Multiple steps of movement ##########
 # xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test4/record_uhat.xdmf", "w")
 # xdmf_Az = XDMFFile(MPI.COMM_WORLD, "test4/record_Az.xdmf", "w")
