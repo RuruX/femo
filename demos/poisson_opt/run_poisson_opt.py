@@ -106,7 +106,6 @@ state_function_space = FunctionSpace(mesh, ('CG', 1))
 state_function = Function(state_function_space)
 v = TestFunction(state_function_space)
 
-residual_form = pdeRes(state_function, v, input_function)
 u_ex = fea.add_exact_solution(Expression_u, state_function_space)
 f_ex = fea.add_exact_solution(Expression_f, input_function_space)
 
@@ -134,14 +133,14 @@ locate_BC3 = locate_dofs_geometrical((state_function_space, state_function_space
 locate_BC4 = locate_dofs_geometrical((state_function_space, state_function_space),
                             lambda x: np.isclose(x[1], 1. ,atol=1e-6))
 locate_BC_list = [locate_BC1, locate_BC2, locate_BC3, locate_BC4]
-fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
+# fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
+# residual_form = pdeRes(state_function, v, input_function)
 
-
-############ Weakly enforced boundary conditions #############
-############### Unsymmetric Nitsche's method #################
-# residual_form = pdeRes(state_function, v, input_function,
-#                         u_exact=u_ex, weak_bc=True, sym=False)
-##############################################################
+########### Weakly enforced boundary conditions #############
+############## Unsymmetric Nitsche's method #################
+residual_form = pdeRes(state_function, v, input_function,
+                        u_exact=u_ex, weak_bc=True, sym=True)
+#############################################################
 
 
 
@@ -174,14 +173,14 @@ fea_model.create_input("{}".format(input_name),
 # fea_model.connect('u_state_model.u','l2_functional_output_model.u')
 
 fea_model.add_design_variable(input_name)
-fea_model.add_objective(output_name)
+fea_model.add_objective(output_name, scaler=1e5)
 
 # Ru: the new Python backend of CSDL has issue for promotions or connecting
 # the variables for custom operations as from Aug 30.
 sim = py_simulator(fea_model)
 # sim = om_simulator(fea_model)
 ########### Test the forward solve ##############
-# sim[input_name] = getFuncArray(f_ex)
+sim[input_name] = getFuncArray(f_ex)
 
 sim.run()
 
@@ -223,8 +222,7 @@ from modopt.snopt_library import SNOPT
 from modopt.scipy_library import SLSQP
 
 optimizer = SNOPT(prob,
-                  Major_optimality = 1e-13,
-                  Major_feasibility = 1e-12)
+                  Major_optimality = 1e-8)
                   #   append2file=True)
                   # append2file=False)
 # optimizer = SLSQP(
@@ -257,3 +255,6 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/input_"+input_name+".xdmf", "w") as xdm
     xdmf.write_mesh(fea.mesh)
     fea.inputs_dict[input_name]['function'].name = input_name
     xdmf.write_function(fea.inputs_dict[input_name]['function'])
+with XDMFFile(MPI.COMM_WORLD, "solutions/f_ex.xdmf", "w") as xdmf:
+    xdmf.write_mesh(fea.mesh)
+    xdmf.write_function(f_ex)

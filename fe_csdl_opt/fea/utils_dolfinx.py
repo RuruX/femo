@@ -527,17 +527,43 @@ def findNodeIndices(node_coordinates, coordinates):
     dist, node_indices = tree.query(node_coordinates)
     return node_indices
 
-def locateDOFs(coords,V):
+# def locateDOFs(coords,V):
+#     """
+#     Find the indices of the dofs for setting up the boundary condition
+#     in the mesh motion subproblem
+#     """
+#     coordinates = V.tabulate_dof_coordinates()[:,:-1]
+#
+#     # Use KDTree to find the node indices of the points on the edge
+#     # in the mesh object in FEniCS
+#     node_indices = findNodeIndices(np.reshape(coords, (-1,2)),
+#                                     coordinates)
+#
+#     # Convert the node indices to edge indices, where each node has 2 dofs
+#     edge_indices = np.empty(2*len(node_indices))
+#     for i in range(len(node_indices)):
+#         edge_indices[2*i] = 2*node_indices[i]
+#         edge_indices[2*i+1] = 2*node_indices[i]+1
+#
+#     return edge_indices.astype('int')
+
+def locateDOFs(coords,V, input='polar'):
     """
     Find the indices of the dofs for setting up the boundary condition
     in the mesh motion subproblem
     """
-    coordinates = V.tabulate_dof_coordinates()[:,:-1]
+    coords = np.reshape(coords[:], (-1,2))
+    if input == 'polar':
+        for i in range(coords.shape[0]):
+            theta, r =  coords[i,:]
+            coords[i,:] = np.array([
+                r*np.cos(theta), r*np.sin(theta)
+            ])
 
+    coordinates = V.tabulate_dof_coordinates()[:,:-1]
     # Use KDTree to find the node indices of the points on the edge
     # in the mesh object in FEniCS
-    node_indices = findNodeIndices(np.reshape(coords, (-1,2)),
-                                    coordinates)
+    node_indices = findNodeIndices(coords, coordinates)
 
     # Convert the node indices to edge indices, where each node has 2 dofs
     edge_indices = np.empty(2*len(node_indices))
