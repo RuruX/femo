@@ -7,7 +7,7 @@ from dolfinx.io import XDMFFile
 from ufl import (Identity, dot, derivative, TestFunction, TrialFunction,
                 inner, ds, dS, dx, grad, inv, as_vector, sqrt, conditional, lt,
                 det, Measure, exp, tr, CellDiameter)
-from dolfinx.mesh import (create_unit_square, create_rectangle,
+from dolfinx.mesh import (create_unit_square, create_rectangle, create_interval,
                             locate_entities_boundary, locate_entities,
                             meshtags)
 from dolfinx.cpp.mesh import CellType
@@ -134,6 +134,12 @@ def createUnitSquareMesh(n):
     Create unit square mesh for test purposes
     """
     return create_unit_square(MPI.COMM_WORLD, n, n)
+
+def createIntervalMesh(n, x0, x1):
+    """
+    Create interval mesh for test purposes
+    """
+    return create_interval(MPI.COMM_WORLD, n, [x0, x1])
 
 def createRectangleMesh(pt1,pt2,nx,ny):
     """
