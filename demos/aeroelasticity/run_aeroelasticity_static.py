@@ -1,12 +1,3 @@
-"""
-Structural analysis for the undeflected common research model (uCRM)
-uCRM-9 Specifications: (units: m/ft, kg/lb)
-(from https://deepblue.lib.umich.edu/bitstream/handle/2027.42/143039/6.2017-4456.pdf?sequence=1)
-Maximum take-off weight	352,400kg/777,000lb
-Wing span (extended)    71.75m/235.42ft
-Overall length	        76.73m/251.75ft
-"""
-
 from fe_csdl_opt.fea.fea_dolfinx import *
 from fe_csdl_opt.csdl_opt.fea_model import FEAModel
 from fe_csdl_opt.csdl_opt.state_model import StateModel
@@ -67,7 +58,7 @@ nn = mesh.topology.index_map(0).size_local
 E = 6.8E10 # unit: Pa (N/m^2)
 nu = 0.35
 h = 3E-3 # overall thickness (unit: m)
-rho_struct = 2710. # unit: kg/m^3
+
 
 element_type = "CG2CG1" # with quad/tri elements
 
@@ -80,19 +71,11 @@ element = ShellElement(
 dx_inplane, dx_shear = element.dx_inplane, element.dx_shear
 
 
+def pdeRes(h,w,E,f,CLT,dx_inplane,dx_shear):
+    elastic_model = ElasticModel(mesh,w,CLT)
+    elastic_energy = elastic_model.elasticEnergy(E, h, dx_inplane,dx_shear)
+    return elastic_model.weakFormResidual(elastic_energy, f)
 
-def pdeRes(h,w,E,f,CLT,dx_inplane,dx_shear,rho,uddot,thetaddot):
-    w_temp = Function(w.function_space)
-    dw = TestFunction(w.function_space)
-    elastic_model = DynamicElasticModel(mesh, w_temp, CLT)
-    elastic_energy = elastic_model.elasticEnergy(E, h, dx_inplane, dx_shear)
-    ALPHA = 1
-    dWint = elastic_model.weakFormResidual(ALPHA, elastic_energy, w_temp, dw, f)
-    dWint_mid = ufl.replace(dWint, {w_temp: w_mid})
-    # Inertial contribution to the residual:
-    dWmass = elastic_model.inertialResidual(rho,h,uddot,thetaddot)
-    F = dWmass + dWint_mid
-    return F
 
 def compliance(u_mid,h):
     h_mesh = CellDiameter(mesh)
@@ -111,31 +94,8 @@ f_mesh_file_name = 'evtol_wing_vlm_mesh.npy'
 
 vlm_mesh_file = path+ f_mesh_file_name
 # define VLM input parameters
-
-
-
 V_inf = 50.  # freestream velocity magnitude in m/s
-V_p = 50. # peak velocity of the gust
-# Time-stepping parameters
-# T       = 3.
-l_chord = 1.2 # unit: m, chord length
-GGLc = 5 # gust gradient length in chords
-T0 = 0.02 # static before the gust
-T1 = GGLc*l_chord/V_inf
-T2 = 0.02 # calm down
-T = T0+T1+T2
-Nsteps  = 20
-dt = T/Nsteps
-def V_g(t):
-    V_g = 0.
-    if T0 <= t <= T0+T1:
-        # V_g = V_p*np.sin(2*np.pi*t/T1)**2
-        V_g = V_p*(1-np.cos(2*np.pi*(t-T0)/T1))
-    return V_g
-    # return 1/2*V_p*(1-np.cos(2*np.pi*t/GGLc))
-
-# AoA = 6.  # Angle of Attack in degrees
-AoA = 0.  # Angle of Attack in degrees
+AoA = 6.  # Angle of Attack in degrees
 AoA_rad = np.deg2rad(AoA)  # Angle of Attack converted to radians
 rho = 1.225  # International Standard Atmosphere air density at sea level in kg/m^3
 
@@ -167,34 +127,9 @@ input_function = Function(input_function_space)
 state_name = 'displacements'
 state_function_space = element.W
 state_function = Function(state_function_space)
-##################################
-u, theta = split(state_function)
-dw = TestFunction(state_function_space)
-du_mid,dtheta = split(dw)
-
-# Quantities from the previous time step
-w_old = Function(state_function_space)
-u_old, theta_old = split(w_old)
-wdot_old = Function(state_function_space)
-udot_old, thetadot_old = split(wdot_old)
-
-# Set up the time integration scheme
-def implicitMidpointRule(u, u_old, udot_old, dt):
-    u_mid = Constant(mesh, 0.5)*(u_old+u)
-    udot = Constant(mesh, 2/dt)*u - Constant(mesh, 2/dt)*u_old - udot_old
-    uddot = (udot - udot_old)/dt
-    return u_mid, udot, uddot
-def wdot_vector(w, w_old, wdot_old, dt):
-    return 2/dt*w.vector - 2/dt*w_old.vector - wdot_old.vector
-
-u_mid, udot, uddot = implicitMidpointRule(u, u_old, udot_old, dt)
-theta_mid, thetadot, thetaddot = implicitMidpointRule(theta, theta_old, thetadot_old, dt)
-w_mid = Constant(mesh, 0.5)*(w_old+state_function)
-##################################
 material_model = MaterialModel(E=E,nu=nu,h=input_function) # Simple isotropic material
 residual_form = pdeRes(input_function,state_function,
-                        E,f_dist_solid,material_model.CLT,dx_inplane,dx_shear,
-                        rho_struct, uddot, thetaddot)
+                        E,f_dist_solid,material_model.CLT,dx_inplane,dx_shear)
 
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
@@ -226,46 +161,35 @@ locate_BC2 = locate_dofs_geometrical((state_function_space.sub(1), state_functio
 ubc = Function(state_function_space)
 with ubc.vector.localForm() as uloc:
      uloc.set(0.)
+#
+# bcs = [dirichletbc(ubc, locate_BC1, state_function_space.sub(0)),
+#         dirichletbc(ubc, locate_BC2, state_function_space.sub(1)),
+#        ]
+
 ############ Strongly enforced boundary conditions #############
 fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
 fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
 
-PATH = "records/"
-xdmf_file = XDMFFile(comm, PATH+"u_mid.xdmf", "w")
-xdmf_file.write_mesh(mesh)
-xdmf_file_aero_f = XDMFFile(comm, PATH+"aero_F.xdmf", "w")
-xdmf_file_aero_f.write_mesh(mesh)
-xdmf_file_aero_f_nodal = XDMFFile(comm, PATH+"aero_F_nodal.xdmf", "w")
-xdmf_file_aero_f_nodal.write_mesh(mesh)
-state_function.sub(0).name = 'u_mid'
-state_function.sub(1).name = 'theta'
-################# Dynamic aerostructural coupling solve ####################
-def solveDynamicAeroelasticity(res,func,bc,report=False):
-
-    t = 0.0
-
-    for i in range(0, Nsteps):
-        t += dt
-        print("------- Time step "+str(i+1)+"/"+str(Nsteps)
-                +" , t = "+str(t)+" -------")
-
-        # Solve the nonlinear problem for this time step and put the solution
-        # (in homogeneous coordinates) in y_hom.
-        solveAeroelasticity(res,func,bc,t,report=report)
-
-        # Advance to the next time step
-        # ** since u_dot, theta_dot are not functions, we cannot directly
-        # ** interpolate them onto wdot_old.
-        wdot_old.vector[:] = wdot_vector(func,w_old,wdot_old, dt)
-        w_old.interpolate(func)
-
-        # Save solution to XDMF format
-        xdmf_file.write_function(func.sub(0), t)
-        xdmf_file_aero_f.write_function(f_dist_solid, t)
-        xdmf_file_aero_f_nodal.write_function(f_nodal_solid, t)
 
 ################# Static aerostructural coupling solve ####################
-def solveAeroelasticity(res,func,bc,t,report=False):
+def solveAeroelasticity(res,func,bc,report=False):
+    # STEPS = 5
+    # # Incrementally set the BCs to increase to `edge_deltas`
+    # if report == True:
+    #     print(80*"=")
+    #     print(' FEA: total steps for electromagnetic solve:', STEPS)
+    #     print(80*"=")
+    # JS_scaler = 1./STEPS
+    # res += pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
+    # for i in range(STEPS):
+    #     if report == True:
+    #         print(80*"=")
+    #         print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of electromagnetic solve")
+    #         print(80*"=")
+    #     res -= JS_scaler*pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
+    #     # print(np.linalg.norm(getFuncArray(func)))
+    #     snes_solver = SNESSolver(res, func, bc, report=report)
+    #     snes_solver.solve(None, func.vector)
 
     ########## Start of iteration loop for coupled solution procedure ##########
     print("Start of iteration loop...")
@@ -279,7 +203,7 @@ def solveAeroelasticity(res,func,bc,t,report=False):
         ########## Update VLM mesh with deformation and run VLM sim: ##########
         VLM_mesh_transposed = construct_VLM_transposed_input_mesh(VLM_mesh_displaced, VLM_mesh.shape)
 
-        VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA, np.array([V_inf*np.cos(AoA_rad), 0., V_inf*np.sin(AoA_rad)+V_g(t)]), rho=rho)
+        VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA, V_inf*np.array([np.cos(AoA_rad), 0., np.sin(AoA_rad)]), rho=rho)
 
         # extract panel forces from VLM simulation
         panel_forces = VLM_sim.sim['panel_forces'][0]
@@ -328,7 +252,7 @@ def solveAeroelasticity(res,func,bc,t,report=False):
 
         func_old = deepcopy(func_new)
 
-fea.custom_solve = solveDynamicAeroelasticity
+fea.custom_solve = solveAeroelasticity
 
 
 '''
