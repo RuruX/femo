@@ -209,12 +209,17 @@ def assemble(f, dim=0, bcs=[]):
         return TypeError("Invalid type for assembly.")
 
 
-def errorNorm(v, v_ex):
+def errorNorm(v, v_ex, norm='L2'):
     """
     Calculate the L2 norm of two functions
     """
     comm = MPI.COMM_WORLD
-    error = form((v - v_ex)**2 * dx)
+    l2_error = (v - v_ex)**2 * dx
+    if norm == 'L2':
+        error = form(l2_error)
+    elif norm == 'H1':
+        h1_error = l2_error + (grad(v) - grad(v_ex))**2 * dx
+        error = form(h1_error)
     E = np.sqrt(comm.allreduce(assemble_scalar(error), MPI.SUM))
     return E
 

@@ -1,3 +1,12 @@
+"""
+Structural analysis for the undeflected common research model (uCRM)
+uCRM-9 Specifications: (units: m/ft, kg/lb)
+(from https://deepblue.lib.umich.edu/bitstream/handle/2027.42/143039/6.2017-4456.pdf?sequence=1)
+Maximum take-off weight	352,400kg/777,000lb
+Wing span (extended)    71.75m/235.42ft
+Overall length	        76.73m/251.75ft
+"""
+
 from fe_csdl_opt.fea.fea_dolfinx import *
 from fe_csdl_opt.csdl_opt.fea_model import FEAModel
 from fe_csdl_opt.csdl_opt.state_model import StateModel
