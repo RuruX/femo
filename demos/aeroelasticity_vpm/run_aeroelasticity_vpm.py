@@ -76,7 +76,7 @@ tri_mesh = [
 
 test = 2
 s_mesh_file_name = tri_mesh[test]
-mesh_path = "../aeroelasticity_vlm/evtol_wing/"
+mesh_path = "./evtol_wing/"
 solid_mesh_file = mesh_path + s_mesh_file_name
 
 with XDMFFile(MPI.COMM_WORLD, solid_mesh_file, "r") as xdmf:
@@ -158,17 +158,17 @@ rho = 1.225  # International Standard Atmosphere air density at sea level in kg/
 ################### Import Aerodynamic mesh ###################
 print("Constructing aerodynamic mesh and mesh mappings...")
 # Import a preconstructed VLM mesh
-# Ru: need to add a restart file to achieve steady state solution of the wing 
+# Ru: need to add a restart file to achieve steady state solution of the wing
 
 
-VPM_sim = VPM_sim_handling(V_inf, AoA_rad, duration=T, dt=dt_vpm, 
+VPM_sim = VPM_sim_handling(V_inf, AoA_rad, duration=T, dt=dt_vpm,
                             restart_file=flowpy_path+f_restart_file_name,
-                            run_name = path+"_vpm", 
+                            run_name = path+"_vpm",
                             add_rotors=add_rotors)
 
-# VPM_sim = VPM_sim_handling(V_inf, AoA_rad, duration=T, dt=dt_vpm, 
+# VPM_sim = VPM_sim_handling(V_inf, AoA_rad, duration=T, dt=dt_vpm,
 #                             restart_file=None, add_rotors=True)
-VPM_mesh_baseline = translate_mesh(VPM_sim.mesh, 
+VPM_mesh_baseline = translate_mesh(VPM_sim.mesh,
                         np.array([VPM_sim.mesh[:, :, 0].min() \
                                 - mesh.geometry.x[:, 0].min(), 0., 0.]))
 VPM_mesh_starboard = VPM_mesh_baseline[int(np.floor(VPM_mesh_baseline.shape[0]/2)):, :, :]
@@ -300,7 +300,7 @@ def solveDynamicAeroelasticity(res,func,bc,report=False):
 
         # Solve the nonlinear problem for this time step and put the solution
         # (in homogeneous coordinates) in y_hom.
-        
+
         print("Running VPM sim...")
         ########## Update VPM mesh with deformation and run VPM sim: ##########
         VPM_sim.apply_displacement_step_to_vpm(VPM_mesh_list_step)
@@ -385,7 +385,7 @@ def solveDynamicAeroelasticity(res,func,bc,report=False):
     print("Saving vpmdata history.h5...")
     fp.write_history_h5(path+"_vpm_history.h5", VPM_sim.vpmdata)
 
-        
+
 # cProfile.run('main()', "profile_out_"+str(Nsteps))
 
 fea.custom_solve = solveDynamicAeroelasticity
@@ -440,4 +440,3 @@ np.savetxt(path+'/CD_'+str(Nsteps)+'.out', CD_history, delimiter=',')
 
 np.savetxt(path+'/tip_disp_'+str(Nsteps)+'.out', uZ_tip_record, delimiter=',')
 np.savetxt(path+'/strain_energy_'+str(Nsteps)+'.out', strain_energy_record, delimiter=',')
-

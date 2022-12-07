@@ -1,6 +1,7 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*.DS_Store
 *$py.class
 
 # C extensions
@@ -9,9 +10,14 @@ __pycache__/
 # output files
 *.vtu
 *.pvd
+*records*
+*solutions*
+*.zip
+*SUMMARY_GRAPH.txt
 
 # profile files
 profile*
+*.html
 
 # Optimization results files
 *.out
