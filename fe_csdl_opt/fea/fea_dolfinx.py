@@ -93,6 +93,8 @@ class FEA(object):
         self.record = False
         self.initial_solve = True
 
+        self.recorder_path = "records"
+
     def add_input(self, name, function):
         if name in self.inputs_dict:
             raise ValueError('name has already been used for an input')
@@ -194,6 +196,6 @@ class FEA(object):
         recorder = None
         if record:
             recorder = XDMFFile(MPI.COMM_WORLD,
-                                "records/record_"+name+".xdmf", "w")
+                                self.recorder_path+"/record_"+name+".xdmf", "w")
             recorder.write_mesh(self.mesh)
         return recorder
