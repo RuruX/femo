@@ -19,29 +19,26 @@ from preprocessor.boundary_input_model import BoundaryInputModel
 
 ###########################################################
 #################### Preprocessing ########################
-shift           = 2.5
-mech_angles     = np.arange(0,30,5)
+shift           = 15
+mech_angles     = np.arange(0,30+1,5)
 # rotor_rotations = np.pi/180*np.arange(0,30,5)
-rotor_rotations = np.pi/180*mech_angles[:1]
+rotor_rotations = mech_angles[:1]
 instances       = len(rotor_rotations)
 
 coarse_test = True
 
 mm = MotorMesh(
-    file_name='motor_data/motor_data_test/motor_mesh_test_1',
+    file_name='motor_data/motor_data_test/motor_mesh_1',
     popup=False,
-    rotation_angles=rotor_rotations,
-    base_angle=shift * np.pi/180,
-    test=True
+    rotation_angles=rotor_rotations * np.pi/180,
+    base_angle=shift*np.pi/180,
 )
 
 mm.baseline_geometry=True
-mm.magnet_shift_only = True
 mm.create_motor_mesh()
  # dictionary holding parametrization parameters
 parametrization_dict = mm.ffd_param_dict
 unique_sp_list = sorted(set(parametrization_dict['shape_parameter_list_input']))
-
 # FFD MODEL
 ffd_connection_model = FFDModel(
     parametrization_dict=parametrization_dict
@@ -52,9 +49,8 @@ ffd_connection_model = FFDModel(
 1. Define the mesh
 '''
 # TODO: write the msh2xdmf convertor in DOLFINx
-mesh_name = "motor_mesh_test_1"
-data_path = "motor_data/motor_data_medium/"
-# data_path = "motor_data_latest_coarse/"
+mesh_name = "motor_mesh_1"
+data_path = "motor_data/motor_data_test/"
 
 mesh_file = data_path + mesh_name
 mesh, boundaries_mf, subdomains_mf, association_table = import_mesh(
@@ -66,19 +62,11 @@ mesh, boundaries_mf, subdomains_mf, association_table = import_mesh(
 '''
 The boundary movement data
 '''
-f = open(data_path+'init_edge_coords_coarse_1.txt', 'r+')
-init_edge_coords = np.fromstring(f.read(), dtype=float, sep=' ')
-f.close()
-
-# f = open(data_path+'edge_coord_deltas_coarse_1.txt', 'r+')
-# edge_deltas_from_file = np.fromstring(f.read(), dtype=float, sep=' ')
-# f.close()
-
+init_edge_coords = parametrization_dict['initial_edge_coordinates'][0].copy()
 
 dx = Measure('dx', domain=mesh, subdomain_data=subdomains_mf)
 dS = Measure('dS', domain=mesh, subdomain_data=boundaries_mf)
 ds = Measure('ds', domain=mesh, subdomain_data=boundaries_mf)
-# mesh = create_unit_square(MPI.COMM_WORLD, 12, 15)
 winding_id = [15,]
 magnet_id = [3,]
 steel_id = [1,2]
@@ -107,7 +95,7 @@ iq = 282.2  / 0.00016231
 fea_mm = FEA(mesh)
 
 fea_mm.PDE_SOLVER = 'SNES'
-fea_mm.REPORT = True
+fea_mm.REPORT = False
 fea_mm.record = False
 
 
@@ -115,8 +103,7 @@ fea_mm.record = False
 input_name_mm = 'uhat_bc'
 input_function_space_mm = VectorFunctionSpace(mesh, ('CG', 1))
 input_function_mm = Function(input_function_space_mm)
-edge_indices = locateDOFs(init_edge_coords,input_function_space_mm)
-
+edge_indices = locateDOFs(init_edge_coords,input_function_space_mm,input="polar")
 boundary_input_model = BoundaryInputModel(edge_indices=edge_indices,
                                     output_size=len(input_function_mm.x.array))
 ############ User-defined incremental solver ###########
@@ -133,6 +120,7 @@ def getDisplacementSteps(uhat, edge_deltas):
     min_cell_size = h.min()
     moveBackward(mesh, uhat)
     min_STEPS = 4*round(max_disp/min_cell_size)
+    print(min_STEPS)
     if min_STEPS >= STEPS:
         STEPS = min_STEPS
     increment_deltas = edge_deltas/STEPS
@@ -224,7 +212,8 @@ fea_mm.add_output(name=output_name_mm_3,
 fea_em = FEA(mesh)
 
 fea_em.PDE_SOLVER = 'SNES'
-fea_em.REPORT = True
+fea_em.REPORT = False
+fea_em.record = True
 
 # Add input to the PDE problem: the inputs as the previous states
 
@@ -263,16 +252,16 @@ fea_em.custom_solve = solveIncrementalEM
 #########################################################################
 
 ############ Strongly enforced boundary conditions #############
-ubc_em = Function(state_function_space_em)
-ubc_em.vector.set(0.0)
-locate_BC1_em = locate_dofs_geometrical(
-                    (state_function_space_em, state_function_space_em),
-                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
-locate_BC2_em = locate_dofs_geometrical(
-                    (state_function_space_em, state_function_space_em),
-                    lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
-
-locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
+# ubc_em = Function(state_function_space_em)
+# ubc_em.vector.set(0.0)
+# locate_BC1_em = locate_dofs_geometrical(
+#                     (state_function_space_em, state_function_space_em),
+#                     lambda x: np.isclose(x[0]**2+x[1]**2, 0.0144 ,atol=1e-6))
+# locate_BC2_em = locate_dofs_geometrical(
+#                     (state_function_space_em, state_function_space_em),
+#                     lambda x: np.isclose(x[0]**2+x[1]**2, 0.0036 ,atol=1e-6))
+#
+# locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
 
 # fea_em.add_strong_bc(ubc_em, locate_BC_list_em, state_function_space_em)
 #
@@ -282,6 +271,8 @@ locate_BC_list_em = [locate_BC1_em, locate_BC2_em,]
 
 
 ############ Weakly enforced boundary conditions #############
+ubc_em = Function(state_function_space_em)
+ubc_em.vector.set(0.0)
 residual_form_em = pde.pdeResEM(state_function_em,v_em,state_function_mm,
                         iq,dx,p,s,Hc,vacuum_perm,angle,
                         g=ubc_em,nitsche=True, sym=True, overpenalty=False,ds_=ds)
@@ -345,31 +336,16 @@ model.add(fea_model, name='fea_model')
 model.add(power_loss_model, name='power_loss_model')
 model.add(loss_sum_model, name='loss_sum_model')
 
-
-model.create_input('magnet_pos_delta_dv', val=0.1)
+# Upper limit of 'magnet_pos_delta_dv' > 60.
+model.create_input('magnet_pos_delta_dv', val=0.0)
 model.create_input('magnet_width_dv', val=0.)
 model.create_input('motor_length', val=0.1)
 model.create_input('frequency', val=300)
 model.create_input('hysteresis_coeff', val=55.)
-model.add_design_variable('magnet_pos_delta_dv', lower=-1e-5, upper=20.)
+model.add_design_variable('magnet_pos_delta_dv', lower=-1e-5, upper=50.)
 # model.add_design_variable('magnet_width_dv', lower=-15, upper=24.)
 # model.add_constraint('magnet_shape_limit', upper=38.)
 model.add_objective('loss_sum')
-
-# from csdl import expand
-# winding_area = model.declare_variable('winding_area')
-# num_windings = 13
-# nel = mesh.topology.index_map(mesh.topology.dim).size_local
-# nn = mesh.topology.index_map(0).size_local
-# i_amp_size = nel
-# current_amplitude = model.create_input('current_amplitude', val=1.)
-# current_density_amplitude = model.register_output(
-#     'i_amp',
-#     expand(current_amplitude / (winding_area/num_windings), (i_amp_size,))
-# )
-
-# current_density_amplitude = model.register_output(
-    # 'i_amp', current_amplitude / (winding_area/num_windings))
 
 sim = py_simulator(model, analytics=True)
 # sim = om_simulator(model)
@@ -379,20 +355,19 @@ sim = py_simulator(model, analytics=True)
 
 sim.run()
 # sim.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
-# sim.executable.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
-# sim.executable.check_totals(of=['i_amp','winding_area'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
-# print("winding area:",sim['winding_area'])
-# print("current density amplitude:",sim['i_amp'])
+# sim.executable.check_totals(of=['loss_sum'], wrt=['magnet_pos_delta_dv'],compact_print=True)
+
+#
 # ###### Multiple steps of movement ##########
-# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test4/record_uhat.xdmf", "w")
-# xdmf_Az = XDMFFile(MPI.COMM_WORLD, "test4/record_Az.xdmf", "w")
-# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test4/record_B.xdmf", "w")
+# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test1/record_uhat.xdmf", "w")
+# xdmf_Az = XDMFFile(MPI.COMM_WORLD, "test1/record_Az.xdmf", "w")
+# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test1/record_B.xdmf", "w")
 # xdmf_uhat.write_mesh(mesh)
 # xdmf_Az.write_mesh(mesh)
 # xdmf_B.write_mesh(mesh)
 #
-# delta = 20.
-# N = 20
+# delta = 50.
+# N = 50
 # ec_loss_array = np.zeros(N)
 # hyst_loss_array = np.zeros(N)
 # loss_sum_array = np.zeros(N)
@@ -444,11 +419,15 @@ optimizer = SNOPT(prob,
                   # append2file=False)
 
 
-# Solve your optimization problem
-# optimizer.solve()
-print("="*40)
+# from electric_motor_mdo.optimization.HF.baseline.motor_dash import MotorDashboard
+# dashboard = MotorDashboard(instances=1)
+# sim.add_recorder(dashboard.get_recorder())
 
-# fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])
+# Solve your optimization problem
+optimizer.solve()
+# print("="*40)
+
+fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])
 with XDMFFile(MPI.COMM_WORLD, "solutions/input_"+input_name_mm+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea_mm.mesh)
     fea_mm.inputs_dict[input_name_mm]['function'].name = input_name_mm

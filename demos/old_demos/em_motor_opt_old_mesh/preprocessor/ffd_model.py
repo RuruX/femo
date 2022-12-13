@@ -3,9 +3,8 @@ import os
 import csdl
 from csdl_om import Simulator as om_simulator
 from python_csdl_backend import Simulator as py_simulator
-from electric_motor_mdo.high_fidelity.geometry.motor_mesh_class import MotorMesh
-from electric_motor_mdo.high_fidelity.geometry.shape_parameter_model import ShapeParameterModel
-from electric_motor_mdo.high_fidelity.geometry.edge_update_model import EdgeUpdateModel
+from motor_project.geometry.motor_mesh_class import MotorMesh
+from lsdo_mesh.csdl_mesh_models import ShapeParameterModel, EdgeUpdateModel
 
 class ShapeParameterUpdateModel(csdl.Model):
     def initialize(self):
@@ -17,7 +16,7 @@ class ShapeParameterUpdateModel(csdl.Model):
         COMPUTATION OF MAP BETWEEN DESIGN VARIABLES AND SHAPE PARAMETERS
         LIST OF SHAPE PARAMETERS:
             - inner_stator_radius_sp
-            - magnet_position_sp
+            - magnet_pos_delta_sp
             - magnet_width_sp
             - outer_stator_radius_sp
             - rotor_radius_sp
@@ -37,8 +36,8 @@ class ShapeParameterUpdateModel(csdl.Model):
         # )
 
         magnet_pos_delta_dv = self.declare_variable('magnet_pos_delta_dv', val=0.)
-        magnet_position_sp = self.register_output(
-            'magnet_position_sp',
+        magnet_pos_delta_sp = self.register_output(
+            'magnet_pos_delta_sp',
             -1.e-4*magnet_pos_delta_dv
         )
         self.print_var(magnet_pos_delta_dv)
@@ -51,6 +50,16 @@ class ShapeParameterUpdateModel(csdl.Model):
         '''
         THE FINAL OUTPUTS HERE ARE THE SHAPE PARAMETERS THAT FEED INTO THE
         INDIVIDUAL MESH MODELS WITHIN INSTANCE MODELS
+        LIST OF SHAPE PARAMETERS:
+            - inner_stator_radius_sp
+            - magnet_pos_delta_sp
+            - magnet_width_sp
+            - outer_stator_radius_sp
+            - rotor_radius_sp
+            - shaft_radius_sp
+            - stator_tooth_shoe_thickness_sp
+            - winding_top_radius_sp
+            - winding_width_sp
         '''
 
 class FFDModel(csdl.Model):
