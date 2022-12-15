@@ -11,8 +11,6 @@ from fe_csdl_opt.fea.fea_dolfinx import *
 from fe_csdl_opt.csdl_opt.fea_model import FEAModel
 from fe_csdl_opt.csdl_opt.state_model import StateModel
 from fe_csdl_opt.csdl_opt.output_model import OutputModel
-from fe_csdl_opt.csdl_opt.pre_processor.general_filter_model \
-                                    import GeneralFilterModel
 import numpy as np
 import csdl
 from csdl import Model
@@ -27,16 +25,10 @@ from shell_analysis_fenicsx.read_properties import readCLT, sortIndex
 from FSI_coupling.VLM_sim_handling import *
 from FSI_coupling.shellmodule_utils import *
 from FSI_coupling.NodalMapping import *
-
-# from dolfinx.io import XDMFFile
-# from dolfinx.fem.petsc import (assemble_vector, assemble_matrix, apply_lifting)
-# from dolfinx.fem import (locate_dofs_topological, locate_dofs_geometrical,
-#                         dirichletbc, form, Constant, VectorFunctionSpace, assemble)
-# from dolfinx.mesh import locate_entities
-
-from scipy.sparse import csr_array, vstack
-from scipy.sparse.linalg import spsolve
-from scipy.sparse.linalg import inv as sp_inv
+#
+# from scipy.sparse import csr_array, vstack
+# from scipy.sparse.linalg import spsolve
+# from scipy.sparse.linalg import inv as sp_inv
 
 ##########################################################################
 ######################## Structural inputs ###############################
@@ -84,17 +76,25 @@ def pdeRes(h,w,E,f,CLT,dx_inplane,dx_shear):
     elastic_model = ElasticModel(mesh,w,CLT)
     elastic_energy = elastic_model.elasticEnergy(E, h, dx_inplane,dx_shear)
     return elastic_model.weakFormResidual(elastic_energy, f)
+#
+#
+# def compliance(u_mid,h):
+#     h_mesh = CellDiameter(mesh)
+#     alpha = 1e-1
+#     dX = ufl.Measure('dx', domain=mesh, metadata={"quadrature_degree":0})
+#     return 0.5*dot(u_mid,u_mid)*dX \
+#             + 0.5*alpha*dot(grad(h), grad(h))*(h_mesh**2)*dX
 
-
-def compliance(u_mid,h):
-    h_mesh = CellDiameter(mesh)
-    alpha = 1e-1
-    dX = ufl.Measure('dx', domain=mesh, metadata={"quadrature_degree":0})
-    return 0.5*dot(u_mid,u_mid)*dX \
-            + 0.5*alpha*dot(grad(h), grad(h))*(h_mesh**2)*dX
+def compliance(u_mid,f):
+    return dot(u_mid,f)*dx
 
 def volume(h):
     return h*dx
+
+def extractTipDisp(u):
+    x_tip = [0.307515,5.31806,0.541493]
+    cell_tip = 115587
+    return u.eval(x_tip, cell_tip)[-1]
 
 ###########################################################################
 ######################## Aerodynamic inputs ###############################
@@ -114,11 +114,15 @@ iterating = True
 ################### Import Aerodynamic mesh ###################
 print("Constructing aerodynamic mesh and mesh mappings...")
 # Import a preconstructed VLM mesh
-VLM_mesh = load_VLM_mesh(vlm_mesh_file, np.array([4.28, 0., 2.96]))
+VLM_mesh = load_mesh(vlm_mesh_file, np.array([4.28, 0., 2.96]))
+VLM_mesh_mirrored = mirror_mesh_around_y_axis(VLM_mesh)
 VLM_mesh_coordlist_baseline = reshape_3D_array_to_2D(VLM_mesh)
 
-############### Define force functions and aero-elastic coupling object #################
-coupling_obj = FEniCSx_VLM_coupling(mesh, VLM_mesh)
+VLM_mesh_coordlist_mirrored_baseline = reshape_3D_array_to_2D(
+                                            VLM_mesh_mirrored)
+
+####### Define force functions and aero-elastic coupling object ########
+coupling_obj = FEniCSx_vortexmethod_coupling(mesh, VLM_mesh)
 
 f_dist_solid = Function(coupling_obj.solid_aero_force_space)
 f_nodal_solid = Function(coupling_obj.solid_aero_force_space)
@@ -136,13 +140,14 @@ input_function = Function(input_function_space)
 state_name = 'displacements'
 state_function_space = element.W
 state_function = Function(state_function_space)
-material_model = MaterialModel(E=E,nu=nu,h=input_function) # Simple isotropic material
+# Simple isotropic material
+material_model = MaterialModel(E=E,nu=nu,h=input_function)
 residual_form = pdeRes(input_function,state_function,
                         E,f_dist_solid,material_model.CLT,dx_inplane,dx_shear)
 
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
-output_form_1 = compliance(state_function.sub(0), input_function)
+output_form_1 = compliance(state_function.sub(0), force_function)
 output_name_2 = 'volume'
 output_form_2 = volume(input_function)
 
@@ -163,9 +168,11 @@ fea.add_output(name=output_name_2,
 
 ############ Set the BCs for the airplane model ###################
 
-locate_BC1 = locate_dofs_geometrical((state_function_space.sub(0), state_function_space.sub(0).collapse()[0]),
+locate_BC1 = locate_dofs_geometrical((state_function_space.sub(0),
+                                    state_function_space.sub(0).collapse()[0]),
                                     lambda x: np.less(x[1], 0.55))
-locate_BC2 = locate_dofs_geometrical((state_function_space.sub(1), state_function_space.sub(1).collapse()[0]),
+locate_BC2 = locate_dofs_geometrical((state_function_space.sub(1),
+                                    state_function_space.sub(1).collapse()[0]),
                                     lambda x: np.less(x[1], 0.55))
 ubc = Function(state_function_space)
 with ubc.vector.localForm() as uloc:
@@ -182,58 +189,50 @@ fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
 
 ################# Static aerostructural coupling solve ####################
 def solveAeroelasticity(res,func,bc,report=False):
-    # STEPS = 5
-    # # Incrementally set the BCs to increase to `edge_deltas`
-    # if report == True:
-    #     print(80*"=")
-    #     print(' FEA: total steps for electromagnetic solve:', STEPS)
-    #     print(80*"=")
-    # JS_scaler = 1./STEPS
-    # res += pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
-    # for i in range(STEPS):
-    #     if report == True:
-    #         print(80*"=")
-    #         print("  FEA: Step "+str(i+1)+"/"+str(STEPS)+" of electromagnetic solve")
-    #         print(80*"=")
-    #     res -= JS_scaler*pde.JS(v_em,state_function_mm,iq,p,s,Hc,angle)
-    #     # print(np.linalg.norm(getFuncArray(func)))
-    #     snes_solver = SNESSolver(res, func, bc, report=report)
-    #     snes_solver.solve(None, func.vector)
-
     ########## Start of iteration loop for coupled solution procedure ##########
     print("Start of iteration loop...")
     # declare initial values for variables that will be updated during each iteration
-    VLM_mesh_displaced = deepcopy(VLM_mesh_coordlist_baseline)
+
+    VLM_mesh_displaced_mirrored = deepcopy(VLM_mesh_coordlist_mirrored_baseline)
     func_old = np.zeros_like(func.vector.getArray())
     iterating = True
     it_count = 0
     while iterating:
         print("Running VLM sim...")
         ########## Update VLM mesh with deformation and run VLM sim: ##########
-        VLM_mesh_transposed = construct_VLM_transposed_input_mesh(VLM_mesh_displaced, VLM_mesh.shape)
+        VLM_mesh_transposed = construct_VLM_transposed_input_mesh(
+                                            VLM_mesh_displaced_mirrored,
+                                            VLM_mesh_mirrored.shape)
 
-        VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA, V_inf*np.array([np.cos(AoA_rad), 0., np.sin(AoA_rad)]), rho=rho)
+        VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA,
+                        V_inf*np.array([np.cos(AoA_rad), 0., np.sin(AoA_rad)]),
+                        rho=rho)
 
         # extract panel forces from VLM simulation
         panel_forces = VLM_sim.sim['panel_forces'][0]
-        panel_forces = panel_forces*np.array([-1, 1, 1])  # multiply x-component with -1 to account for difference in reference frames
+        panel_forces_starboard = filter_extract_starboard_panel_forces(
+                                                    panel_forces,
+                                                    VLM_mesh_mirrored.shape,
+                                                    VLM_mesh.shape)
 
         print("Total aero force: {}".format(list(np.sum(panel_forces, axis=0))))
 
         ########## Project VLM panel forces to solid CG1 space: ##########
 
         # compute and set distributed vlm load
-        F_dist_solid = coupling_obj.compute_dist_solid_force_from_vlm(panel_forces)
+        F_dist_solid = coupling_obj.compute_dist_solid_force_from_vlm(
+                                                    panel_forces_starboard)
         f_dist_solid.vector.setArray(F_dist_solid)
 
-        print("Total aero force projected to solid: {}".format([assemble_scalar(form(f_dist_solid[i]*dx)) for i in range(3)]))
+        print("Total aero force projected to solid: {}".format(
+                [assemble_scalar(form(f_dist_solid[i]*dx)) for i in range(3)]))
 
-        # ########## Update residual of the weak form with new aero force: ##########
+        ########## Update residual of the weak form with new aero force: ##########
         # F = elastic_model.weakFormResidual(elastic_energy, f_dist_solid)
 
         ########## Solve with Newton solver wrapper: ##########
         print("Running solid shell sim...")
-        solveNonlinear(res,func,bc)
+        solveNonlinear(res,func,bc,log=True)
 
         ########## Update displacements: ##########
         print("Updating displacements...")
@@ -243,19 +242,29 @@ def solveAeroelasticity(res,func,bc,report=False):
         # add current displacement to baseline VLM mesh
         VLM_mesh_displaced = np.add(VLM_mesh_coordlist_baseline, vlm_disp_vec)
 
+        VLM_mesh_displaced_mirrored = mirror_mesh_around_y_axis(
+                                            reshape_2D_array_to_3D(
+                                                VLM_mesh_displaced,
+                                                VLM_mesh.shape))
+
         it_count += 1
         func_new = func.vector.getArray()
-        _, _, uZ = computeNodalDisp(func.sub(0))
-        print("Iteration: {}".format(it_count))
-        print("Tip deflection:", max(uZ))
-        print("Max difference w.r.t. previous iteration: {}".format(np.max(np.abs(np.subtract(func_old, func_new)))))
+        # # compute the aeroelastic work in the aerodynamic sim
+        # W_a = np.sum(np.diag(vlm_disp_vec.T@coupling_obj.P_map@panel_forces_starboard))
+        #
+        # # compute the aeroelastic work in the solid sim
+        # extracted_solid_disp = coupling_obj.extract_cg2_displacement_vector(func)
+        # cg1_disp = coupling_obj.Q_map@extracted_solid_disp
+        # W_s = np.reshape(cg1_disp, (cg1_disp.shape[0]*cg1_disp.shape[1]), order='C') \
+        #                 @coupling_obj.Mat_f_sp@f_dist_solid.vector.getArray()
 
         if np.max(np.abs(np.subtract(func_old, func_new))) <= conv_eps:
             iterating = False
             print("Convergence criterion met...")
 
             # map VLM panel forces to solid nodal forces
-            F_nodal_solid = coupling_obj.compute_nodal_solid_force_from_vlm(panel_forces)
+            F_nodal_solid = coupling_obj.compute_nodal_solid_force_from_vlm(
+                                                        panel_forces_starboard)
             # set nodal pressure load (just for plotting purposes)
             f_nodal_solid.vector.setArray(F_nodal_solid)
 
@@ -291,7 +300,7 @@ uZ = computeNodalDisp(state_function.sub(0))[2]
 print("-"*50)
 print("-"*8, s_mesh_file_name, "-"*9)
 print("-"*50)
-print("Tip deflection:", max(uZ))
+print("Tip deflection:", extractTipDisp(state_function.sub(0)))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))
 print("  Number of total dofs = ", dofs)

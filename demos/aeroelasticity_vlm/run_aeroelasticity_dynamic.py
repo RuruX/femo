@@ -1,12 +1,3 @@
-"""
-Structural analysis for the undeflected common research model (uCRM)
-uCRM-9 Specifications: (units: m/ft, kg/lb)
-(from https://deepblue.lib.umich.edu/bitstream/handle/2027.42/143039/6.2017-4456.pdf?sequence=1)
-Maximum take-off weight	352,400kg/777,000lb
-Wing span (extended)    71.75m/235.42ft
-Overall length	        76.73m/251.75ft
-"""
-
 from fe_csdl_opt.fea.fea_dolfinx import *
 from fe_csdl_opt.csdl_opt.fea_model import FEAModel
 from fe_csdl_opt.csdl_opt.state_model import StateModel
@@ -218,7 +209,8 @@ def wdot_vector(w, w_old, wdot_old, dt):
     return 2/dt*w.vector - 2/dt*w_old.vector - wdot_old.vector
 
 u_mid, udot, uddot = implicitMidpointRule(u, u_old, udot_old, dt)
-theta_mid, thetadot, thetaddot = implicitMidpointRule(theta, theta_old, thetadot_old, dt)
+theta_mid, thetadot, thetaddot = implicitMidpointRule(
+                                    theta, theta_old, thetadot_old, dt)
 w_mid = Constant(mesh, 0.5)*(w_old+state_function)
 ##################################
 material_model = MaterialModel(E=E,nu=nu,h=input_function) # Simple isotropic material
@@ -253,9 +245,11 @@ fea.add_output(name=output_name_2,
 
 ############ Set the BCs for the airplane model ###################
 
-locate_BC1 = locate_dofs_geometrical((state_function_space.sub(0), state_function_space.sub(0).collapse()[0]),
+locate_BC1 = locate_dofs_geometrical((state_function_space.sub(0),
+                                    state_function_space.sub(0).collapse()[0]),
                                     lambda x: np.less(x[1], 0.55))
-locate_BC2 = locate_dofs_geometrical((state_function_space.sub(1), state_function_space.sub(1).collapse()[0]),
+locate_BC2 = locate_dofs_geometrical((state_function_space.sub(1),
+                                    state_function_space.sub(1).collapse()[0]),
                                     lambda x: np.less(x[1], 0.55))
 ubc = Function(state_function_space)
 with ubc.vector.localForm() as uloc:
@@ -265,7 +259,7 @@ fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
 fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
 solveShell(residual_form,state_function,fea.bc,log=True)
 
-path = "test_"+str(Nsteps)
+path = "test_"+str(Nsteps)+"_1"
 xdmf_file = XDMFFile(comm, path+"/u_mid.xdmf", "w")
 xdmf_file.write_mesh(mesh)
 xdmf_file_aero_f = XDMFFile(comm, path+"/aero_F.xdmf", "w")
@@ -324,24 +318,35 @@ def solveAeroelasticity(res,func,bc,t,report=False):
     while iterating:
         print("Running VLM sim...")
         ########## Update VLM mesh with deformation and run VLM sim: ##########
-        VLM_mesh_transposed = construct_VLM_transposed_input_mesh(VLM_mesh_displaced_mirrored, VLM_mesh_mirrored.shape)
-
-        VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA, V_inf*np.array([np.cos(AoA_rad), 0., np.sin(AoA_rad)]), rho=rho)
+        VLM_mesh_transposed = construct_VLM_transposed_input_mesh(
+                                            VLM_mesh_displaced_mirrored,
+                                            VLM_mesh_mirrored.shape)
+        V_x = V_inf*np.cos(AoA_rad) # chord direction (flight direction)
+        V_y = 0. # span direction
+        V_z = V_inf*np.sin(AoA_rad)+V_g(t) # vertical direction (gust direction)
+        VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA,
+                                np.array([V_x, V_y, V_z]), rho=rho)
 
         # extract panel forces from VLM simulation
         panel_forces = VLM_sim.sim['panel_forces'][0]
-        panel_forces_starboard = filter_extract_starboard_panel_forces(panel_forces, VLM_mesh_mirrored.shape, VLM_mesh.shape)
+        panel_forces_starboard = filter_extract_starboard_panel_forces(
+                                                    panel_forces,
+                                                    VLM_mesh_mirrored.shape,
+                                                    VLM_mesh.shape)
 
 
-        print("Total starboard aero force components: {}".format(list(np.sum(panel_forces_starboard, axis=0))))
+        print("Total starboard aero force components: {}".format(
+                            list(np.sum(panel_forces_starboard, axis=0))))
 
         ########## Project VLM panel forces to solid CG1 space: ##########
 
         # compute and set distributed vlm load
-        F_dist_solid = coupling_obj.compute_dist_solid_force_from_vlm(panel_forces_starboard)
+        F_dist_solid = coupling_obj.compute_dist_solid_force_from_vlm(
+                                                    panel_forces_starboard)
         f_dist_solid.vector.setArray(F_dist_solid)
 
-        print("Total aero force projected to solid: {}".format([assemble_scalar(form(f_dist_solid[i]*dx)) for i in range(3)]))
+        print("Total aero force projected to solid: {}".format(
+                [assemble_scalar(form(f_dist_solid[i]*dx)) for i in range(3)]))
 
         # ########## Update residual of the weak form with new aero force: ##########
         # F = elastic_model.weakFormResidual(elastic_energy, f_dist_solid)
@@ -358,28 +363,32 @@ def solveAeroelasticity(res,func,bc,t,report=False):
         # add current displacement to baseline VLM mesh
         VLM_mesh_displaced = np.add(VLM_mesh_coordlist_baseline, vlm_disp_vec)
 
-        VLM_mesh_displaced_mirrored = mirror_mesh_around_y_axis(reshape_2D_array_to_3D(VLM_mesh_displaced, VLM_mesh.shape))
+        VLM_mesh_displaced_mirrored = mirror_mesh_around_y_axis(
+                                            reshape_2D_array_to_3D(
+                                                VLM_mesh_displaced,
+                                                VLM_mesh.shape))
 
         it_count += 1
         func_new = func.vector.getArray()
-        # compute the aeroelastic work in the aerodynamic sim
-        W_a = np.sum(np.diag(vlm_disp_vec.T@coupling_obj.P_map@panel_forces_starboard))
-
-        # compute the aeroelastic work in the solid sim
-        extracted_solid_disp = coupling_obj.extract_cg2_displacement_vector(func)
-        cg1_disp = coupling_obj.Q_map@extracted_solid_disp
-        W_s = np.reshape(cg1_disp, (cg1_disp.shape[0]*cg1_disp.shape[1]), order='C')@coupling_obj.Mat_f_sp@f_dist_solid.vector.getArray()
-
-        # report the aeroelastic work in the fluid and solid sims
-        print("Work in aerodynamic sim: {}".format(W_a))
-        print("Work in solid sim: {}".format(W_s))
+        # # compute the aeroelastic work in the aerodynamic sim
+        # W_a = np.sum(np.diag(vlm_disp_vec.T@coupling_obj.P_map@panel_forces_starboard))
+        #
+        # # compute the aeroelastic work in the solid sim
+        # extracted_solid_disp = coupling_obj.extract_cg2_displacement_vector(func)
+        # cg1_disp = coupling_obj.Q_map@extracted_solid_disp
+        # W_s = np.reshape(cg1_disp, (cg1_disp.shape[0]*cg1_disp.shape[1]), order='C')@coupling_obj.Mat_f_sp@f_dist_solid.vector.getArray()
+        #
+        # # report the aeroelastic work in the fluid and solid sims
+        # print("Work in aerodynamic sim: {}".format(W_a))
+        # print("Work in solid sim: {}".format(W_s))
 
         if np.max(np.abs(np.subtract(func_old, func_new))) <= conv_eps:
             iterating = False
             print("Convergence criterion met...")
 
             # map VLM panel forces to solid nodal forces
-            F_nodal_solid = coupling_obj.compute_nodal_solid_force_from_vlm(panel_forces_starboard)
+            F_nodal_solid = coupling_obj.compute_nodal_solid_force_from_vlm(
+                                                        panel_forces_starboard)
             # set nodal pressure load (just for plotting purposes)
             f_nodal_solid.vector.setArray(F_nodal_solid)
 
@@ -407,7 +416,7 @@ sim = py_simulator(fea_model)
 # sim = om_simulator(fea_model)
 
 ########### Test the forward solve ##############
-@profile(filename="profile_out_"+str(Nsteps))
+@profile(filename=path+"/profile_out_"+str(Nsteps))
 def main(sim):
     sim.run()
 cProfile.run('main(sim)', "profile_out_"+str(Nsteps))
@@ -431,19 +440,4 @@ print("Time for reshape_3D_array_to_2D:", t_vlm_mesh_coords)
 print("Time for FEniCS + VLM coupling:", t_coupling)
 print("-"*50)
 
-np.savetxt(path+'tip_disp_'+str(Nsteps)+'.out', uZ_tip_record, delimiter=',')
-# with open('tip_disp_'+str(Nsteps)+'.txt', 'w') as f:
-#     f.write(uZ_record)
-########## Visualization: ##############
-u_mid, _ = state_function.split()
-with XDMFFile(MPI.COMM_WORLD, path+"vlm/solutions/u_mid.xdmf", "w") as xdmf:
-    xdmf.write_mesh(mesh)
-    xdmf.write_function(u_mid)
-
-with XDMFFile(MPI.COMM_WORLD, path+"vlm//solutions/aero_F.xdmf", "w") as xdmf:
-    xdmf.write_mesh(mesh)
-    xdmf.write_function(f_dist_solid)
-
-with XDMFFile(MPI.COMM_WORLD, path+"vlm//solutions/aero_F_nodal.xdmf", "w") as xdmf:
-    xdmf.write_mesh(mesh)
-    xdmf.write_function(f_nodal_solid)
+np.savetxt(path+'/tip_disp_'+str(Nsteps)+'.out', uZ_tip_record, delimiter=',')
