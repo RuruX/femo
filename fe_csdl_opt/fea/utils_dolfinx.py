@@ -404,7 +404,7 @@ def SNESSolver(F, w, bcs=[],
 def NewtonSolver(F, w, bcs=[],
                     abs_tol=1e-50,
                     rel_tol=1e-30,
-                    max_it=10,
+                    max_it=3,
                     error_on_nonconvergence=False,
                     report=False):
 
