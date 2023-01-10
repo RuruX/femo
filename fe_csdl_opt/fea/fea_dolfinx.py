@@ -106,7 +106,8 @@ class FEA(object):
         )
 
     def add_state(self, name, function, residual_form, arguments,
-                    dR_du=None, dR_df_list=None):
+                    dR_du=None, dR_df_list=[]):
+
         self.states_dict[name] = dict(
             function=function,
             residual_form=residual_form,
@@ -153,6 +154,13 @@ class FEA(object):
         else:
             for locate_BC in locate_BC_list:
                 self.bc.append(dirichletbc(ubc, locate_BC, function_space))
+
+    def assemble_derivatives(of=None, wrt=None):
+        """
+        util method for assembling the partial derivative matrices for
+        education or verification use.
+        """
+        pass
 
     def solve(self, res, func, bc):
         """

@@ -123,10 +123,10 @@ class StateOperation(CustomImplicitOperation):
         arg_list = state['arguments']
         for arg_ind in range(len(arg_list)):
             arg_name = arg_list[arg_ind]
-            if dR_df_list == None:
-                dRdf = assembleMatrix(computePartials(
-                                    state['residual_form'],
-                                    args_dict[arg_name]['function']))
+            if dR_df_list == []:
+                dR_df = computePartials(state['residual_form'],
+                                    args_dict[arg_name]['function'])
+                dRdf = assembleMatrix(dR_df)
             else:
                 dRdf = dR_df_list[arg_ind]
 

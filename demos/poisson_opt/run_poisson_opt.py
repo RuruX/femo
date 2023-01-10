@@ -135,7 +135,7 @@ locate_BC4 = locate_dofs_geometrical((state_function_space, state_function_space
 locate_BC_list = [locate_BC1, locate_BC2, locate_BC3, locate_BC4]
 fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
 residual_form = pdeRes(state_function, v, input_function)
-# 
+#
 # ########### Weakly enforced boundary conditions #############
 # ############## Unsymmetric Nitsche's method #################
 # residual_form = pdeRes(state_function, v, input_function,
@@ -235,7 +235,7 @@ optimizer = SNOPT(prob,
 # optimizer.check_first_derivatives(prob.x0)
 
 # Solve your optimization problem
-# optimizer.solve()
+optimizer.solve()
 print("="*40)
 # optimizer.print_results()
 
