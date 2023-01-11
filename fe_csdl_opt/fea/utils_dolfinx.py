@@ -209,6 +209,14 @@ def assemble(f, dim=0, bcs=[]):
         return TypeError("Invalid type for assembly.")
 
 
+def assemble_partials(of=None, wrt=None):
+    """
+    util method for assembling the partial derivative matrices for
+    education or verification.
+    """
+    partials = derivative(of, wrt)
+    return assemble(partials, dim=2)
+
 def errorNorm(v, v_ex, norm='L2'):
     """
     Calculate the L2 norm of two functions

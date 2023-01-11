@@ -155,13 +155,6 @@ class FEA(object):
             for locate_BC in locate_BC_list:
                 self.bc.append(dirichletbc(ubc, locate_BC, function_space))
 
-    def assemble_derivatives(of=None, wrt=None):
-        """
-        util method for assembling the partial derivative matrices for
-        education or verification use.
-        """
-        pass
-
     def solve(self, res, func, bc):
         """
         Solve the PDE problem

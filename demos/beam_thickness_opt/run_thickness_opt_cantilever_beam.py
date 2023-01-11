@@ -106,6 +106,7 @@ fdim = mesh.topology.dim - 1
 traction_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
 facet_tag = meshtags(mesh, fdim, traction_facets,
                     np.full(len(traction_facets),100,dtype=np.int32))
+print(traction_facets)
 # Define measures of the endpoint
 metadata = {"quadrature_degree":4}
 import ufl
@@ -165,11 +166,12 @@ fea_model.add_design_variable('thickness', upper=10., lower=1e-2)
 fea_model.add_objective('compliance')
 fea_model.add_constraint('volume', equals=b*h*L)
 sim = py_simulator(fea_model,analytics=False)
-
 # Run the simulation
 sim.run()
 
-
+# Check the derivatives
+# sim.check_totals(compact_print=True)
+#
 '''
 4. Set up and run the optimization problem
 '''
@@ -184,6 +186,11 @@ prob = CSDLProblem(
 from modopt.scipy_library import SLSQP
 optimizer = SLSQP(prob, maxiter=1000, ftol=1e-9)
 
+# from modopt.snopt_library import SNOPT
+# optimizer = SNOPT(prob,
+#                   Major_iterations = 1000,
+#                   Major_optimality = 1e-9,
+#                   append2file=False)
 # Solve your optimization problem
 optimizer.solve()
 print("="*40)
@@ -212,15 +219,16 @@ print("Maximum magnitude displacement (cantilever FEM solution) is: %e"
                             % np.min(disp))
 print("Compliance value: ", sim['compliance'])
 
-# print("-"*40)
-# print("PDE residual w.r.t. Displacements:")
-# dR_du = fea.states_dict['displacements']['dR_du']
-# print(assemble(dR_du,dim=2))
-# print("-"*40)
-# print("PDE residual w.r.t. Thicknesses:")
-# dR_df = fea.states_dict['displacements']['dR_df_list'][0]
-# print(assemble(dR_df,dim=2))
-# print("-"*40)
+# Print out the matrices of partial derivatives
+print("-"*40)
+print("PDE residual w.r.t. Displacements:")
+dR_du = assemble_partials(of=residual_form, wrt=state_function)
+print(dR_du)
+print("-"*40)
+print("PDE residual w.r.t. Thicknesses:")
+dR_df = assemble_partials(of=residual_form, wrt=input_function)
+print(dR_df)
+print("-"*40)
 
 # Reference optimized thickness distribution from the OpenMDAO example
 #   https://openmdao.org/newdocs/versions/latest/examples/beam_optimization_example.html#implementation-optimization-script
