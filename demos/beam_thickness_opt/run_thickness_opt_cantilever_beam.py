@@ -99,14 +99,13 @@ f = Constant(mesh, -1.)
 
 # Get DOF of the endpoint
 DOLFIN_EPS = 3E-16
-def TractionBoundary(x):
+def Endpoint(x):
     return np.isclose(abs(x[0] - L), DOLFIN_EPS*1e5)
 
 fdim = mesh.topology.dim - 1
-traction_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
-facet_tag = meshtags(mesh, fdim, traction_facets,
-                    np.full(len(traction_facets),100,dtype=np.int32))
-print(traction_facets)
+endpoint_node = locate_entities_boundary(mesh,fdim,Endpoint)
+facet_tag = meshtags(mesh, fdim, endpoint_node,
+                    np.full(len(endpoint_node),100,dtype=np.int32))
 # Define measures of the endpoint
 metadata = {"quadrature_degree":4}
 import ufl
