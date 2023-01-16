@@ -1,6 +1,6 @@
 import os
 import codecs
-from setuptools import setup
+from setuptools import setup, find_packages
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
 def read(fname):
@@ -9,7 +9,8 @@ def read(fname):
 setup(
     name='fe_csdl_opt',
     version='0.1',
-    packages=['fe_csdl_opt'],
+    packages=find_packages(),
+    #packages=['fe_csdl_opt'],
     url='https://github.com/RuruX/fe-csdl-framework',
     license='GNU LGPLv3',
     author='Ru Xiang',
