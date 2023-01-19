@@ -106,7 +106,17 @@ class FEA(object):
         )
 
     def add_state(self, name, function, residual_form, arguments,
-                    dR_du=None, dR_df_list=[]):
+                    dR_du=None, dR_df_list={}):
+        # if dR_du == None:
+        #     dR_du = computePartials(residual_form,function)
+        #
+        # if dR_df_list == {}:
+        #     for arg_name in arguments:
+        #         if arg_name in self.inputs_dict:
+        #             dR_df_list[arg_name] = computePartials(residual_form,
+        #                                 self.inputs_dict[arg_name]['function'])
+        #         else:
+        #             raise RuntimeError("{} is not defined as an input".format(arg_name))
 
         self.states_dict[name] = dict(
             function=function,

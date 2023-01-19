@@ -209,13 +209,14 @@ def assemble(f, dim=0, bcs=[]):
         return TypeError("Invalid type for assembly.")
 
 
-def assemble_partials(of=None, wrt=None):
+def assemble_partials(of=None, wrt=None, dim=1):
     """
     util method for assembling the partial derivative matrices for
     education or verification.
     """
     partials = derivative(of, wrt)
-    return assemble(partials, dim=2)
+    return assemble(partials, dim=dim)
+
 
 def errorNorm(v, v_ex, norm='L2'):
     """

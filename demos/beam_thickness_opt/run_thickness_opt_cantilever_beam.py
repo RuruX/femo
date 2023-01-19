@@ -221,12 +221,20 @@ print("Compliance value: ", sim['compliance'])
 # Print out the matrices of partial derivatives
 print("-"*40)
 print("PDE residual w.r.t. Displacements:")
-dR_du = assemble_partials(of=residual_form, wrt=state_function)
+dR_du = assemble_partials(of=residual_form, wrt=state_function, dim=2) # =pRpy
 print(dR_du)
 print("-"*40)
 print("PDE residual w.r.t. Thicknesses:")
-dR_df = assemble_partials(of=residual_form, wrt=input_function)
+dR_df = assemble_partials(of=residual_form, wrt=input_function, dim=2) # =pRpx
 print(dR_df)
+print("-"*40)
+print("Objective(compliance) w.r.t. Displacements:")
+dF_du = assemble_partials(of=output_form_1, wrt=state_function, dim=1) # =pFpy
+print(dF_du)
+print("-"*40)
+print("Objective(compliance) w.r.t. Thicknesses:")
+dF_df = assemble_partials(of=output_form_1, wrt=input_function, dim=1) # =pFpx
+print(dF_df)
 print("-"*40)
 
 # Reference optimized thickness distribution from the OpenMDAO example
