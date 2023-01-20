@@ -2,11 +2,11 @@
 Structural analysis of the classic shell obstacle course:
 1/3: Scordelis-Lo Roof
 """
-from fe_csdl_opt.fea.fea_dolfinx import *
-from fe_csdl_opt.csdl_opt.fea_model import FEAModel
-from fe_csdl_opt.csdl_opt.state_model import StateModel
-from fe_csdl_opt.csdl_opt.output_model import OutputModel
-from fe_csdl_opt.csdl_opt.pre_processor.general_filter_model \
+from femo.fea.fea_dolfinx import *
+from femo.csdl_opt.fea_model import FEAModel
+from femo.csdl_opt.state_model import StateModel
+from femo.csdl_opt.output_model import OutputModel
+from femo.csdl_opt.pre_processor.general_filter_model \
                                     import GeneralFilterModel
 import numpy as np
 import csdl
@@ -98,7 +98,7 @@ state_function = Function(state_function_space)
 material_model = MaterialModel(E=E,nu=nu,h=input_function) # Simple isotropic material
 residual_form = pdeRes(input_function,state_function,
                         E,f,material_model.CLT,dx_inplane,dx_shear)
-                        
+
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
 output_form_1 = compliance(state_function.sub(0), input_function)
@@ -183,7 +183,7 @@ sim.run()
 
 ############ Check the derivatives #############
 sim.check_partials(compact_print=True)
-# sim.prob.check_totals(compact_print=True)  
+# sim.prob.check_totals(compact_print=True)
 
 '''
 5. Set up the optimization problem
@@ -216,7 +216,7 @@ sim.prob.setup()
 # print('Optimization runtime:', str(stop-start), 'seconds')
 
 print("Compliance value: ", sim['compliance'])
-                
+
 ########## Output: ##############
 
 uZ = computeNodalDisp(state_function.sub(0))[2]
@@ -232,4 +232,3 @@ u_mid, _ = state_function.split()
 with XDMFFile(MPI.COMM_WORLD, "solutions/u_mid.xdmf", "w") as xdmf:
     xdmf.write_mesh(mesh)
     xdmf.write_function(u_mid)
-

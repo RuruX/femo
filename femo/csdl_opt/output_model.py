@@ -1,4 +1,4 @@
-from fe_csdl_opt.fea.fea_dolfinx import *
+from femo.fea.fea_dolfinx import *
 from csdl import Model, CustomExplicitOperation
 import csdl
 import numpy as np

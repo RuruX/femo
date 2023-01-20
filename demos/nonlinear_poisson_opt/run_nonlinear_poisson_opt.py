@@ -1,8 +1,8 @@
 
-from fe_csdl_opt.fea.fea_dolfinx import *
-from fe_csdl_opt.csdl_opt.fea_model import FEAModel
-from fe_csdl_opt.csdl_opt.state_model import StateModel
-from fe_csdl_opt.csdl_opt.output_model import OutputModel
+from femo.fea.fea_dolfinx import *
+from femo.csdl_opt.fea_model import FEAModel
+from femo.csdl_opt.state_model import StateModel
+from femo.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
 from csdl_om import Simulator as om_simulator

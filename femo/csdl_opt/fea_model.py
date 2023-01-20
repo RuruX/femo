@@ -1,6 +1,6 @@
 from csdl import Model
-from fe_csdl_opt.csdl_opt.state_model import StateModel
-from fe_csdl_opt.csdl_opt.output_model import OutputModel
+from femo.csdl_opt.state_model import StateModel
+from femo.csdl_opt.output_model import OutputModel
 
 class FEAModel(Model):
     def initialize(self):

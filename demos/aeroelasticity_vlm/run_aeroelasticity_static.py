@@ -7,10 +7,10 @@ Wing span (extended)    71.75m/235.42ft
 Overall length	        76.73m/251.75ft
 """
 
-from fe_csdl_opt.fea.fea_dolfinx import *
-from fe_csdl_opt.csdl_opt.fea_model import FEAModel
-from fe_csdl_opt.csdl_opt.state_model import StateModel
-from fe_csdl_opt.csdl_opt.output_model import OutputModel
+from femo.fea.fea_dolfinx import *
+from femo.csdl_opt.fea_model import FEAModel
+from femo.csdl_opt.state_model import StateModel
+from femo.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
 from csdl import Model
@@ -147,7 +147,7 @@ residual_form = pdeRes(input_function,state_function,
 
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
-output_form_1 = compliance(state_function.sub(0), force_function)
+output_form_1 = compliance(state_function.sub(0), f_dist_solid)
 output_name_2 = 'volume'
 output_form_2 = volume(input_function)
 
@@ -186,7 +186,24 @@ with ubc.vector.localForm() as uloc:
 fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
 fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
 
+VLM_mesh_displaced_mirrored = deepcopy(VLM_mesh_coordlist_mirrored_baseline)
 
+VLM_mesh_transposed = construct_VLM_transposed_input_mesh(
+                                    VLM_mesh_displaced_mirrored,
+                                    VLM_mesh_mirrored.shape)
+
+VLM_caddee = VLM_CADDEE([VLM_mesh_transposed], AoA,
+                V_inf*np.array([np.cos(AoA_rad), 0., np.sin(AoA_rad)]),
+                rho=rho)
+VLM_model = VLM_caddee.model
+sim = py_simulator(VLM_model, analytics=True)
+# sim = om_simulator(model)
+########### Test the forward solve ##############
+
+####### Single steps of movement ##########
+
+sim.run()
+exit()
 ################# Static aerostructural coupling solve ####################
 def solveAeroelasticity(res,func,bc,report=False):
     ########## Start of iteration loop for coupled solution procedure ##########
@@ -204,9 +221,9 @@ def solveAeroelasticity(res,func,bc,report=False):
                                             VLM_mesh_displaced_mirrored,
                                             VLM_mesh_mirrored.shape)
 
-        VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA,
-                        V_inf*np.array([np.cos(AoA_rad), 0., np.sin(AoA_rad)]),
-                        rho=rho)
+        # VLM_sim = VLM_CADDEE([VLM_mesh_transposed], AoA,
+        #                 V_inf*np.array([np.cos(AoA_rad), 0., np.sin(AoA_rad)]),
+        #                 rho=rho)
 
         # extract panel forces from VLM simulation
         panel_forces = VLM_sim.sim['panel_forces'][0]

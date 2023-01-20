@@ -1,10 +1,10 @@
 
 from curses import resize_term
-from fe_csdl_opt.fea.fea_dolfinx import *
-from fe_csdl_opt.csdl_opt.fea_model import FEAModel
-from fe_csdl_opt.csdl_opt.state_model import StateModel
-from fe_csdl_opt.csdl_opt.output_model import OutputModel
-from fe_csdl_opt.csdl_opt.pre_processor.general_filter_model \
+from femo.fea.fea_dolfinx import *
+from femo.csdl_opt.fea_model import FEAModel
+from femo.csdl_opt.state_model import StateModel
+from femo.csdl_opt.output_model import OutputModel
+from femo.csdl_opt.pre_processor.general_filter_model \
                                     import GeneralFilterModel
 import numpy as np
 import csdl
@@ -47,9 +47,9 @@ def TractionBoundary(x):
     return np.logical_and(abs(x[1] - LENGTH_Y/2) < LENGTH_Y/num_el_y + DOLFIN_EPS,
                             abs(x[0] - LENGTH_X) < DOLFIN_EPS)
 
-fdim = mesh.topology.dim - 1 
+fdim = mesh.topology.dim - 1
 traction_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
-facet_tag = meshtags(mesh, fdim, traction_facets, 
+facet_tag = meshtags(mesh, fdim, traction_facets,
                     np.full(len(traction_facets),100,dtype=np.int32))
 
 #### Defining measures ####
@@ -100,19 +100,19 @@ state_function = Function(state_function_space)
 v = TestFunction(state_function_space)
 method = 'SIMP'
 f = Constant(mesh, (0,-1/4))
-residual_form = pdeRes(state_function, 
-                        v, 
+residual_form = pdeRes(state_function,
+                        v,
                         input_function,
                         f,
                         dss=ds_(100),
                         method=method)
-                        
+
 # Add output to the PDE problem:
 output_name_1 = 'avg_density'
 output_form_1 = averageFunc(input_function)
 output_name_2 = 'compliance'
-output_form_2 = compliance(state_function, 
-                            f, 
+output_form_2 = compliance(state_function,
+                            f,
                             dss=ds_(100))
 
 
@@ -130,7 +130,7 @@ fea.add_output(name=output_name_2,
                 type='scalar',
                 form=output_form_2,
                 arguments=[state_name])
-                
+
 '''
     2.3. Define the boundary conditions
 '''
@@ -145,7 +145,7 @@ fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
 
 ############ Weakly enforced boundary conditions #############
 ############### Unsymmetric Nitsche's method #################
-# residual_form = pdeRes(state_function, v, input_function, 
+# residual_form = pdeRes(state_function, v, input_function,
 #                         u_exact=u_ex, weak_bc=True, sym=False)
 ##############################################################
 
@@ -168,8 +168,8 @@ h = dolfinx.cpp.mesh.h(mesh, tdim, range(num_cells))
 h_avg = (h.max() + h.min())/2
 nel = mesh.topology.index_map(mesh.topology.dim).size_local
 # Case-to-case preprocessor model
-pre_processor_model = GeneralFilterModel(nel=nel, 
-                                            coordinates=coords, 
+pre_processor_model = GeneralFilterModel(nel=nel,
+                                            coordinates=coords,
                                             h_avg=h_avg)
 fea_model.add(pre_processor_model, name=pre_processor_name, promotes=['*'])
 fea_model.create_input("{}".format('density_unfiltered'),
@@ -191,7 +191,7 @@ sim.run()
 
 ############# Check the derivatives #############
 #sim.check_partials(compact_print=True)
-# sim.prob.check_totals(compact_print=True)  
+# sim.prob.check_totals(compact_print=True)
 
 '''
 5. Set up the optimization problem
@@ -229,11 +229,11 @@ print("Constraint value: ", sim['avg_density'])
 
 penalized_density = Function(input_function_space)
 if method =='SIMP':
-    project(input_function**3, penalized_density) 
+    project(input_function**3, penalized_density)
 else:
     project(input_function/(1 + 8. * (1. - input_function)),
-                                 penalized_density) 
-    
+                                 penalized_density)
+
 with XDMFFile(MPI.COMM_WORLD, "solutions/"+state_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
     xdmf.write_function(fea.states_dict[state_name]['function'])
@@ -243,11 +243,9 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/penalized_density.xdmf", "w") as xdmf:
 with XDMFFile(MPI.COMM_WORLD, "solutions/"+input_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
     xdmf.write_function(fea.inputs_dict[input_name]['function'])
-    
+
 # Plot the traction bc
 #with XDMFFile(MPI.COMM_WORLD, "solutions/traction_bc.xdmf", "w") as xdmf:
 #    xdmf.write_mesh(mesh)
 #    mesh.topology.create_connectivity(mesh.topology.dim-1,mesh.topology.dim)
 #    xdmf.write_meshtags(facet_tag)
-
-

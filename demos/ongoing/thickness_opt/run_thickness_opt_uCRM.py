@@ -7,11 +7,11 @@ Wing span (extended)    71.75m/235.42ft
 Overall length	        76.73m/251.75ft
 """
 
-from fe_csdl_opt.fea.fea_dolfinx import *
-from fe_csdl_opt.csdl_opt.fea_model import FEAModel
-from fe_csdl_opt.csdl_opt.state_model import StateModel
-from fe_csdl_opt.csdl_opt.output_model import OutputModel
-from fe_csdl_opt.csdl_opt.pre_processor.general_filter_model \
+from femo.fea.fea_dolfinx import *
+from femo.csdl_opt.fea_model import FEAModel
+from femo.csdl_opt.state_model import StateModel
+from femo.csdl_opt.output_model import OutputModel
+from femo.csdl_opt.pre_processor.general_filter_model \
                                     import GeneralFilterModel
 import numpy as np
 import csdl
@@ -96,7 +96,7 @@ state_function = Function(state_function_space)
 material_model = MaterialModel(E=E,nu=nu,h=input_function) # Simple isotropic material
 residual_form = pdeRes(input_function,state_function,
                         E,f,material_model.CLT,dx_inplane,dx_shear)
-                        
+
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
 output_form_1 = compliance(state_function.sub(0), input_function)
