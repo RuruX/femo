@@ -133,16 +133,15 @@ def advance(func_old,increment_deltas):
 def solveIncremental(res,func,bc,report=False):
     vec = np.copy(input_function_mm.vector.getArray())
     nnz_ind = np.nonzero(vec)[0]
-    func_old = input_function_mm
     # Get the relative movements from the previous step
-    relative_edge_deltas = func_old.vector[:] - func.vector[:]
-    STEPS, increment_deltas = getDisplacementSteps(func_old,
+    # relative_edge_deltas = func_old.vector[:] - func.vector[:]
+    relative_edge_deltas = np.copy(vec)
+    relative_edge_deltas[nnz_ind] -= func.vector[nnz_ind.astype(np.int32)]
+    STEPS, increment_deltas = getDisplacementSteps(func,
                                                 relative_edge_deltas)
-
-
     snes_solver = SNESSolver(res, func, bc, report=report)
+    func_old = Function(func.function_space)
     func_old.vector[:] = func.vector
-    print(func.vector[nnz_ind.astype(np.int32)[:5]])
     # Incrementally set the BCs to increase to `edge_deltas`
     if report == True:
         print(80*"=")
@@ -155,7 +154,6 @@ def solveIncremental(res,func,bc,report=False):
             print(80*"=")
         advance(func_old,increment_deltas)
         snes_solver.solve(None, func.vector)
-    input_function_mm.vector.setArray(vec)
     if report == True:
         print(80*"=")
         print(' FEA: L2 error of the mesh motion on the edges:',
@@ -212,7 +210,7 @@ fea_mm.add_output(name=output_name_mm_3,
 fea_em = FEA(mesh)
 
 fea_em.PDE_SOLVER = 'SNES'
-fea_em.REPORT = False
+fea_em.REPORT = True
 fea_em.record = True
 
 # Add input to the PDE problem: the inputs as the previous states
