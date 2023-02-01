@@ -95,7 +95,7 @@ iq = 282.2  / 0.00016231
 fea_mm = FEA(mesh)
 
 fea_mm.PDE_SOLVER = 'SNES'
-fea_mm.REPORT = False
+fea_mm.REPORT = True
 fea_mm.record = False
 
 
@@ -142,7 +142,7 @@ def solveIncremental(res,func,bc,report=False):
 
     snes_solver = SNESSolver(res, func, bc, report=report)
     func_old.vector[:] = func.vector
-
+    print(func.vector[nnz_ind.astype(np.int32)[:5]])
     # Incrementally set the BCs to increase to `edge_deltas`
     if report == True:
         print(80*"=")
@@ -352,8 +352,9 @@ sim = py_simulator(model, analytics=True)
 ########### Test the forward solve ##############
 
 ####### Single steps of movement ##########
-
-sim.run()
+for i in range(3):
+    sim['magnet_pos_delta_dv'] += 1
+    sim.run()
 # sim.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
 # sim.executable.check_totals(of=['loss_sum'], wrt=['magnet_pos_delta_dv'],compact_print=True)
 
@@ -424,7 +425,7 @@ optimizer = SNOPT(prob,
 # sim.add_recorder(dashboard.get_recorder())
 
 # Solve your optimization problem
-optimizer.solve()
+# optimizer.solve()
 # print("="*40)
 
 fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])

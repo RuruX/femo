@@ -1,7 +1,7 @@
 """
 Definition of the variational form of the motor problem
 """
-from fe_csdl_opt.fea.fea_dolfinx import *
+from femo.fea.fea_dolfinx import *
 from permeability.piecewise_permeability import *
 
 
