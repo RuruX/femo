@@ -120,7 +120,6 @@ def getDisplacementSteps(uhat, edge_deltas):
     min_cell_size = h.min()
     moveBackward(mesh, uhat)
     min_STEPS = 4*round(max_disp/min_cell_size)
-    print(min_STEPS)
     if min_STEPS >= STEPS:
         STEPS = min_STEPS
     increment_deltas = edge_deltas/STEPS
@@ -133,14 +132,13 @@ def advance(func_old,increment_deltas):
 def solveIncremental(res,func,bc,report=False):
     vec = np.copy(input_function_mm.vector.getArray())
     nnz_ind = np.nonzero(vec)[0]
+    func_old = input_function_mm
     # Get the relative movements from the previous step
-    # relative_edge_deltas = func_old.vector[:] - func.vector[:]
     relative_edge_deltas = np.copy(vec)
-    relative_edge_deltas[nnz_ind] -= func.vector[nnz_ind.astype(np.int32)]
+    relative_edge_deltas[edge_indices] -= func.vector[edge_indices.astype(np.int32)]
     STEPS, increment_deltas = getDisplacementSteps(func,
                                                 relative_edge_deltas)
     snes_solver = SNESSolver(res, func, bc, report=report)
-    func_old = Function(func.function_space)
     func_old.vector[:] = func.vector
     # Incrementally set the BCs to increase to `edge_deltas`
     if report == True:
@@ -154,11 +152,12 @@ def solveIncremental(res,func,bc,report=False):
             print(80*"=")
         advance(func_old,increment_deltas)
         snes_solver.solve(None, func.vector)
+    input_function_mm.vector.setArray(vec)
     if report == True:
         print(80*"=")
         print(' FEA: L2 error of the mesh motion on the edges:',
-                np.linalg.norm(func.vector[nnz_ind.astype(np.int32)]
-                         - input_function_mm.vector[nnz_ind.astype(np.int32)]))
+                np.linalg.norm(func.vector[edge_indices.astype(np.int32)]
+                         - input_function_mm.vector[edge_indices.astype(np.int32)]))
         print(80*"=")
 
 fea_mm.custom_solve = solveIncremental
@@ -321,14 +320,12 @@ fea_model = FEAModel(fea=[fea_mm,fea_em])
 model = csdl.Model()
 power_loss_model = PowerLossModel()
 loss_sum_model = LossSumModel()
-magnet_shape_limit_model = MagnetShapeLimitModel()
 
 ###########################################################
 ######################## Connect ##########################
 
 # python_csdl_backend
 model.add(ffd_connection_model, name='ffd_model')
-# model.add(magnet_shape_limit_model, name='magnet_shape_limit_model')
 model.add(boundary_input_model, name='boundary_input_model')
 model.add(fea_model, name='fea_model')
 model.add(power_loss_model, name='power_loss_model')
@@ -350,55 +347,14 @@ sim = py_simulator(model, analytics=True)
 ########### Test the forward solve ##############
 
 ####### Single steps of movement ##########
-for i in range(3):
-    sim['magnet_pos_delta_dv'] += 1
-    sim.run()
-# sim.check_totals(of=['loss_sum','uhat','A_z'], wrt=['magnet_pos_delta_dv','magnet_width_dv'],compact_print=True)
-# sim.executable.check_totals(of=['loss_sum'], wrt=['magnet_pos_delta_dv'],compact_print=True)
-
-#
-# ###### Multiple steps of movement ##########
-# xdmf_uhat = XDMFFile(MPI.COMM_WORLD, "test1/record_uhat.xdmf", "w")
-# xdmf_Az = XDMFFile(MPI.COMM_WORLD, "test1/record_Az.xdmf", "w")
-# xdmf_B = XDMFFile(MPI.COMM_WORLD, "test1/record_B.xdmf", "w")
-# xdmf_uhat.write_mesh(mesh)
-# xdmf_Az.write_mesh(mesh)
-# xdmf_B.write_mesh(mesh)
-#
-# delta = 50.
-# N = 50
-# ec_loss_array = np.zeros(N)
-# hyst_loss_array = np.zeros(N)
-# loss_sum_array = np.zeros(N)
-# for i in range(N):
-#     print(str(i)*40)
-#     sim['magnet_pos_delta_dv'] = delta/N*i
-#     print("magnet_pos_delta_dv:", sim['magnet_pos_delta_dv'])
-#     # sim['magnet_width_dv'] = delta/N*i
-#     # print("magnet_width_dv:", sim['magnet_width_dv'])
-#
+# for i in range(3):
+#     sim['magnet_pos_delta_dv'] += 1
 #     sim.run()
-#     magnetic_flux_density = pde.B(state_function_em, state_function_mm)
-#     print("Eddy current loss", sim['eddy_current_loss'])
-#     print("Hysteresis loss", sim['hysteresis_loss'])
-#     print("Loss sum", sim['loss_sum'])
-#
-#     ec_loss_array[i] = sim['eddy_current_loss']
-#     hyst_loss_array[i] = sim['hysteresis_loss']
-#     loss_sum_array[i] = sim['loss_sum']
-#
-#     # move(mesh, state_function_mm)
-#     # xdmf_uhat.write_mesh(mesh)
-#     xdmf_uhat.write_function(state_function_mm,i)
-#     # xdmf_B.write_mesh(mesh)
-#     xdmf_Az.write_function(state_function_em,i)
-#     xdmf_B.write_function(magnetic_flux_density,i)
-#     # moveBackward(mesh, state_function_mm)
-#
-#
-# print("ec loss", ec_loss_array)
-# print("hysteresis loss", hyst_loss_array)
-# print("loss sum", loss_sum_array)
+sim.run()
+# sim.check_totals(of=['loss_sum'], wrt=['magnet_pos_delta_dv'],compact_print=True)
+
+# [RU]: It seems like CSDL doesn't work with csdl_om anymore
+# sim.executable.check_totals(of=['loss_sum'], wrt=['magnet_pos_delta_dv'],compact_print=True)
 
 ############# Run the optimization with modOpt #############
 from modopt.csdl_library import CSDLProblem
@@ -423,7 +379,7 @@ optimizer = SNOPT(prob,
 # sim.add_recorder(dashboard.get_recorder())
 
 # Solve your optimization problem
-# optimizer.solve()
+optimizer.solve()
 # print("="*40)
 
 fea_mm.inputs_dict[input_name_mm]['function'].vector.setArray(sim['uhat_bc'])
