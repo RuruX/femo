@@ -312,11 +312,13 @@ def computePartials(form, function):
 def createFunction(function):
     return Function(function.function_space)
 
-def solveNonlinear(res, func, bc, solver, report):
+def solveNonlinear(res, func, bc, solver, report, initialize):
     from timeit import default_timer
     start = default_timer()
     if solver == 'Newton':
-        newton_solver = NewtonSolver(res, func, bc, report=report)
+        newton_solver = NewtonSolver(res, func, bc, 
+                                    initialize=initialize,
+                                    report=report)
         newton_solver.solve(func)
     elif solver == 'SNES':
         snes_solver = SNESSolver(res, func, bc, report=report)
@@ -414,6 +416,7 @@ def NewtonSolver(F, w, bcs=[],
                     abs_tol=1e-50,
                     rel_tol=1e-30,
                     max_it=3,
+                    initialize=False,
                     error_on_nonconvergence=False,
                     report=False):
 
@@ -423,8 +426,9 @@ def NewtonSolver(F, w, bcs=[],
     """
     problem = NonlinearProblem(F, w, bcs)
     # Set the initial guess of the solution
-    # with w.vector.localForm() as w_local:
-    #     w_local.set(0.1)
+    if initialize is True:
+        with w.vector.localForm() as w_local:
+            w_local.set(0.1)
     solver = PETScNewtonSolver(MPI.COMM_WORLD, problem)
     if report is True:
         dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
@@ -484,6 +488,25 @@ def solveKSP_mumps(A, b, x):
     ksp.setUp()
     ksp.solve(b, x)
 
+def setUpKSP_MUMPS(A):
+    """
+    Implementation of KSP solution of the linear system Ax=b using MUMPS
+    """
+
+    # setup petsc for pre-only solve
+    ksp = PETSc.KSP().create(A.getComm())
+    ksp.setOperators(A)
+    ksp.setType("preonly")
+
+    # set LU w/ MUMPS
+    pc = ksp.getPC()
+    pc.setType("lu")
+    pc.setFactorSolverType('mumps')
+
+    # solve
+    ksp.setUp()
+    return ksp
+    
 def move(mesh, u):
     x = mesh.geometry.x
     gdim = mesh.geometry.dim

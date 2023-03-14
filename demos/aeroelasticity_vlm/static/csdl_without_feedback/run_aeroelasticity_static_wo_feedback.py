@@ -28,14 +28,34 @@ from FSI_coupling.shellmodule_csdl_interface import (
                                 ForceMappingModel, 
                                 VLMForceIOModel, 
                                 VLMMeshUpdateModel)
+import cProfile, pstats, io
+from mpi4py import MPI
 
+def profile(filename=None, comm=MPI.COMM_WORLD):
+    def prof_decorator(f):
+        def wrap_f(*args, **kwargs):
+            pr = cProfile.Profile()
+            pr.enable()
+            result = f(*args, **kwargs)
+            pr.disable()
+
+            if filename is None:
+                pr.print_stats()
+            else:
+                filename_r = filename + ".{}".format(comm.Get_rank())
+                pr.dump_stats(filename_r)
+
+            return result
+        return wrap_f
+    return prof_decorator
+    
 ##########################################################################
 ######################## Structural inputs ###############################
 ##########################################################################
 
 s_mesh_file_name = "eVTOL_wing_half_tri_107695_136686.xdmf"
 f_mesh_file_name = 'vlm_mesh_nx2_ny10.npy'
-path = "evtol_wing/"
+path = "../../evtol_wing_mesh/"
 solid_mesh_file = path + s_mesh_file_name
 vlm_mesh_file = path+ f_mesh_file_name
 
@@ -56,22 +76,62 @@ element = ShellElement(solid_mesh,element_type,)
 dx_inplane, dx_shear = element.dx_inplane, element.dx_shear
 
 
-def pdeRes(h,w,E,f,CLT,dx_inplane,dx_shear):
+def pdeRes(h,w,E,f,CLT,dx_inplane,dx_shear,penalty=False, dss=ds, dSS=dS, g=None):
     elastic_model = ElasticModel(solid_mesh,w,CLT)
     elastic_energy = elastic_model.elasticEnergy(E, h, dx_inplane,dx_shear)
-    return elastic_model.weakFormResidual(elastic_energy, f)
+    return elastic_model.weakFormResidual(elastic_energy, f, 
+                                        penalty=penalty, dss=dss, dSS=dSS, g=g)
 
-def compliance(u_mid,f):
-    return dot(u_mid,f)*dx
+def regularization(h):
+    alpha1 = Constant(solid_mesh, 1e3)
+    alpha2 = Constant(solid_mesh, 1e0)
+    h_mesh = CellDiameter(solid_mesh)
+    # H1 regularization
+    # regularization = 0.5*alpha1*dot(grad(h),grad(h))*dx
+    # L2 + H1 regularization
+    # regularization = 0.5*alpha1*inner(h,h)*dx + \
+    #                    0.5*alpha2*h_mesh**2*inner(grad(h),grad(h))*dx
+    # L2 + H1 regularization
+    # regularization = 0.5*alpha1*inner(h,h)*dx
+    # No regularization
+    regularization = 0.
+    return regularization
+
+def compliance(u_mid,h,dxx):
+    return Constant(solid_mesh, 0.5)*inner(u_mid,u_mid)*dxx + regularization(h)
 
 def volume(h):
-    h_ = TestFunction(h.function_space)
-    return h*h_*dx
+    return h*dx
 
-def extractTipDisp(u):
-    x_tip = [-0.513102,5.32906,0.541493]
-    cell_tip = 133203
-    return u.eval(x_tip, cell_tip)[-1]
+def elastic_energy(w,CLT,E,h,dx_inplane,dx_shear):
+    elastic_model = ElasticModel(solid_mesh,w,CLT)
+    elastic_energy = elastic_model.elasticEnergy(E, h, dx_inplane,dx_shear)
+    return elastic_energy
+
+
+#### Getting facets of the LEFT and the RIGHT edge  ####
+DOLFIN_EPS = 3E-16
+def ClampedBoundary(x):
+    return np.less_equal(x[1], 0.9)
+def rightChar(x):
+    return np.greater(x[1], 5.2) # measure deflection near wing tip
+fdim = solid_mesh.topology.dim - 1
+facets_1 = locate_entities_boundary(solid_mesh,fdim,ClampedBoundary)
+facets_11 = locate_entities(solid_mesh,fdim,ClampedBoundary)
+facets_2 = locate_entities_boundary(solid_mesh,fdim,rightChar)
+#### Defining measures ####
+facet_tag_1 = meshtags(solid_mesh, fdim, facets_1,
+                    np.full(len(facets_1),100,dtype=np.int32))
+facet_tag_11 = meshtags(solid_mesh, fdim, facets_11,
+                    np.full(len(facets_11),100,dtype=np.int32))
+metadata = {"quadrature_degree":4}
+ds_1 = ufl.Measure('ds',domain=solid_mesh,subdomain_data=facet_tag_1,metadata=metadata)
+dS_1 = ufl.Measure('dS',domain=solid_mesh,subdomain_data=facet_tag_11,metadata=metadata)
+
+area_2 = dolfinx.mesh.locate_entities(solid_mesh,fdim+1,rightChar)
+area_tag_2 = meshtags(solid_mesh, fdim+1, area_2,
+                    np.full(len(area_2),10,dtype=np.int32))
+dx_2 = ufl.Measure('dx',domain=solid_mesh,subdomain_data=area_tag_2,metadata=metadata)
 
 ###########################################################################
 ######################## Aerodynamic inputs ###############################
@@ -95,9 +155,11 @@ fea = FEA(solid_mesh)
 fea.PDE_SOLVER = "Newton"
 fea.initialize = True
 fea.record = False
+fea.linear_problem = True
 # Add input to the PDE problem:
 input_name_1 = 'thickness'
-input_function_space_1 = FunctionSpace(solid_mesh, ("DG", 0))
+input_function_space_1 = FunctionSpace(solid_mesh, ("CG", 1))
+# input_function_space_1 = FunctionSpace(solid_mesh, ("DG", 0))
 input_function_1 = Function(input_function_space_1)
 # Add input to the PDE problem:
 input_name_2 = 'F_solid'
@@ -108,16 +170,23 @@ input_function_2 = Function(input_function_space_2)
 state_name = 'disp_solid'
 state_function_space = element.W
 state_function = Function(state_function_space)
+g = Function(state_function_space)
+with g.vector.localForm() as uloc:
+     uloc.set(0.)
 # Simple isotropic material
 material_model = MaterialModel(E=E,nu=nu,h=input_function_1)
 residual_form = pdeRes(input_function_1,state_function,
-                        E,input_function_2,material_model.CLT,dx_inplane,dx_shear)
+                        E,input_function_2,material_model.CLT,dx_inplane,dx_shear,
+                        penalty=True, dss=ds_1(100), dSS=dS_1(100), g=g)
 
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
-output_form_1 = compliance(state_function.sub(0), input_function_2)
+u_mid, theta = split(state_function)
+output_form_1 = compliance(u_mid,input_function_1, dx_2(10))
 output_name_2 = 'volume'
 output_form_2 = volume(input_function_1)
+output_name_3 = 'elastic_energy'
+output_form_3 = elastic_energy(state_function,material_model.CLT,E,input_function_1,dx_inplane,dx_shear)
 
 with input_function_1.vector.localForm() as uloc:
      uloc.set(h_val)
@@ -132,12 +201,15 @@ fea.add_state(name=state_name,
 fea.add_output(name=output_name_1,
                 type='scalar',
                 form=output_form_1,
-                arguments=[state_name,input_name_2])
+                arguments=[state_name,input_name_1])
 fea.add_output(name=output_name_2,
                 type='scalar',
                 form=output_form_2,
                 arguments=[input_name_1])
-
+fea.add_output(name=output_name_3,
+                type='scalar',
+                form=output_form_3,
+                arguments=[input_name_1,state_name])
 ############ Set the BCs for the airplane model ###################
 
 locate_BC1 = locate_dofs_geometrical((state_function_space.sub(0),
@@ -151,8 +223,8 @@ with ubc.vector.localForm() as uloc:
      uloc.set(0.)
 
 ############ Strongly enforced boundary conditions #############
-fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
-fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
+# fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
+# fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
 
 ################### Construct Aerodynamic mesh ###################
 print("Constructing aerodynamic mesh and mesh mappings...")
@@ -163,6 +235,7 @@ vlm_mesh_baseline_2d = reshape_3D_array_to_2D(vlm_mesh)
 
 vlm_mesh_baseline_2d_mirrored = reshape_3D_array_to_2D(
                                             vlm_mesh_mirrored)
+
 
 ####### Define force functions and aero-elastic coupling object ########
 coupling_obj = FEniCSx_vortexmethod_coupling(solid_mesh, vlm_mesh, 
@@ -215,6 +288,9 @@ compliance_model = OutputModel(fea=fea,
 volume_model = OutputModel(fea=fea,
                             output_name=output_name_2,
                             arg_name_list=fea.outputs_dict[output_name_2]['arguments'])
+elastic_energy_model = OutputModel(fea=fea,
+                            output_name=output_name_3,
+                            arg_name_list=fea.outputs_dict[output_name_3]['arguments'])
 # Define CSDL mapping models for aeroelastic coupling
 # disp_map_model = DisplacementMappingModel(coupling=coupling_obj, 
 #                                         input_name='disp_solid', 
@@ -241,38 +317,19 @@ vlm_mesh_update_model = VLMMeshUpdateModel(base_vlm_mesh_2d=vlm_mesh_baseline_2d
 '''
 4. Set up the CSDL model
 '''
-disp_map_model.add(vlm_model, name='vlm_model')
-disp_map_model.add(vlm_force_reshape_model, name='vlm_force_reshape_model')
-disp_map_model.add(force_map_model, name='force_map_model')
-disp_map_model.add(solid_model, name='solid_model')
-disp_map_model.add(vlm_mesh_update_model, name='vlm_mesh_update_model')
-disp_map_model.declare_variable('thickness',
+vlm_model.add(vlm_force_reshape_model, name='vlm_force_reshape_model')
+vlm_model.add(force_map_model, name='force_map_model')
+vlm_model.add(solid_model, name='solid_model')
+vlm_model.add(compliance_model, name='compliance_model')
+vlm_model.add(volume_model, name='volume_model')
+vlm_model.add(elastic_energy_model, name='elastic_energy_model')
+vlm_model.create_input('thickness',
                     shape=fea.inputs_dict[input_name_1]['shape'],
                     val=h_val)
-model = csdl.Model()
-
-solve_fixed_point_iteration = model.create_implicit_operation(disp_map_model)
-solve_fixed_point_iteration.declare_state('disp_fluid', residual='r_disp_fluid')
-solve_fixed_point_iteration.nonlinear_solver = csdl.NonlinearBlockGS(
-                                                maxiter=100, atol=1e-6, rtol=1e-6)
-x = solve_fixed_point_iteration()
-
-model.add(vlm_mesh_update_model, name='vlm_mesh_update_model_1')
-model.add(vlm_model, name='vlm_model_1')
-model.add(vlm_force_reshape_model, name='vlm_force_reshape_model_1')
-model.add(force_map_model, name='force_map_model_1')
-model.add(solid_model, name='solid_model_1')
-model.add(compliance_model, name='compliance_model_1')
-model.add(volume_model, name='volume_model_1')
-
-
-model.create_input('thickness',
-                    shape=fea.inputs_dict[input_name_1]['shape'],
-                    val=h_val)
-# model.add_design_variable('thickness', upper=2*h_val, lower=0.1*h_val)
-# model.add_objective('compliance')
-# model.add_constraint('volume', equals=V0)
-sim = py_simulator(model, analytics=True)
+vlm_model.create_input('surf_0',
+                    shape=vlm_mesh_transposed.shape,
+                    val=vlm_mesh_transposed)
+sim = py_simulator(vlm_model,analytics=True)
 
 ########### Test the forward solve ##############
 
@@ -285,8 +342,9 @@ print("-"*50)
 print("-"*8, s_mesh_file_name, "-"*9)
 print("-"*50)
 print("Tip deflection: ", max(uZ))
-print("disp_fluid:", max(sim['disp_fluid']))
-# print("surf 0:", sim['surf_0'])
+# print("disp_fluid:", max(sim['disp_fluid']))
+print("disp fluid size:", vlm_mesh.shape[0]*vlm_mesh.shape[1]*vlm_mesh.shape[2])
+print("Elastic energy:", sim['elastic_energy'])
 print("Compliance: ", sim['compliance'])
 print("Initial volume: ", V0)
 print("Volume: ", sim['volume'])
@@ -295,24 +353,114 @@ print("  Number of vertices = "+str(nn))
 print("  Number of total dofs = ", dofs)
 print("-"*50)
 
-########## Compute the total derivatives ###########
-derivative_dict = sim.compute_totals(of=['compliance'], wrt=['thickness'])
-dCdT = derivative_dict[('compliance', 'thickness')].flatten()
-gradient_function = Function(input_function_space_1)
-gradient_function.vector.setArray(dCdT)
+path = "solutions"+"_penalty_moved_bc_09"
 ########## Visualization: ##############
 u_mid, _ = state_function.split()
 
-with XDMFFile(MPI.COMM_WORLD, "solutions/u_mid_tri_"+str(dofs)+".xdmf", "w") as xdmf:
+with XDMFFile(MPI.COMM_WORLD, path+"/u_mid_tri_"+str(dofs)+".xdmf", "w") as xdmf:
     xdmf.write_mesh(solid_mesh)
     xdmf.write_function(u_mid)
 
-with XDMFFile(MPI.COMM_WORLD, "solutions/aero_F_"+str(dofs)+".xdmf", "w") as xdmf:
+with XDMFFile(MPI.COMM_WORLD, path+"/aero_F_"+str(dofs)+".xdmf", "w") as xdmf:
     xdmf.write_mesh(solid_mesh)
     xdmf.write_function(input_function_2)
 
-with XDMFFile(MPI.COMM_WORLD, "solutions/gradient_"+str(dofs)+".xdmf", "w") as xdmf:
-    xdmf.write_mesh(solid_mesh)
-    xdmf.write_function(gradient_function)
+########## Compute the total derivatives ###########
+@profile(filename="profile_out")
+def main(sim):
 
+    import timeit
+    start = timeit.default_timer()
+    derivative_dict = sim.compute_totals(of=['compliance'], wrt=['thickness'])
+
+    stop = timeit.default_timer()
+    print('time for compute_totals:', stop-start)
+    dCdT = derivative_dict[('compliance', 'thickness')]
+    dCdT_function = Function(input_function_space_1)
+    dCdT_function.vector.setArray(dCdT)
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT_2_10_wo_cyclic.xdmf", "w") as xdmf:
+            xdmf.write_mesh(solid_mesh)
+            xdmf.write_function(dCdT_function)
+
+cProfile.run('main(sim)', "profile_out")
+
+shell_stress_RM = ShellStressRM(solid_mesh, state_function, h_val, E, nu)
+von_Mises_top = shell_stress_RM.vonMisesStress(h_val/2)
+V1 = FunctionSpace(solid_mesh, ('CG', 1))
+von_Mises_top_func = Function(V1)
+project(von_Mises_top, von_Mises_top_func, lump_mass=True)
+
+
+with XDMFFile(MPI.COMM_WORLD, path+"/von_mises_stress.xdmf", "w") as xdmf:
+    xdmf.write_mesh(solid_mesh)
+    xdmf.write_function(von_Mises_top_func)
 # sim.check_totals(of=['compliance'], wrt=['thickness'], compact_print=True)
+
+
+# --------------------------------------------------
+# Tip deflection:  0.03242547968560471
+# disp_fluid: 0.02995551988836484
+# Compliance:  51.218575140611705
+# Initial volume:  0.04085249393489516
+# Volume:  0.04085249393489516
+#   Number of elements = 136686
+#   Number of vertices = 66974
+#   Number of total dofs =  1013097
+# --------------------------------------------------
+
+# --------------------------------------------------
+# -------- eVTOL_wing_half_tri_107695_136686.xdmf ---------
+# --------------------------------------------------
+# Tip deflection:  0.04178111082600625
+# disp fluid size: 99
+# Elastic energy: 35.34569687653366
+# Compliance:  0.00024180510513436114
+# Initial volume:  0.04085249393489516
+# Volume:  0.04085249393489516
+#   Number of elements = 136686
+#   Number of vertices = 66974
+#   Number of total dofs =  1013097
+# --------------------------------------------------
+
+# import pyvista as pv
+# ############################################
+# # Plot the lifting surfaces
+# ############################################
+# pv.global_theme.axes.show = True
+# pv.global_theme.font.label_size = 1
+
+# x = vlm_mesh[:, :, 0]
+# y = vlm_mesh[:, :, 1]
+# z = vlm_mesh[:, :, 2]
+# # x_1 = wing_2_mesh[0, :, :, 0]
+# # y_1 = wing_2_mesh[0, :, :, 1]
+# # z_1 = wing_2_mesh[0, :, :, 2]
+
+# # xw = sim['wing_1_wake_coords'][0, :, :, 0]
+# # yw = sim['wing_1_wake_coords'][0, :, :, 1]
+# # zw = sim['wing_1_wake_coords'][0, :, :, 2]
+
+# # xw_1 = sim['wing_2_wake_coords'][0, :, :, 0]
+# # yw_1 = sim['wing_2_wake_coords'][0, :, :, 1]
+# # zw_1 = sim['wing_2_wake_coords'][0, :, :, 2]
+
+# grid = pv.StructuredGrid(x, y, z)
+# # grid_1 = pv.StructuredGrid(x_1, y_1, z_1)
+# # gridw = pv.StructuredGrid(xw, yw, zw)
+# # gridw_1 = pv.StructuredGrid(xw_1, yw_1, zw_1)
+# p = pv.Plotter()
+# p.set_background('white')
+# p.add_mesh(grid, color="orange", line_width=3, show_edges=True, opacity=.8)
+
+# # p.add_mesh(gridw, color="blue", show_edges=True, opacity=.5)
+# # p.add_mesh(grid_1, color="red", show_edges=True, opacity=.5)
+# # p.add_mesh(gridw_1, color="red", show_edges=True, opacity=.5)
+# p.camera.view_angle = 20.0
+# # p.add_axes_at_origin(labels_off=True, line_width=5)
+# p.show(screenshot='vlm_mesh.png', window_size=[1000,600])
+# grid = pv.StructuredGrid(x, y, z)
+# grid.save("vlm_mesh.vtk")
+
+# exit()

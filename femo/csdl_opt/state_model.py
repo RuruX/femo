@@ -21,10 +21,14 @@ class StateModel(Model):
         args_list = []
         for arg_name in arg_name_list:
             args_dict[arg_name] = self.fea.inputs_dict[arg_name]
+            # arg = self.declare_variable(arg_name,
+            #                             shape=(args_dict[arg_name]['shape'],),
+            #                             val=1.0)
             arg = self.declare_variable(arg_name,
-                                        shape=(args_dict[arg_name]['shape'],),
-                                        val=1.0)
+                                shape=(args_dict[arg_name]['shape'],),
+                                val=getFuncArray(args_dict[arg_name]['function']))
             args_list.append(arg)
+            self.print_var(arg)
 
         e = StateOperation(fea=self.fea,
                             args_dict=args_dict,
@@ -65,6 +69,8 @@ class StateOperation(CustomImplicitOperation):
                         shape=(self.state['shape'],),)
         self.declare_derivatives('*', '*')
         self.bcs = self.fea.bc
+        self.linear = self.fea.linear_problem
+        self.ksp = None
 
     def evaluate_residuals(self, inputs, outputs, residuals):
         if self.debug_mode == True:
@@ -77,7 +83,6 @@ class StateOperation(CustomImplicitOperation):
             update(arg['function'], inputs[arg_name])
         update(self.state['function'], outputs[self.state_name])
         residuals[self.state_name] = assembleVector(self.state['residual_form'])
-
 
     def solve_residual_equations(self, inputs, outputs):
         if self.debug_mode == True:
@@ -117,7 +122,6 @@ class StateOperation(CustomImplicitOperation):
         if dR_du == None:
             dR_du = computePartials(state['residual_form'],state['function'])
         self.dRdu = assembleMatrix(dR_du)
-
         dRdf_dict = dict()
         dR_df_list = state['dR_df_list']
         arg_list = state['arguments']
@@ -137,9 +141,13 @@ class StateOperation(CustomImplicitOperation):
         self.A,_ = assembleSystem(dR_du,
                                 state['residual_form'],
                                 bcs=self.bcs)
-
+        # self.A,_ = assembleSystem(dR_du,
+        #                         state['residual_form'],
+        #                         bcs=[])
         self.dR = self.state['d_residual']
         self.du = self.state['d_state']
+        if self.linear is True:
+            self.ksp = setUpKSP_MUMPS(self.A)
 
 
     def compute_jacvec_product(self, inputs, outputs,
@@ -192,7 +200,11 @@ class StateOperation(CustomImplicitOperation):
         state_name = self.state_name
         if mode == 'fwd':
             d_outputs[state_name] = self.fea.solveLinearFwd(
-                            self.du, self.A, self.dR, d_residuals[state_name])
+                            self.du, self.A, self.dR, 
+                            d_residuals[state_name],
+                            self.ksp)
         else:
             d_residuals[state_name] = self.fea.solveLinearBwd(
-                            self.dR, self.A, self.du, d_outputs[state_name])
+                            self.dR, self.A, self.du, 
+                            d_outputs[state_name],
+                            self.ksp)

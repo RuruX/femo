@@ -45,8 +45,8 @@ mesh = createRectangleMesh(np.array([0.0,0.0]),
 #### Getting facets of the bottom edge that will come in contact ####
 DOLFIN_EPS = 3E-16
 def TractionBoundary(x):
-    return np.logical_and(abs(x[1] - LENGTH_Y/2) < LENGTH_Y/num_el_y + DOLFIN_EPS,
-                            abs(x[0] - LENGTH_X) < DOLFIN_EPS*1e5)
+    return np.logical_and(abs(x[1] - LENGTH_Y/2) < LENGTH_Y/num_el_y + DOLFIN_EPS*1e10,
+                            abs(x[0] - LENGTH_X) < DOLFIN_EPS*1e10)
 
 fdim = mesh.topology.dim - 1
 traction_facets = locate_entities_boundary(mesh,fdim,TractionBoundary)
@@ -93,7 +93,7 @@ fea = FEA(mesh)
 input_name = 'density'
 input_function_space = FunctionSpace(mesh, ('DG', 0))
 input_function = Function(input_function_space)
-
+gradient_function = Function(input_function_space)
 # Add state to the PDE problem:
 state_name = 'displacements'
 state_function_space = VectorFunctionSpace(mesh, ('CG', 1))
@@ -118,6 +118,7 @@ output_form_2 = compliance(state_function,
 
 
 
+fea.record = True
 fea.add_input(input_name, input_function)
 fea.add_state(name=state_name,
                 function=state_function,
@@ -156,7 +157,6 @@ fea.add_strong_bc(ubc, locate_BC_list, state_function_space)
 '''
 4. Set up the CSDL model
 '''
-
 fea_model = FEAModel(fea=[fea])
 
 
@@ -193,9 +193,11 @@ sim.run()
 
 ############# Check the derivatives #############
 # sim.check_partials(compact_print=True)
-# sim.executable.check_totals(of='avg_density', wrt='density',
-#                             compact_print=True)
-
+sim.check_totals(of=['displacements'], wrt=['density_unfiltered'],
+                            compact_print=True)
+# derivative_dict = sim.compute_totals(of=['compliance'], wrt=['density'])
+# dCdRho = derivative_dict[('compliance', 'density')].flatten()
+# gradient_function.vector.setArray(dCdRho)
 '''
 5. Set up the optimization problem
 '''
@@ -226,28 +228,30 @@ sim.run()
 # stop = default_timer()
 # print('Optimization runtime:', str(stop-start), 'seconds')
 ############# Run the optimization with modOpt #############
-from modopt.csdl_library import CSDLProblem
+# from modopt.csdl_library import CSDLProblem
 
-prob = CSDLProblem(
-    problem_name='beam_topo_opt',
-    simulator=sim,
-)
+# prob = CSDLProblem(
+#     problem_name='beam_topo_opt',
+#     simulator=sim,
+# )
 
-from modopt.snopt_library import SNOPT
+# from modopt.snopt_library import SNOPT
 
-optimizer = SNOPT(prob,
-                  Major_iterations = 100000,
-                  Major_optimality = 1e-8,
-                  Major_feasibility=1e-6,)
-                  #   append2file=True)
-                  # append2file=False)
+# optimizer = SNOPT(prob,
+#                   Major_iterations = 100000,
+#                   Major_optimality = 1e-8,
+#                   Major_feasibility=1e-6,
+#                   append2file=True)
+#                   # append2file=False)
 
 
 # # Check first derivatives at the initial guess, if needed
 # optimizer.check_first_derivatives(prob.x0)
 
 # Solve your optimization problem
-optimizer.solve()
+# optimizer.solve()
+print("="*40)
+print(traction_facets)
 print("="*40)
 # optimizer.print_results()
 
@@ -270,6 +274,9 @@ with XDMFFile(MPI.COMM_WORLD, "solutions/penalized_density.xdmf", "w") as xdmf:
 with XDMFFile(MPI.COMM_WORLD, "solutions/"+input_name+".xdmf", "w") as xdmf:
     xdmf.write_mesh(fea.mesh)
     xdmf.write_function(fea.inputs_dict[input_name]['function'])
+# with XDMFFile(MPI.COMM_WORLD, "solutions/gradient.xdmf", "w") as xdmf:
+#     xdmf.write_mesh(fea.mesh)
+#     xdmf.write_function(gradient_function)
 
 # Plot the traction bc
 #with XDMFFile(MPI.COMM_WORLD, "solutions/traction_bc.xdmf", "w") as xdmf:

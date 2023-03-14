@@ -92,8 +92,9 @@ class FEA(object):
         self.opt_iter = 0
         self.record = False
         self.initial_solve = True
-
+        self.initialize = False
         self.recorder_path = "records"
+        self.linear_problem = False
 
     def add_input(self, name, function):
         if name in self.inputs_dict:
@@ -161,34 +162,42 @@ class FEA(object):
         """
         solver_type=self.PDE_SOLVER
         report=self.REPORT
+        initialize=self.initialize
         if self.custom_solve is not None and self.initial_solve == True:
             self.custom_solve(res,func,bc,report)
             # self.initial_solve = False
         else:
-            solveNonlinear(res,func,bc,solver_type,report)
+            solveNonlinear(res,func,bc,solver_type,report,initialize)
 
 
-    def solveLinearFwd(self, du, A, dR, dR_array):
+    def solveLinearFwd(self, du, A, dR, dR_array, ksp=None):
         """
         solve linear system dR = dR_du (A) * du in DOLFIN type
         """
         setFuncArray(dR, dR_array)
 
         du.vector.set(0.0)
-
-        solveKSP(A, dR.vector, du.vector)
+        if ksp is None:
+            # solveKSP(A, dR.vector, du.vector)
+            solveKSP_mumps(transpose(A), du.vector, dR.vector)
+        else:
+            ksp.solve(du.vector, dR.vector)
         du.vector.assemble()
         du.vector.ghostUpdate()
         return du.vector.getArray()
 
-    def solveLinearBwd(self, dR, A, du, du_array):
+    def solveLinearBwd(self, dR, A, du, du_array, ksp=None):
         """
         solve linear system du = dR_du.T (A_T) * dR in DOLFIN type
         """
         setFuncArray(du, du_array)
 
         dR.vector.set(0.0)
-        solveKSP(transpose(A), du.vector, dR.vector)
+        if ksp is None:
+            # solveKSP(transpose(A), du.vector, dR.vector)
+            solveKSP_mumps(transpose(A), du.vector, dR.vector)
+        else:
+            ksp.solve(du.vector, dR.vector)
         dR.vector.assemble()
         dR.vector.ghostUpdate()
         return dR.vector.getArray()

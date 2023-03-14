@@ -57,7 +57,7 @@ tri_mesh = [
 
 test = 2
 s_mesh_file_name = tri_mesh[test]
-path = "evtol_wing/"
+path = "../evtol_wing_mesh/"
 solid_mesh_file = path + s_mesh_file_name
 
 with XDMFFile(MPI.COMM_WORLD, solid_mesh_file, "r") as xdmf:
