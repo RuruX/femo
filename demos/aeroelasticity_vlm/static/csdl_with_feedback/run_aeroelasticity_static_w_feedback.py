@@ -27,8 +27,8 @@ from FSI_coupling.shellmodule_csdl_interface import (
                                 DisplacementMappingImplicitModel, 
                                 ForceMappingModel, 
                                 VLMForceIOModel, 
-                                VLMMeshUpdateModel,
-                                InverseDisplacementMappingModel)
+                                VLMMeshUpdateModel
+                                )
 import cProfile, pstats, io
 from mpi4py import MPI
 
@@ -68,7 +68,8 @@ nn = solid_mesh.topology.index_map(0).size_local
 E = 6.8E10 # unit: Pa (N/m^2)
 nu = 0.35
 h_val = 3E-3 # overall thickness (unit: m)
-
+y_bc = 0.9
+PENALTY_BC = True
 
 element_type = "CG2CG1" # with quad/tri elements
 
@@ -120,7 +121,7 @@ def elastic_energy(w,CLT,E,h,dx_inplane,dx_shear):
 #### Getting facets of the LEFT and the RIGHT edge  ####
 DOLFIN_EPS = 3E-16
 def ClampedBoundary(x):
-    return np.less_equal(x[1], 0.6)
+    return np.less_equal(x[1], y_bc)
 def rightChar(x):
     return np.greater(x[1], 5.2) # measure deflection near wing tip
 fdim = solid_mesh.topology.dim - 1
@@ -186,7 +187,7 @@ with g.vector.localForm() as uloc:
 material_model = MaterialModel(E=E,nu=nu,h=input_function_1)
 residual_form = pdeRes(input_function_1,state_function,
                         E,input_function_2,material_model.CLT,dx_inplane,dx_shear,
-                        penalty=True, dss=ds_1(100), dSS=dS_1(100), g=g)
+                        penalty=PENALTY_BC, dss=ds_1(100), dSS=dS_1(100), g=g)
 
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
@@ -223,17 +224,18 @@ fea.add_output(name=output_name_3,
 
 locate_BC1 = locate_dofs_geometrical((state_function_space.sub(0),
                                     state_function_space.sub(0).collapse()[0]),
-                                    lambda x: np.less(x[1], 0.55))
+                                    lambda x: np.less(x[1], y_bc))
 locate_BC2 = locate_dofs_geometrical((state_function_space.sub(1),
                                     state_function_space.sub(1).collapse()[0]),
-                                    lambda x: np.less(x[1], 0.55))
+                                    lambda x: np.less(x[1], y_bc))
 ubc = Function(state_function_space)
 with ubc.vector.localForm() as uloc:
      uloc.set(0.)
 
 ############ Strongly enforced boundary conditions #############
-# fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
-# fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
+if not PENALTY_BC:
+    fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
+    fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
 
 ################### Construct Aerodynamic mesh ###################
 print("Constructing aerodynamic mesh and mesh mappings...")
@@ -385,7 +387,7 @@ print("  Number of vertices = "+str(nn))
 print("  Number of total dofs = ", dofs)
 print("-"*50)
 
-path = "solutions"+"_penalty_bc_06"
+path = "solutions"+"_penalty_bc_"+str(y_bc)
 ########## Compute the total derivatives ###########
 @profile(filename="profile_out")
 def main(sim):

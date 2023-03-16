@@ -68,7 +68,8 @@ nn = solid_mesh.topology.index_map(0).size_local
 E = 6.8E10 # unit: Pa (N/m^2)
 nu = 0.35
 h_val = 3E-3 # overall thickness (unit: m)
-
+y_bc = 0.55
+PENALTY_BC = True
 
 element_type = "CG2CG1" # with quad/tri elements
 
@@ -112,7 +113,7 @@ def elastic_energy(w,CLT,E,h,dx_inplane,dx_shear):
 #### Getting facets of the LEFT and the RIGHT edge  ####
 DOLFIN_EPS = 3E-16
 def ClampedBoundary(x):
-    return np.less_equal(x[1], 0.9)
+    return np.less_equal(x[1], y_bc)
 def rightChar(x):
     return np.greater(x[1], 5.2) # measure deflection near wing tip
 fdim = solid_mesh.topology.dim - 1
@@ -177,7 +178,7 @@ with g.vector.localForm() as uloc:
 material_model = MaterialModel(E=E,nu=nu,h=input_function_1)
 residual_form = pdeRes(input_function_1,state_function,
                         E,input_function_2,material_model.CLT,dx_inplane,dx_shear,
-                        penalty=True, dss=ds_1(100), dSS=dS_1(100), g=g)
+                        penalty=PENALTY_BC, dss=ds_1(100), dSS=dS_1(100), g=g)
 
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
@@ -214,17 +215,18 @@ fea.add_output(name=output_name_3,
 
 locate_BC1 = locate_dofs_geometrical((state_function_space.sub(0),
                                     state_function_space.sub(0).collapse()[0]),
-                                    lambda x: np.less(x[1], 0.55))
+                                    lambda x: np.less(x[1], y_bc))
 locate_BC2 = locate_dofs_geometrical((state_function_space.sub(1),
                                     state_function_space.sub(1).collapse()[0]),
-                                    lambda x: np.less(x[1], 0.55))
+                                    lambda x: np.less(x[1], y_bc))
 ubc = Function(state_function_space)
 with ubc.vector.localForm() as uloc:
      uloc.set(0.)
 
 ############ Strongly enforced boundary conditions #############
-# fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
-# fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
+if not PENALTY_BC:
+    fea.add_strong_bc(ubc, [locate_BC1], state_function_space.sub(0))
+    fea.add_strong_bc(ubc, [locate_BC2], state_function_space.sub(1))
 
 ################### Construct Aerodynamic mesh ###################
 print("Constructing aerodynamic mesh and mesh mappings...")
@@ -353,7 +355,7 @@ print("  Number of vertices = "+str(nn))
 print("  Number of total dofs = ", dofs)
 print("-"*50)
 
-path = "solutions"+"_penalty_moved_bc_09"
+path = "solutions"+"_penalty_moved_bc_"+str(y_bc)
 ########## Visualization: ##############
 u_mid, _ = state_function.split()
 
@@ -398,7 +400,7 @@ with XDMFFile(MPI.COMM_WORLD, path+"/von_mises_stress.xdmf", "w") as xdmf:
     xdmf.write_function(von_Mises_top_func)
 # sim.check_totals(of=['compliance'], wrt=['thickness'], compact_print=True)
 
-
+# y_bc = 0.55
 # --------------------------------------------------
 # Tip deflection:  0.03242547968560471
 # disp_fluid: 0.02995551988836484
@@ -409,7 +411,6 @@ with XDMFFile(MPI.COMM_WORLD, path+"/von_mises_stress.xdmf", "w") as xdmf:
 #   Number of vertices = 66974
 #   Number of total dofs =  1013097
 # --------------------------------------------------
-
 # --------------------------------------------------
 # -------- eVTOL_wing_half_tri_107695_136686.xdmf ---------
 # --------------------------------------------------
@@ -423,7 +424,58 @@ with XDMFFile(MPI.COMM_WORLD, path+"/von_mises_stress.xdmf", "w") as xdmf:
 #   Number of vertices = 66974
 #   Number of total dofs =  1013097
 # --------------------------------------------------
+# y_bc = 0.55
+# strong bc
+# --------------------------------------------------
+# -------- eVTOL_wing_half_tri_107695_136686.xdmf ---------
+# --------------------------------------------------
+# Tip deflection:  0.03213864202664517
+# disp fluid size: 99
+# Elastic energy: 25.162657039301823
+# Compliance:  0.00013878417708885018
+# Initial volume:  0.04085249393489516
+# Volume:  0.04085249393489516
+#   Number of elements = 136686
+#   Number of vertices = 66974
+#   Number of total dofs =  1013097
+# --------------------------------------------------
+# with penalty beta=1e15
+# --------------------------------------------------
+# -------- eVTOL_wing_half_tri_107695_136686.xdmf ---------
+# --------------------------------------------------
+# Tip deflection:  0.032305584206576546
+# disp fluid size: 99
+# Elastic energy: 25.339923983473145
+# Compliance:  0.00014023510297352
+# Initial volume:  0.04085249393489516
+# Volume:  0.04085249393489516
+#   Number of elements = 136686
+#   Number of vertices = 66974
+#   Number of total dofs =  1013097
+# --------------------------------------------------
+# y_bc = 0.9;
+# strong bc
+# --------------------------------------------------
+# -------- eVTOL_wing_half_tri_107695_136686.xdmf ---------
+# --------------------------------------------------
+# Tip deflection:  0.024675714191341618
+# disp fluid size: 99
+# Elastic energy: 17.638196040120143
+# Compliance:  8.160259264378342e-05
+# --------------------------------------------------
+# with penalty beta=1e10
+# --------------------------------------------------
+# -------- eVTOL_wing_half_tri_107695_136686.xdmf ---------
+# --------------------------------------------------
+# Tip deflection:  0.024769058388770318
+# disp fluid size: 99
+# Elastic energy: 17.724931859253292
+# Compliance:  8.222742392330629e-05
+# --------------------------------------------------
+# with penalty beta=1e15
 
+
+################## Visualization #######################
 # import pyvista as pv
 # ############################################
 # # Plot the lifting surfaces
