@@ -1,9 +1,12 @@
+##test beam
+
 '''
 Thickness optimization of 1D Cantilever Beam with a rectangular cross section
 this example uses Euler-Bernoulli ("classical") beam theory
 '''
 
-from femo.fea.fea_dolfinx import *
+
+from femo.fea.fea_dolfinx import FEA
 from femo.csdl_opt.fea_model import FEAModel
 from femo.csdl_opt.state_model import StateModel
 from femo.csdl_opt.output_model import OutputModel
@@ -13,6 +16,8 @@ from femo.csdl_opt.pre_processor.general_filter_model \
 from dolfinx.mesh import locate_entities_boundary,create_interval
 import numpy as np
 import csdl
+
+import ufl
 from csdl import Model
 from csdl_om import Simulator as om_simulator
 from python_csdl_backend import Simulator as py_simulator
@@ -20,14 +25,17 @@ from matplotlib import pyplot as plt
 import argparse
 import basix
 
+from mpi4py import MPI
+from modopt.csdl_library import CSDLProblem
+from modopt.scipy_library import SLSQP
 '''
 1. Define the mesh
 '''
-parser = argparse.ArgumentParser()
-parser.add_argument('--nel',dest='nel',default='50',
-                    help='Number of elements')
-
-args = parser.parse_args()
+# parser = argparse.ArgumentParser()
+# parser.add_argument('--nel',dest='nel',default='50',
+#                     help='Number of elements')
+#
+# args = parser.parse_args()
 
 # Geometric inputs and material properties
 E = 1.
@@ -40,12 +48,13 @@ volume = 0.01
 
 
 # Construct beam mesh
-nel = int(args.nel)
+# nel = int(args.nel)
+nel = 50
 mesh = create_interval(MPI.COMM_WORLD, nel, [0., L])
 
-x = SpatialCoordinate(mesh)
-width = Constant(mesh,b)
-E = Constant(mesh,E)
+x = ufl.SpatialCoordinate(mesh)
+width = ufl.Constant(mesh,b)
+E = ufl.Constant(mesh,E)
 
 
 '''
@@ -108,7 +117,6 @@ facet_tag = meshtags(mesh, fdim, endpoint_node,
                     np.full(len(endpoint_node),100,dtype=np.int32))
 # Define measures of the endpoint
 metadata = {"quadrature_degree":4}
-import ufl
 ds_ = ufl.Measure('ds',domain=mesh,subdomain_data=facet_tag,metadata=metadata)
 
 
@@ -175,14 +183,12 @@ sim.run()
 4. Set up and run the optimization problem
 '''
 # Run the optimization with modOpt
-from modopt.csdl_library import CSDLProblem
 
 prob = CSDLProblem(
     problem_name='beam_thickness_opt',
     simulator=sim,
 )
 
-from modopt.scipy_library import SLSQP
 optimizer = SLSQP(prob, maxiter=1000, ftol=1e-9)
 
 # from modopt.snopt_library import SNOPT
@@ -250,7 +256,6 @@ thick_ref = [
     0.05808044,  0.05407658,  0.04975295,  0.0450185,   0.03972912,  0.03363155,
     0.02620192,  0.01610863]
 
-from matplotlib import pyplot as plt
 fig, ax = plt.subplots()
 ax.plot(np.linspace(0.0,L,50), thick_ref, "b-o",
                     label="OpenMDAO results")
