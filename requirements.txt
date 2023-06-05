@@ -1,0 +1,2 @@
+# Includes the list of all dependencies required to run setup() and use the package
+# Also used in testing workflow and to host the documentation on Read the Docs
