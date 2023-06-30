@@ -94,7 +94,7 @@ class StateOperation(CustomImplicitOperation):
         for arg_name in inputs:
             arg = self.args_dict[arg_name]
             update(arg['function'], inputs[arg_name])
-            if self.fea.record:
+            if arg['record']:
                 arg['recorder'].write_function(arg['function'],
                                                 self.fea.opt_iter)
         self.fea.solve(self.state['residual_form'],
@@ -103,6 +103,10 @@ class StateOperation(CustomImplicitOperation):
 
         outputs[self.state_name] = getFuncArray(self.state['function'])
         if self.fea.record:
+            u_mid,_ = self.state['function'].split()
+            self.state['recorder'].write_function(u_mid, self.fea.opt_iter)
+
+        if self.state['record']:
             self.state['recorder'].write_function(self.state['function'],
                                                     self.fea.opt_iter)
 
@@ -200,11 +204,11 @@ class StateOperation(CustomImplicitOperation):
         state_name = self.state_name
         if mode == 'fwd':
             d_outputs[state_name] = self.fea.solveLinearFwd(
-                            self.du, self.A, self.dR, 
+                            self.du, self.A, self.dR,
                             d_residuals[state_name],
                             self.ksp)
         else:
             d_residuals[state_name] = self.fea.solveLinearBwd(
-                            self.dR, self.A, self.du, 
+                            self.dR, self.A, self.du,
                             d_outputs[state_name],
                             self.ksp)

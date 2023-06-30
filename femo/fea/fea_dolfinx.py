@@ -90,24 +90,26 @@ class FEA(object):
         self.custom_solve = None
 
         self.opt_iter = 0
-        self.record = False
         self.initial_solve = True
         self.initialize = False
+        self.record = True
         self.recorder_path = "records"
         self.linear_problem = False
 
-    def add_input(self, name, function):
+    def add_input(self, name, function, init_val=1.0, record=False):
         if name in self.inputs_dict:
             raise ValueError('name has already been used for an input')
+        function.x.array[:] = init_val
         self.inputs_dict[name] = dict(
             function=function,
             function_space=function.function_space,
             shape=len(getFuncArray(function)),
-            recorder=self.createRecorder(name, self.record)
+            recorder=self.createRecorder(name, record),
+            record=record
         )
 
     def add_state(self, name, function, residual_form, arguments,
-                    dR_du=None, dR_df_list=None):
+                    dR_du=None, dR_df_list=None, record=False):
 
         self.states_dict[name] = dict(
             function=function,
@@ -119,7 +121,8 @@ class FEA(object):
             dR_du=dR_du,
             dR_df_list=dR_df_list,
             arguments=arguments,
-            recorder=self.createRecorder(name, self.record)
+            recorder=self.createRecorder(name, record),
+            record=record
         )
 
     def add_output(self, name, type, form, arguments):
@@ -202,9 +205,9 @@ class FEA(object):
         dR.vector.ghostUpdate()
         return dR.vector.getArray()
 
-    def createRecorder(self, name, record=True):
+    def createRecorder(self, name, record=False):
         recorder = None
-        if record:
+        if record or self.record:
             recorder = XDMFFile(MPI.COMM_WORLD,
                                 self.recorder_path+"/record_"+name+".xdmf", "w")
             recorder.write_mesh(self.mesh)

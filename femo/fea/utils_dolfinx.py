@@ -316,7 +316,7 @@ def solveNonlinear(res, func, bc, solver, report, initialize):
     from timeit import default_timer
     start = default_timer()
     if solver == 'Newton':
-        newton_solver = NewtonSolver(res, func, bc, 
+        newton_solver = NewtonSolver(res, func, bc,
                                     initialize=initialize,
                                     report=report)
         newton_solver.solve(func)
@@ -506,7 +506,7 @@ def setUpKSP_MUMPS(A):
     # solve
     ksp.setUp()
     return ksp
-    
+
 def move(mesh, u):
     x = mesh.geometry.x
     gdim = mesh.geometry.dim
@@ -529,7 +529,17 @@ def meshSize(mesh):
     h = dolfinx.cpp.mesh.h(mesh, tdim, range(num_cells))
     return h
 
-
+def createCustomMeasure(mesh, dim, SubdomainFunc, measure: str, tag: int):
+    metadata = {"quadrature_degree":4}
+    if measure == 'ds':
+        subdomain = locate_entities_boundary(mesh,dim,SubdomainFunc)
+    else:
+        subdomain = dolfinx.mesh.locate_entities(mesh,dim,SubdomainFunc)
+    subdomain_tag = dolfinx.mesh.meshtags(mesh, dim, subdomain,
+                        np.full(len(subdomain),tag,dtype=np.int32))
+    custom_measure = ufl.Measure(measure,domain=mesh,
+                        subdomain_data=subdomain_tag,metadata=metadata)
+    return custom_measure
 
 def project(v, target_func, bcs=[]):
 
