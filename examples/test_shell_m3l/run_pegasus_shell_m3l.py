@@ -101,18 +101,28 @@ shells['wing_shell'] = {'E': E, 'nu': nu, # material properties
                         'dss': ds_1(100), # custom integrator: ds measure
                         'dSS': dS_1(100), # custom integrator: dS measure
                         'dxx': dx_2(10),  # custom integrator: dx measure
-                        'g': g}           # boundary condition
-
+                        'g': g}
 # Meshes definitions
 # Wing VLM Mesh
-num_spanwise_vlm = 22
+
+# [RU] simulating semispan only
+num_spanwise_vlm = 11
 num_chordwise_vlm = 5
-leading_edge = wing.project(am.linspace(am.array([7.5, -13.5, 2.5]),
+leading_edge = wing.project(am.linspace(am.array([7.5, 0., 2.5]),
                             am.array([7.5, 13.5, 2.5]), num_spanwise_vlm),
                             direction=am.array([0., 0., -1.]))  # returns MappedArray
-trailing_edge = wing.project(np.linspace(np.array([13., -13.5, 2.5]),
+trailing_edge = wing.project(np.linspace(np.array([13., 0., 2.5]),
                             np.array([13., 13.5, 2.5]), num_spanwise_vlm),
-                             direction=np.array([0., 0., -1.]))   # returns MappedArray
+                             direction=np.array([0., 0., -1.]))
+
+# num_spanwise_vlm = 22
+# num_chordwise_vlm = 5
+# leading_edge = wing.project(am.linspace(am.array([7.5, -13.5, 2.5]),
+#                             am.array([7.5, 13.5, 2.5]), num_spanwise_vlm),
+#                             direction=am.array([0., 0., -1.]))  # returns MappedArray
+# trailing_edge = wing.project(np.linspace(np.array([13., -13.5, 2.5]),
+#                             np.array([13., 13.5, 2.5]), num_spanwise_vlm),
+#                              direction=np.array([0., 0., -1.]))   # returns MappedArray
 chord_surface = am.linspace(leading_edge, trailing_edge, num_chordwise_vlm)
 wing_upper_surface_wireframe = wing.project(
                             chord_surface.value + np.array([0., 0., 1.5]),
@@ -130,7 +140,9 @@ sys_rep.add_output(name='chord_distribution',
                                     quantity=am.norm(leading_edge-trailing_edge))
 
 # Wing shell Mesh
-wing_shell_mesh = am.MappedArray(input=fenics_mesh.geometry.x)
+z_offset = 0.5
+wing_shell_mesh = am.MappedArray(input=fenics_mesh.geometry.x + \
+                                        np.array([0.,0.,z_offset]))
 shell_mesh = rmshell.LinearShellMesh(
     meshes=dict(
     wing_shell_mesh=wing_shell_mesh.reshape((-1,3)),
@@ -248,25 +260,31 @@ sim.run()
 
 
 # Comparing the solution to the Kirchhoff analytical solution
-uZ = sim['rm_shell_model.wing_shell_displacement'][:,2]
-uZ_nodal = sim['rm_shell_displacement_map.wing_shell_nodal_displacement'][:,2]
+u_shell = sim['rm_shell_model.wing_shell_displacement']
+u_nodal = sim['rm_shell_displacement_map.wing_shell_nodal_displacement']
+uZ = u_shell[:,2]
+uZ_nodal = u_nodal[:,2]
 ########## Output: ##########
-print("Wing tip deflection:", max(uZ))
-print("Wing tip deflection (projected):", max(uZ_nodal))
+print("Wing tip deflection (on struture):",max(uZ))
+print("Wing tip deflection (on oml):",max(uZ_nodal))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))
 
-# ########## Visualization: ##############
-# import vedo
-# plotter = vedo.Plotter()
-# points = vedo.Points(sim['rm_shell_model.wing_shell_displacement']
-#                         + wing_shell_mesh.value.reshape((-1,3)))
-# plotter.show([points], interactive=True, axes=1)    # Plotting shell solution
-#
-# plotter = vedo.Plotter()
-# plotting_point_cloud = cruise_wing_structural_nodal_displacements_mesh.value.reshape((-1,3)) \
-#                         + sim['rm_shell_displacement_map.wing_shell_nodal_displacement']
-# points = vedo.Points(plotting_point_cloud)
-# plotter.show([points], interactive=True, axes=1)    # Plotting point cloud
-# spatial_rep.plot_meshes([plotting_point_cloud.reshape(cruise_wing_structural_nodal_displacements_mesh.shape)],
-#                         mesh_plot_types=['mesh'], primitives=['none'])  # Plotting "framework" solution (using vedo for fitting)
+########## Visualization: ##############
+import vedo
+
+plotter = vedo.Plotter()
+wing_shell_mesh_plot = vedo.Points(wing_shell_mesh.value.reshape((-1,3)))
+wing_oml_plot = vedo.Points(cruise_wing_structural_nodal_displacements_mesh.value.reshape((-1,3)))
+plotter.show([wing_shell_mesh_plot, wing_oml_plot], interactive=True, axes=1)    # Plotting point cloud
+
+
+plotter = vedo.Plotter()
+deformed_wing_shell_mesh_plot = vedo.Points(u_shell+wing_shell_mesh.value.reshape((-1,3)))
+deformed_wing_oml = u_nodal+cruise_wing_structural_nodal_displacements_mesh.value.reshape((-1,3))
+deformed_wing_oml_plot = vedo.Points(deformed_wing_oml)
+plotter.show([deformed_wing_shell_mesh_plot, deformed_wing_oml_plot],
+                interactive=True, axes=1)    # Plotting point cloud
+
+spatial_rep.plot_meshes([deformed_wing_oml.reshape(cruise_wing_structural_nodal_displacements_mesh.shape)],
+                        mesh_plot_types=['mesh'], primitives=['none'])  # Plotting "framework" solution (using vedo for fitting)

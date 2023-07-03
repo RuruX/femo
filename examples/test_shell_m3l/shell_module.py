@@ -102,6 +102,7 @@ class RMShellForces(m3l.ExplicitOperation):
         # this is only taking the first mesh added to the solver.
         mesh = list(self.parameters['mesh'].parameters['meshes'].values())[0]
         # this is only taking the first mesh added to the solver.
+        self.pde = pde = self.parameters['pde']
 
         csdl_model = ModuleCSDL()
 
@@ -154,34 +155,10 @@ class RMShellForces(m3l.ExplicitOperation):
 
     def fmap(self, mesh, oml):
         # Fs = W*Fp
-
-        x, y = mesh.copy(), oml.copy()
-        n, m = len(mesh), len(oml)
-
-        d = np.zeros((m,2))
-        for i in range(m):
-            dist = np.sum((x - y[i,:])**2, axis=1)
-            d[i,:] = np.argsort(dist)[:2]
-
-        # create the weighting matrix:
-        weights = np.zeros((n, m))
-        for i in range(m):
-            ia, ib = int(d[i,0]), int(d[i,1])
-            a, b = x[ia,:], x[ib,:]
-            p = y[i,:]
-
-            length = np.linalg.norm(b - a)
-            norm = (b - a)/length
-            t = np.dot(p - a, norm)
-            # c is the closest point on the line segment (a,b) to point p:
-            c =  a + t*norm
-
-            ac, bc = np.linalg.norm(c - a), np.linalg.norm(c - b)
-            l = max(length, bc)
-
-            weights[ia, i] = (l - ac)/length
-            weights[ib, i] = (l - bc)/length
-
+        G_mat = NodalMap(mesh, oml, RBF_width_par=2.0,
+                            column_scaling_vec=self.pde.bf_sup_sizes)
+        weights = G_mat.map.T
+        print("Force map shape:", weights.shape)
         return weights
 
 class RMShellNodalDisplacements(m3l.ExplicitOperation):
@@ -196,11 +173,10 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         # this is only taking the first mesh added to the solver.
         mesh = list(self.parameters['mesh'].parameters['meshes'].values())[0]
         # this is only taking the first mesh added to the solver.
-        pde = self.parameters['pde']
+        self.pde = pde = self.parameters['pde']
 
         csdl_model = ModuleCSDL()
 
-        # nodal_disp_map = pde.construct_nodal_disp_map().todense()
         umap = self.umap(mesh.value.reshape((-1,3)),
                         oml=nodal_displacements_mesh.value.reshape((-1,3)))
 
@@ -252,37 +228,10 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
 
     def umap(self, mesh, oml):
         # Up = W*Us
-
-        x, y = mesh.copy(), oml.copy()
-        n, m = len(mesh), len(oml)
-
-        d = np.zeros((m,2))
-        for i in range(m):
-            dist = np.sum((x - y[i,:])**2, axis=1)
-            d[i,:] = np.argsort(dist)[:2]
-
-        # create the weighting matrix:
-        weights = np.zeros((m,n))
-        for i in range(m):
-            ia, ib = int(d[i,0]), int(d[i,1])
-            a, b = x[ia,:], x[ib,:]
-            p = y[i,:]
-
-            length = np.linalg.norm(b - a)
-            norm = (b - a)/length
-            t = np.dot(p - a, norm)
-            # c is the closest point on the line segment (a,b) to point p:
-            c =  a + t*norm
-
-            ac, bc = np.linalg.norm(c - a), np.linalg.norm(c - b)
-            l = max(length, bc)
-
-            weights[i, ia] = (l - ac)/length
-            weights[i, ib] = (l - bc)/length
-
-        ## Compute weights with Sebastiaan's mapping matrix
-        # G_mat = NodalMap(mesh, oml, RBF_width_par=0.5)
-        # weights = G_mat.map
+        G_mat = NodalMap(mesh, oml, RBF_width_par=2.0,
+                            column_scaling_vec=self.pde.bf_sup_sizes)
+        weights = G_mat.map
+        print("Disp map shape:", weights.shape)
         return weights
 
 

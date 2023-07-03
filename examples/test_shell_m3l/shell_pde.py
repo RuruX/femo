@@ -169,9 +169,11 @@ class DisplacementExtractionModel(csdl.Model):
         disp_vec = self.declare_variable(input_name, val=vector)
         # contains nodal displacements only (CG1)
         nodal_disp_vec = csdl.matvec(disp_extraction_mats, disp_vec)
-
+        nodal_disp_mat = csdl.reshape(nodal_disp_vec, new_shape=(shape[1],shape[0]))
+        print("nodal_disp_vec shape:", nodal_disp_vec.shape)
+        print("Q_map shape:", disp_extraction_mats.shape)
         self.register_output(output_name,
-                             csdl.reshape(nodal_disp_vec, new_shape=shape))
+                             csdl.transpose(nodal_disp_mat))
 
 class ForceReshapingModel(csdl.Model):
     '''
@@ -214,6 +216,8 @@ class ShellPDE(object):
         self.W  = self.element.W
         self.VT = FunctionSpace(mesh, ("CG", 1))
         self.VF = VectorFunctionSpace(mesh, ("CG", 1))
+        self.bf_sup_sizes = assemble_vector(
+                form(TestFunction(self.VF.sub(0).collapse()[0])*dx)).getArray()
 
     def compute_alpha(self):
         h_mesh = ufl.CellDiameter(self.mesh)
@@ -312,6 +316,7 @@ class ShellPDE(object):
             deriv_us_to_ua_coord_list += [sp.csr_matrix(
                                             Q_map@disp_extraction_mats[i])]
         disp_extraction_mats = sp.vstack(deriv_us_to_ua_coord_list)
+        print(disp_extraction_mats.shape)
         return disp_extraction_mats
 
     def construct_disp_extraction_mats(self):
@@ -429,7 +434,9 @@ class NodalMap:
 
         # include influence of column scaling
         influence_coefficients = np.einsum('ij,j->ij', influence_coefficients, self.column_scaling_vec)
-
+        # print("min influence:", np.min(influence_coefficients))
+        # print("max influence:", np.max(influence_coefficients))
+        # exit()
         influence_coefficients[influence_coefficients < 1e-16] = 0.
         # TODO: Make influence_coefficients matrix sparse before summation below?
         #       -> seems like the matrix sparsity depends heavily on the value of self.RBF_par_width,
