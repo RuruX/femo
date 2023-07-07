@@ -3,12 +3,12 @@ import array_mapper as am
 import csdl
 from lsdo_modules.module_csdl.module_csdl import ModuleCSDL
 from lsdo_modules.module.module import Module
-from caddee.caddee_core.system_model.design_scenario.design_condition.mechanics_group.mechanics_model.mechanics_model import MechanicsModel
 from shell_pde import ShellPDE, ShellModule, NodalMap
 import numpy as np
 
+from typing import Tuple, Dict
 """
-M3L operations for structural optimizatiom:
+M3L operations for structural optimization:
 >> Shell solver
 >> Nodal displacement map
 >> Nodal force map
@@ -17,10 +17,16 @@ M3L operations for structural optimizatiom:
 
 class RMShell(m3l.ExplicitOperation):
     def initialize(self, kwargs):
-        self.parameters.declare('mesh', default=None) # mesh information
+        self.parameters.declare('component')
+        self.parameters.declare('mesh', default=None)
         self.parameters.declare('pde', default=None)
-        self.parameters.declare('shells', default={}) # material properties
+        self.parameters.declare('shells', default={})
 
+    def assign_attributes(self):
+        self.component = self.parameters['component']
+        self.mesh = self.parameters['mesh']
+        self.pde = self.parameters['pde']
+        self.shells = self.parameters['shells']
 
     def compute(self):
         '''
@@ -62,55 +68,64 @@ class RMShell(m3l.ExplicitOperation):
 
         '''
 
-        # Assembles the CSDL model
-        operation_csdl = self.compute()
-
         # Gets information for naming/shapes
         shell_name = list(self.parameters['shells'].keys())[0]
         # this is only taking the first mesh added to the solver.
         mesh = list(self.parameters['mesh'].parameters['meshes'].values())[0]
         # this is only taking the first mesh added to the solver.
+        self.component = self.parameters['component']
+        # Define operation arguments
+        self.name = f'{self.component.name}_rm_shell_model'
 
-        arguments = {}
+        self.arguments = {}
         if forces is not None:
-            arguments[f'{shell_name}_forces'] = forces
+            self.arguments[f'{shell_name}_forces'] = forces
         if moments is not None:
-            arguments[f'{shell_name}_moments'] = moments
+            self.arguments[f'{shell_name}_moments'] = moments
 
-        # Create the M3L graph operation
-        shell_operation = m3l.CSDLOperation(name='rm_shell_model',
-                            arguments=arguments, operation_csdl=operation_csdl)
         # Create the M3L variables that are being output
         displacements = m3l.Variable(name=f'{shell_name}_displacement',
-                            shape=mesh.shape, operation=shell_operation)
+                            shape=mesh.shape, operation=self)
         rotations = m3l.Variable(name=f'{shell_name}_rotation',
-                            shape=mesh.shape, operation=shell_operation)
-
-        return displacements, rotations
+                            shape=mesh.shape, operation=self)
+        mass = m3l.Variable(name='mass', shape=(1,), operation=self)
+        inertia_tensor = m3l.Variable(name='inertia_tensor', shape=(3,3), operation=self)
+        return displacements, rotations, mass
 
 
 class RMShellForces(m3l.ExplicitOperation):
     def initialize(self, kwargs):
+        self.parameters.declare('component')
         self.parameters.declare('mesh', default=None)
         self.parameters.declare('pde', default=None)
         self.parameters.declare('shells', default={})
 
-    def compute(self, nodal_forces:m3l.Variable,
-                nodal_forces_mesh:am.MappedArray) -> csdl.Model:
+    def assign_attributes(self):
+        self.component = self.parameters['component']
+        self.mesh = self.parameters['mesh']
+        self.pde = self.parameters['pde']
+        self.shells = self.parameters['shells']
 
+    def compute(self) -> csdl.Model:
         shell_name = list(self.parameters['shells'].keys())[0]
         # this is only taking the first mesh added to the solver.
         mesh = list(self.parameters['mesh'].parameters['meshes'].values())[0]
         # this is only taking the first mesh added to the solver.
         self.pde = pde = self.parameters['pde']
+        nodal_forces = self.arguments['nodal_forces']
 
         csdl_model = ModuleCSDL()
 
-        force_map = self.fmap(mesh.value.reshape((-1,3)), oml=nodal_forces_mesh.value.reshape((-1,3)))
+        force_map = self.fmap(mesh.value.reshape((-1,3)),
+                                oml=self.nodal_forces_mesh.value.reshape((-1,3)))
 
-        flattened_nodal_forces_shape = (np.prod(nodal_forces.shape[:-1]), nodal_forces.shape[-1])
-        nodal_forces = csdl_model.register_module_input(name='nodal_forces', shape=nodal_forces.shape)
-        flattened_nodal_forces = csdl.reshape(nodal_forces, new_shape=flattened_nodal_forces_shape)
+        flattened_nodal_forces_shape = (np.prod(nodal_forces.shape[:-1]),
+                                        nodal_forces.shape[-1])
+        nodal_forces_csdl = csdl_model.register_module_input(
+                                                name='nodal_forces',
+                                                shape=nodal_forces.shape)
+        flattened_nodal_forces = csdl.reshape(nodal_forces_csdl,
+                                                new_shape=flattened_nodal_forces_shape)
         force_map_csdl = csdl_model.create_input(f'nodal_to_{shell_name}_forces_map', val=force_map)
         flatenned_shell_mesh_forces = csdl.matmat(force_map_csdl, flattened_nodal_forces)
         output_shape = tuple(mesh.shape[:-1]) + (nodal_forces.shape[-1],)
@@ -137,20 +152,19 @@ class RMShellForces(m3l.ExplicitOperation):
         mesh_forces : m3l.Variable
             The forces on the mesh.
         '''
-        operation_csdl = self.compute(nodal_forces=nodal_forces,
-                                        nodal_forces_mesh=nodal_forces_mesh)
+        self.component = self.parameters['component']
+        self.name = f'{self.component.name}_rm_shell_force_mapping'
 
+        self.nodal_forces_mesh = nodal_forces_mesh
         shell_name = list(self.parameters['shells'].keys())[0]
         # this is only taking the first mesh added to the solver.
         mesh = list(self.parameters['mesh'].parameters['meshes'].values())[0]
         # this is only taking the first mesh added to the solver.
 
-        arguments = {'nodal_forces': nodal_forces}
-        force_map_operation = m3l.CSDLOperation(name='rmshell_force_map',
-                            arguments=arguments, operation_csdl=operation_csdl)
+        self.arguments = {'nodal_forces': nodal_forces}
         output_shape = tuple(mesh.shape[:-1]) + (nodal_forces.shape[-1],)
         shell_forces = m3l.Variable(name=f'{shell_name}_forces',
-                            shape=output_shape, operation=force_map_operation)
+                            shape=output_shape, operation=self)
         return shell_forces
 
     def fmap(self, mesh, oml):
@@ -158,38 +172,45 @@ class RMShellForces(m3l.ExplicitOperation):
         G_mat = NodalMap(mesh, oml, RBF_width_par=2.0,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         weights = G_mat.map.T
-        print("Force map shape:", weights.shape)
+        # print("Force map shape:", weights.shape)
         return weights
 
 class RMShellNodalDisplacements(m3l.ExplicitOperation):
     def initialize(self, kwargs):
+        self.parameters.declare('component')
         self.parameters.declare('mesh', default=None)
         self.parameters.declare('pde', default=None)
         self.parameters.declare('shells', default={})
 
-    def compute(self, shell_displacements:m3l.Variable,
-                nodal_displacements_mesh:am.MappedArray)->csdl.Model:
+    def assign_attributes(self):
+        self.component = self.parameters['component']
+        self.mesh = self.parameters['mesh']
+        self.pde = self.parameters['pde']
+        self.shells = self.parameters['shells']
+
+    def compute(self)->csdl.Model:
+
         shell_name = list(self.parameters['shells'].keys())[0]
         # this is only taking the first mesh added to the solver.
         mesh = list(self.parameters['mesh'].parameters['meshes'].values())[0]
         # this is only taking the first mesh added to the solver.
         self.pde = pde = self.parameters['pde']
 
+        nodal_displacements_mesh = self.nodal_displacements_mesh
+        shell_displacements = self.arguments[f'{shell_name}_displacement']
+
         csdl_model = ModuleCSDL()
 
-        umap = self.umap(mesh.value.reshape((-1,3)),
+        displacement_map = self.umap(mesh.value.reshape((-1,3)),
                         oml=nodal_displacements_mesh.value.reshape((-1,3)))
-
-        displacement_map = umap
-
-        shell_displacements = csdl_model.register_module_input(
+        shell_displacements_csdl = csdl_model.register_module_input(
                                             name=f'{shell_name}_displacement',
                                             shape=shell_displacements.shape)
         displacement_map_csdl = csdl_model.create_input(
                             f'{shell_name}_displacements_to_nodal_displacements',
                             val=displacement_map)
         nodal_displacements = csdl.matmat(displacement_map_csdl,
-                                            shell_displacements)
+                                            shell_displacements_csdl)
         csdl_model.register_module_output(f'{shell_name}_nodal_displacement',
                                             nodal_displacements)
 
@@ -212,18 +233,15 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         nodal_displacements : m3l.Variable
             The displacements on the given nodal displacements mesh.
         '''
-        operation_csdl = self.compute(shell_displacements, nodal_displacements_mesh)
-
+        self.component = self.parameters['component']
         shell_name = list(self.parameters['shells'].keys())[0]   # this is only taking the first mesh added to the solver.
+        self.name = f'{self.component.name}_rm_shell_displacement_map'
+        self.arguments = {f'{shell_name}_displacement': shell_displacements}
+        self.nodal_displacements_mesh = nodal_displacements_mesh
 
-        arguments = {f'{shell_name}_displacement': shell_displacements}
-        displacement_map_operation = m3l.CSDLOperation(
-                                            name='rm_shell_displacement_map',
-                                            arguments=arguments,
-                                            operation_csdl=operation_csdl)
         nodal_displacements = m3l.Variable(name=f'{shell_name}_nodal_displacement',
                                             shape=nodal_displacements_mesh.shape,
-                                            operation=displacement_map_operation)
+                                            operation=self)
         return nodal_displacements
 
     def umap(self, mesh, oml):
@@ -231,7 +249,7 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         G_mat = NodalMap(mesh, oml, RBF_width_par=2.0,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         weights = G_mat.map
-        print("Disp map shape:", weights.shape)
+        # print("Disp map shape:", weights.shape)
         return weights
 
 
@@ -251,7 +269,7 @@ class LinearShellCSDL(ModuleCSDL):
         pde = self.parameters['pde']
         shells = self.parameters['shells']
         # solve the shell group:
-        self.add_module(ShellModule(pde=pde,shells=shells), name='RM_shell')
+        self.add_module(ShellModule(pde=pde,shells=shells), name='rm_shell')
 
 
 class RMShellStrain(m3l.ExplicitOperation):

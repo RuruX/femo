@@ -23,6 +23,7 @@ class ShellModule(ModuleCSDL):
 
         E = shells[shell_name]['E']
         nu = shells[shell_name]['nu']
+        rho = shells[shell_name]['rho']
         dss = shells[shell_name]['dss']
         dSS = shells[shell_name]['dSS']
         dxx = shells[shell_name]['dxx']
@@ -60,8 +61,8 @@ class ShellModule(ModuleCSDL):
         output_name_1 = 'compliance'
         u_mid, theta = ufl.split(state_function)
         output_form_1 = pde.compliance(u_mid,input_function_1, dxx)
-        output_name_2 = 'volume'
-        output_form_2 = pde.volume(input_function_1)
+        output_name_2 = 'mass'
+        output_form_2 = pde.mass(input_function_1, rho)
         output_name_3 = 'elastic_energy'
         output_form_3 = pde.elastic_energy(state_function,input_function_1,E)
         # output_name_4 = 'pnorm_stress'
@@ -102,7 +103,7 @@ class ShellModule(ModuleCSDL):
         compliance_model = OutputModel(fea=fea,
                                     output_name=output_name_1,
                                     arg_name_list=fea.outputs_dict[output_name_1]['arguments'])
-        volume_model = OutputModel(fea=fea,
+        mass_model = OutputModel(fea=fea,
                                     output_name=output_name_2,
                                     arg_name_list=fea.outputs_dict[output_name_2]['arguments'])
         elastic_energy_model = OutputModel(fea=fea,
@@ -123,7 +124,7 @@ class ShellModule(ModuleCSDL):
         self.add(solid_model, name='solid_model')
         self.add(disp_extraction_model, name='disp_extraction_model')
         self.add(compliance_model, name='compliance_model')
-        self.add(volume_model, name='volume_model')
+        self.add(mass_model, name='mass_model')
         self.add(elastic_energy_model, name='elastic_energy_model')
         # self.add(von_mises_stress_model, name='von_mises_stress_model')
         # self.add(aggregated_stress_model, name='aggregated_stress_model')
@@ -170,8 +171,8 @@ class DisplacementExtractionModel(csdl.Model):
         # contains nodal displacements only (CG1)
         nodal_disp_vec = csdl.matvec(disp_extraction_mats, disp_vec)
         nodal_disp_mat = csdl.reshape(nodal_disp_vec, new_shape=(shape[1],shape[0]))
-        print("nodal_disp_vec shape:", nodal_disp_vec.shape)
-        print("Q_map shape:", disp_extraction_mats.shape)
+        # print("nodal_disp_vec shape:", nodal_disp_vec.shape)
+        # print("Q_map shape:", disp_extraction_mats.shape)
         self.register_output(output_name,
                              csdl.transpose(nodal_disp_mat))
 
@@ -262,6 +263,9 @@ class ShellPDE(object):
     def volume(self,h):
         return h*dx
 
+    def mass(self,h,rho):
+        return rho*h*dx
+
     def elastic_energy(self,w,h,E):
         elastic_energy = self.elastic_model.elasticEnergy(E, h,
                                         self.dx_inplane, self.dx_shear)
@@ -316,7 +320,7 @@ class ShellPDE(object):
             deriv_us_to_ua_coord_list += [sp.csr_matrix(
                                             Q_map@disp_extraction_mats[i])]
         disp_extraction_mats = sp.vstack(deriv_us_to_ua_coord_list)
-        print(disp_extraction_mats.shape)
+        # print(disp_extraction_mats.shape)
         return disp_extraction_mats
 
     def construct_disp_extraction_mats(self):
