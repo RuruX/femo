@@ -37,7 +37,7 @@ class ShellModule(ModuleCSDL):
         fea.initialize = True
         fea.linear_problem = True
         # Add input to the PDE problem:
-        input_name_1 = shell_name+'_thickness'
+        input_name_1 = shell_name+'_thicknesses'
         input_function_space_1 = pde.VT
         # input_function_space_1 = FunctionSpace(shell_mesh, ("DG", 0))
         input_function_1 = Function(input_function_space_1)
