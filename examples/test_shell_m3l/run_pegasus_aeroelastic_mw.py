@@ -54,22 +54,21 @@ wing_t_spaces = {}
 coefficients = {}
 thickness_coefficients = {}
 t = 0.01 # starting wing thickness control point values
+
 for name in wing_primitive_names:
     primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
     space = lg.BSplineSpace(name=primitive.name,
                             order=(primitive.order_u, primitive.order_v),
                             control_points_shape=primitive.shape,
                             knots=(primitive.knots_u, primitive.knots_v))
-    # print((primitive.control_points.shape[0], primitive.control_points.shape[1], 1))
-    # print(name + '_t_coefficients')
     space_t = lg.BSplineSpace(name=primitive.name,
                             order=(primitive.order_u, primitive.order_v),
                             control_points_shape=(primitive.control_points.shape[0], primitive.control_points.shape[1], 1),
                             knots=(primitive.knots_u, primitive.knots_v))
     wing_spaces[name] = space
     wing_t_spaces[name] = space_t
-    coefficients[name] = m3l.Variable(name = name + '_geo_coefficients', shape = primitive.control_points.shape, value = primitive.control_points)
-    thickness_coefficients[name] = m3l.Variable(name = name + '_t_coefficients', shape = (primitive.control_points.shape[0], primitive.control_points.shape[1], 1), value = t * np.ones((primitive.control_points.shape[0], primitive.control_points.shape[1], 1)))
+    coefficients[name] = m3l.Variable(name = name.replace(' ', '_').replace(',', '') + '_geo_coefficients', shape = primitive.control_points.shape, value = primitive.control_points)
+    thickness_coefficients[name] = m3l.Variable(name = name.replace(' ', '_').replace(',', '') + '_t_coefficients', shape = (primitive.control_points.shape[0], primitive.control_points.shape[1], 1), value = t * np.ones((primitive.control_points.shape[0], primitive.control_points.shape[1], 1)))
 
 wing_space_m3l = m3l.IndexedFunctionSpace(name='wing_space', spaces=wing_spaces)
 wing_t_space_m3l = m3l.IndexedFunctionSpace(name='wing_space', spaces=wing_t_spaces)
@@ -125,7 +124,7 @@ for i in range(len(nodes_parametric)):
     u_coord = nodes_parametric[i][1][0][i]
     v_coord = nodes_parametric[i][1][1][i]
     coord = np.array([u_coord, v_coord])
-    nodes_parametric[i] = (nodes_parametric[0][0], np.reshape(coord, (1,2)))
+    nodes_parametric[i] = (nodes_parametric[i][0], np.reshape(coord, (1,2)))
 thickness_nodes = wing_thickness.evaluate(nodes_parametric)
 
 sys_rep.add_component(wing)
@@ -255,7 +254,7 @@ vlm_model = VASTFluidSover(
         (1, ) + wing_camber_surface.evaluate().shape[1:],
     ],
     fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
-    mesh_unit='ft',
+    mesh_unit='m',
     cl0=[0.43, 0]
 )
 # aero forces and moments
@@ -308,19 +307,42 @@ system_model.add_design_scenario(design_scenario=design_scenario)
 
 testing_csdl_model = caddee.assemble_csdl()
 
-h_init = 0.01
+
+# Wing_0_16
+# Wing_0_17
+# Wing_0_18
+# Wing_0_19
+# Wing_0_20
+# Wing_0_21
+# Wing_0_22 # not found
+# Wing_0_23 # not found
+# Wing_1_24
+# Wing_1_25
+# Wing_1_26 # not found
+# Wing_1_27
+# Wing_1_28 # not found
+# Wing_1_29 # not found
+# Wing_1_30 # not found
+# Wing_1_31 # not found
+right_wing_id = [16, 17, 18, 19, 20, 21, 24, 25, 27]
+h_init = [0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009]
+h_init = 0.001*np.ones(len(right_wing_id))
+h_init[0] = 0.01
 i = 0
-for name in wing_primitive_names:
-    primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
-
-    surface_id = i
-    shape = (primitive.control_points.shape[0], primitive.control_points.shape[1], 1)
-    testing_csdl_model.create_input('wing_thickness'+str(surface_id), val=h_init*np.ones(shape))
-    # testing_csdl_model.connect('wing_thickness'+str(surface_id),
-    #                             'wing_thickness_evaluation.'+\
-    #                             thickness_coefficients[name].name)
+shape = (625, 1)
+for id in right_wing_id:
+    surface_id = id
+    if surface_id <= 23:
+        surface_name = 'Wing_0_'+str(surface_id)
+    else:
+        surface_name = 'Wing_1_'+str(surface_id)
+    h_i = testing_csdl_model.create_input('wing_thickness_'+str(surface_id), val=h_init[i])
+    testing_csdl_model.register_output('wing_thickness_surface_'+str(surface_id), csdl.expand(h_i, shape))
+    testing_csdl_model.connect('wing_thickness_surface_'+str(surface_id),
+                                'system_model.recon_mission.cruise_1.cruise_1.wing_thickness_evaluation.'+\
+                                surface_name+'_t_coefficients')
+                                # thickness_coefficients[name].name)
     i += 1
-
 #################### end of m3l ########################
 
 sim = Simulator(testing_csdl_model, analytics=True)
@@ -329,12 +351,15 @@ sim.run()
 
 # Comparing the solution to the Kirchhoff analytical solution
 f_shell = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_force_mapping.wing_shell_forces']
+f_vlm = sim['system_model.recon_mission.cruise_1.cruise_1.wing_vlm_mesh_vlm_force_mapping_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
 u_shell = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
 # u_nodal = sim['wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
 uZ = u_shell[:,2]
 # uZ_nodal = u_nodal[:,2]
 ########## Output: ##########
-print("Wing tip deflection (on struture):",max(uZ))
+print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
+print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
+print("Wing tip deflection (on struture):",max(abs(uZ)))
 # print("Wing tip deflection (on oml):",max(uZ_nodal))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))

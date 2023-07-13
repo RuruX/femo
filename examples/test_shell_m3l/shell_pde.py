@@ -71,7 +71,7 @@ class ShellModule(ModuleCSDL):
         #                         dx,m=m,rho=rho,alpha=None,regularization=False)
 
         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=True)
-        fea.add_input(input_name_2, input_function_2, record=True)
+        fea.add_input(input_name_2, input_function_2, record=False)
         fea.add_state(name=state_name,
                         function=state_function,
                         residual_form=residual_form,
