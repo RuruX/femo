@@ -541,12 +541,15 @@ def createCustomMeasure(mesh, dim, SubdomainFunc, measure: str, tag: int):
                         subdomain_data=subdomain_tag,metadata=metadata)
     return custom_measure
 
-def project(v, target_func, bcs=[]):
+
+def project(v, target_func, bcs=[], lump_mass=False):
 
     """
-    Solution from
-    https://fenicsproject.discourse.group/t/problem-interpolating-mixed-
-    function-dolfinx/4142/6
+    L2 projection of an UFL object (expression) to targeted function.
+    Typically used for visualization in post-processing.
+    `lump_mass` is an optional boolean argument set to be False by default;
+    it's set to be True when lumping is needed for preventing oscillation
+    when projecting discontinous data.
     """
 
     # Ensure we have a mesh and attach to measure
@@ -554,19 +557,27 @@ def project(v, target_func, bcs=[]):
     # Define variational problem for projection
     w = TestFunction(V)
     Pv = TrialFunction(V)
-    a = inner(Pv, w) * dx
-    L = inner(v, w) * dx
-    # Assemble linear system
-    A = assemble_matrix(form(a), bcs)
-    A.assemble()
-    b = assemble_vector(form(L))
-    apply_lifting(b, [form(a)], [bcs])
-    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-    set_bc(b, bcs)
 
-    solver = PETSc.KSP().create(A.getComm())
-    solver.setOperators(A)
-    solver.solve(b, target_func.vector)
+    L = inner(v, w) * dx
+    if(lump_mass):
+        a = inner(Constant(V.mesh, 1.0),w)*dx
+        A = assemble_vector(form(a))
+        b = assemble_vector(form(L))
+        target_func.vector.pointwiseDivide(b,A)
+    else:
+        a = inner(Pv,w)*dx #lhs(res)
+        # a = inner(Pv, w) * dx
+        # Assemble linear system
+        A = assemble_matrix(form(a), bcs)
+        A.assemble()
+        b = assemble_vector(form(L))
+        apply_lifting(b, [form(a)], [bcs])
+        b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        set_bc(b, bcs)
+        solver = PETSc.KSP().create(A.getComm())
+        solver.setOperators(A)
+        solver.solve(b, target_func.vector)
+
 
 
 from scipy.spatial import KDTree

@@ -81,6 +81,7 @@ class FEA(object):
         self.inputs_dict = dict()
         self.states_dict = dict()
         self.outputs_dict = dict()
+        self.outputs_field_dict = dict()
         self.bc = []
 
         self.PDE_SOLVER = "Newton"
@@ -144,6 +145,21 @@ class FEA(object):
             partials=partials,
         )
 
+    def add_field_output(self, name, form, arguments, record=False):
+
+        V = FunctionSpace(self.mesh, ("CG", 1))
+        output_func = Function(V)
+        partials = []
+        self.outputs_field_dict[name] = dict(
+            form=form,
+            func=output_func,
+            shape=len(getFuncArray(output_func)),
+            arguments=arguments,
+            partials=partials,
+            recorder=self.createRecorder(name, record),
+            record=record
+        )
+
     def add_exact_solution(self, Expression, function_space):
         f_analytic = Expression()
         f_ex = Function(function_space)
@@ -204,6 +220,10 @@ class FEA(object):
         dR.vector.assemble()
         dR.vector.ghostUpdate()
         return dR.vector.getArray()
+
+    def projectFieldOutput(self,form,func):
+        project(form, func, lump_mass=False)
+        
 
     def createRecorder(self, name, record=False):
         recorder = None

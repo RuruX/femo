@@ -1,7 +1,7 @@
 from femo.fea.fea_dolfinx import FEA
 from femo.csdl_opt.fea_model import FEAModel
 from femo.csdl_opt.state_model import StateModel
-from femo.csdl_opt.output_model import OutputModel
+from femo.csdl_opt.output_model import OutputModel, OutputFieldModel
 from shell_analysis_fenicsx import *
 from shell_analysis_fenicsx.read_properties import readCLT, sortIndex
 from lsdo_modules.module_csdl.module_csdl import ModuleCSDL
@@ -191,7 +191,8 @@ class ShellModule(ModuleCSDL):
         dx_reduced = ufl.Measure("dx", domain=shell_mesh, metadata={"quadrature_degree":4})
         output_form_4 = pde.pnorm_stress(state_function,input_function_1,E,nu,
                                 dx_reduced,m=m,rho=rho,alpha=None,regularization=False)
-
+        output_name_5 = 'von_Mises_stress'
+        output_form_5 = pde.von_Mises_stress(state_function,input_function_1,E,nu,surface='Top')
         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=True)
         fea.add_input(input_name_2, input_function_2, record=False)
         fea.add_state(name=state_name,
@@ -214,7 +215,10 @@ class ShellModule(ModuleCSDL):
                         type='scalar',
                         form=output_form_4,
                         arguments=[input_name_1,state_name])
-
+        fea.add_field_output(name=output_name_5,
+                        form=output_form_5,
+                        arguments=[input_name_1,state_name],
+                        record=True)
         force_reshaping_model = ForceReshapingModel(pde=pde,
                                     input_name=shell_name+'_forces',
                                     output_name=input_name_2)
@@ -231,13 +235,16 @@ class ShellModule(ModuleCSDL):
         elastic_energy_model = OutputModel(fea=fea,
                                     output_name=output_name_3,
                                     arg_name_list=fea.outputs_dict[output_name_3]['arguments'])
+        pnorm_stress_model = OutputModel(fea=fea,
+                                    output_name=output_name_4,
+                                    arg_name_list=fea.outputs_dict[output_name_4]['arguments'])
+        von_Mises_stress_model = OutputFieldModel(fea=fea,
+                                    output_name=output_name_5,
+                                    arg_name_list=fea.outputs_field_dict[output_name_5]['arguments'])
 
         disp_extraction_model = DisplacementExtractionModel(pde=pde,
                                     input_name=state_name,
                                     output_name=shell_name+'_displacement')
-        pnorm_stress_model = OutputModel(fea=fea,
-                                    output_name=output_name_4,
-                                    arg_name_list=fea.outputs_dict[output_name_4]['arguments'])
         aggregated_stress_model = AggregatedStressModel(m=m, rho=rho,
                                     input_name=output_name_4,
                                     output_name=shell_name+'_aggregated_stress')
@@ -246,6 +253,7 @@ class ShellModule(ModuleCSDL):
         self.add(solid_model, name='solid_model')
         self.add(disp_extraction_model, name='disp_extraction_model')
         self.add(compliance_model, name='compliance_model')
+        self.add(von_Mises_stress_model, name='von_Mises_stress_model')
         self.add(mass_model, name='mass_model')
         self.add(elastic_energy_model, name='elastic_energy_model')
         self.add(pnorm_stress_model, name='von_mises_stress_model')
@@ -409,9 +417,6 @@ class ShellPDE(object):
             ##### alpha is a parameter based on the surface area
             alpha_form = Constant(self.mesh,1.0)*dx
             alpha = assemble_scalar(form(alpha_form))
-        print('='*40)
-        print(assemble_scalar(form(pnorm)))
-        print('='*40)
         return 1/alpha*pnorm
 
     def von_Mises_stress(self,w,h,E,nu,surface='Top'):

@@ -367,12 +367,15 @@ Wing total mass (kg): 91.70632079110337
 
 wing_mass = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.mass_model.mass']
 wing_elastic_energy = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
-# wing_top_stress = sim
+wing_aggregated_stress = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
+wing_von_Mises_stress = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
 ########## Output: ##########
 print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
 print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 print("Wing tip deflection (on struture):",max(abs(uZ)))
 print("Wing total mass (kg):", wing_mass)
+print("Wing aggregated von Mises stress (psi):", wing_aggregated_stress)
+print("Wing maximum von Mises stress (psi):", max(wing_von_Mises_stress))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))
 
