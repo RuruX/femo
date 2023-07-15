@@ -187,7 +187,7 @@ class ShellModule(ModuleCSDL):
         output_name_3 = 'elastic_energy'
         output_form_3 = pde.elastic_energy(state_function,input_function_1,E)
         output_name_4 = 'pnorm_stress'
-        m, rho = 1e-6, 100
+        m, rho = 1e-10, 100
         output_form_4 = pde.pnorm_stress(state_function,input_function_1,E,nu,
                                 dx,m=m,rho=rho,alpha=None,regularization=False)
 
@@ -409,7 +409,7 @@ class ShellPDE(object):
             alpha_form = Constant(self.mesh,1.0)*dx
             alpha = assemble_scalar(form(alpha_form))
         print('='*40)
-        print(alpha, type(pnorm))
+        print(assemble_scalar(form(pnorm)))
         print('='*40)
         return 1/alpha*pnorm
 
