@@ -187,9 +187,10 @@ class ShellModule(ModuleCSDL):
         output_name_3 = 'elastic_energy'
         output_form_3 = pde.elastic_energy(state_function,input_function_1,E)
         output_name_4 = 'pnorm_stress'
-        m, rho = 1e-10, 100
+        m, rho = 1e-6, 100
+        dx_reduced = ufl.Measure("dx", domain=shell_mesh, metadata={"quadrature_degree":4})
         output_form_4 = pde.pnorm_stress(state_function,input_function_1,E,nu,
-                                dx,m=m,rho=rho,alpha=None,regularization=False)
+                                dx_reduced,m=m,rho=rho,alpha=None,regularization=False)
 
         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=True)
         fea.add_input(input_name_2, input_function_2, record=False)
