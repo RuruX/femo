@@ -27,7 +27,7 @@ from modopt.csdl_library import CSDLProblem
 import m3l
 import lsdo_geo as lg
 import array_mapper as am
-# import meshio
+import meshio
 import pickle
 
 # CADDEE geometry initialization
@@ -39,8 +39,6 @@ file_name = 'pegasus.stp'
 
 
 spatial_rep = sys_rep.spatial_representation
-# spatial_rep.import_file(file_name=STP_FILES_FOLDER / file_name)
-# spatial_rep.refit_geometry(file_name=STP_FILES_FOLDER / file_name)
 spatial_rep.import_file(file_name='./pegasus_wing/'+file_name)
 spatial_rep.refit_geometry(file_name='./pegasus_wing/'+file_name)
 
@@ -75,24 +73,24 @@ wing_t_space_m3l = m3l.IndexedFunctionSpace(name='wing_space', spaces=wing_t_spa
 wing_geo = m3l.IndexedFunction('wing_geo', space=wing_space_m3l, coefficients=coefficients)
 wing_thickness = m3l.IndexedFunction('wing_thickness', space = wing_t_space_m3l, coefficients=thickness_coefficients)
 # exit()
-# import mesh
 
+############################### Generate projection ##############################
+# # import mesh
+#
 # filename = "./pegasus_wing_old/pegasus_6257_quad_SI.xdmf"
 # mesh = meshio.read(filename)
-# nodes = mesh.points + np.tile(np.array([0.,0.,0.5]), (mesh.points.shape[0],1))
+# nodes = mesh.points
+# nodes += np.tile(np.array([0.,0.,0.5]), (mesh.points.shape[0],1))
 # nodes_parametric = []
-
+#
 # targets = spatial_rep.get_primitives(wing_primitive_names)
 # num_targets = len(targets.keys())
-# print(len(targets.keys()))
-# exit()
+# print(targets.keys())
 # projected_points_on_each_target = []
 # target_names = []
-# Project all points onto each target
+# # Project all points onto each target
 # for target_name in targets.keys():
-#     print(type(target_name))
-# exit()
-    # target = targets[target_name]
+#     target = targets[target_name]
 #     target_projected_points = target.project(points=nodes, properties=['geometry', 'parametric_coordinates'])
 #             # properties are not passed in here because we NEED geometry
 #     projected_points_on_each_target.append(target_projected_points)
@@ -116,10 +114,13 @@ wing_thickness = m3l.IndexedFunction('wing_thickness', space = wing_t_space_m3l,
 #
 # with open('data.pickle', 'wb') as f:
 #     pickle.dump(nodes_parametric, f)
+#
+# exit()
+########################################################################################
+
 with open('data.pickle', 'rb') as f:
      nodes_parametric = pickle.load(f)
-# print(nodes_parametric)
-# exit()
+
 for i in range(len(nodes_parametric)):
     u_coord = nodes_parametric[i][1][0][i]
     v_coord = nodes_parametric[i][1][1][i]
@@ -176,7 +177,6 @@ shells['wing_shell'] = {'E': E, 'nu': nu, 'rho': rho,# material properties
                         'g': g}
 # Meshes definitions
 # Wing VLM Mesh
-
 # [RU] simulating semispan only
 num_spanwise_vlm = 11
 num_chordwise_vlm = 5
@@ -325,9 +325,9 @@ testing_csdl_model = caddee.assemble_csdl()
 # Wing_1_30 # not found
 # Wing_1_31 # not found
 right_wing_id = [16, 17, 18, 19, 20, 21, 24, 25, 27]
-h_init = [0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009]
-h_init = 0.001*np.ones(len(right_wing_id))
-h_init[0] = 0.01
+# h_init = 0.001*np.arange(len(right_wing_id))
+h_init = 0.01*np.ones(len(right_wing_id))
+# h_init[0] = 0.01
 i = 0
 shape = (625, 1)
 for id in right_wing_id:
@@ -356,11 +356,23 @@ u_shell = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.
 # u_nodal = sim['wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
 uZ = u_shell[:,2]
 # uZ_nodal = u_nodal[:,2]
+
+'''
+vlm forces: -1879.3736799156954 0.0 -19286.701054888195
+shell forces: -1879.3736799156907 0.0 -19286.70105488822
+Wing tip deflection (on struture): 0.013594238254103594
+Wing total mass (kg): 91.70632079110337
+'''
+
+
+wing_mass = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.mass_model.mass']
+wing_elastic_energy = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
+# wing_top_stress = sim
 ########## Output: ##########
 print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
 print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 print("Wing tip deflection (on struture):",max(abs(uZ)))
-# print("Wing tip deflection (on oml):",max(uZ_nodal))
+print("Wing total mass (kg):", wing_mass)
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))
 

@@ -197,9 +197,10 @@ vlm_model = VASTFluidSover(
         (1, ) + wing_camber_surface.evaluate().shape[1:],
     ],
     fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
-    mesh_unit='ft',
+    mesh_unit='m',
     cl0=[0.43, 0]
 )
+
 # aero forces and moments
 vlm_panel_forces, vlm_force, vlm_moment  = vlm_model.evaluate(ac_states=ac_states)
 cruise_model.register_output(vlm_force)
@@ -235,7 +236,7 @@ shell_displacements_model = rmshell.RMShell(component=wing,
                                             mesh=shell_mesh,
                                             pde=shell_pde,
                                             shells=shells)
-                                            
+
 # shell_displacements_model.set_module_input('wing_beamt_cap_in', val=0.005, dv_flag=True, lower=0.001, upper=0.02, scaler=1E3)
 # shell_displacements_model.set_module_input('wing_beamt_web_in', val=0.005, dv_flag=True, lower=0.001, upper=0.02, scaler=1E3)
 
@@ -280,12 +281,15 @@ sim.run()
 
 # Comparing the solution to the Kirchhoff analytical solution
 f_shell = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_force_mapping.wing_shell_forces']
+f_vlm = sim['system_model.recon_mission.cruise_1.cruise_1.wing_vlm_mesh_vlm_force_mapping_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
 u_shell = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
 # u_nodal = sim['wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
 uZ = u_shell[:,2]
 # uZ_nodal = u_nodal[:,2]
 ########## Output: ##########
-print("Wing tip deflection (on struture):",max(uZ))
+print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
+print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
+print("Wing tip deflection (on struture):",max(abs(uZ)))
 # print("Wing tip deflection (on oml):",max(uZ_nodal))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))

@@ -10,6 +10,127 @@ import scipy.sparse as sp
 import csdl
 import numpy as np
 
+# class ShellResidualModule(ModuleCSDL):
+#     def initialize(self):
+#         self.parameters.declare('pde', default=None)
+#         self.parameters.declare('shells', default={}) # material properties
+#
+#     def define(self):
+#         pde = self.parameters['pde']
+#         shell_mesh = pde.mesh
+#         shells = self.parameters['shells']
+#         shell_name = list(shells.keys())[0]   # this is only taking the first mesh added to the solver.
+#
+#         E = shells[shell_name]['E']
+#         nu = shells[shell_name]['nu']
+#         rho = shells[shell_name]['rho']
+#         dss = shells[shell_name]['dss']
+#         dSS = shells[shell_name]['dSS']
+#         dxx = shells[shell_name]['dxx']
+#         g = shells[shell_name]['g']
+#
+#         PENALTY_BC = True
+#
+#
+#         fea = FEA(shell_mesh)
+#         fea.PDE_SOLVER = "Newton"
+#         fea.initialize = True
+#         fea.linear_problem = True
+#         # Add input to the PDE problem:
+#         input_name_1 = shell_name+'_thicknesses'
+#         input_function_space_1 = pde.VT
+#         # input_function_space_1 = FunctionSpace(shell_mesh, ("DG", 0))
+#         input_function_1 = Function(input_function_space_1)
+#         # Add input to the PDE problem:
+#         input_name_2 = 'F_solid'
+#         input_function_space_2 = pde.VF
+#         input_function_2 = Function(input_function_space_2)
+#
+#         # Add state to the PDE problem:
+#         state_name = 'disp_solid'
+#         state_function_space = pde.W
+#         state_function = Function(state_function_space)
+#
+#
+#         # Simple isotropic material
+#         residual_form = pde.pdeRes(input_function_1,state_function,
+#                                 input_function_2,E,nu,
+#                                 penalty=PENALTY_BC, dss=dss, dSS=dSS, g=g)
+#
+#         # Add output to the PDE problem:
+#         output_name_1 = 'compliance'
+#         u_mid, theta = ufl.split(state_function)
+#         output_form_1 = pde.compliance(u_mid,input_function_1, dxx)
+#         output_name_2 = 'mass'
+#         output_form_2 = pde.mass(input_function_1, rho)
+#         output_name_3 = 'elastic_energy'
+#         output_form_3 = pde.elastic_energy(state_function,input_function_1,E)
+#         # output_name_4 = 'pnorm_stress'
+#         # m, rho = 1e-6, 100
+#         # output_form_4 = pde.pnorm_stress(state_function,input_function_1,E,nu,
+#         #                         dx,m=m,rho=rho,alpha=None,regularization=False)
+#
+#         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=True)
+#         fea.add_input(input_name_2, input_function_2, record=False)
+#         fea.add_state(name=state_name,
+#                         function=state_function,
+#                         residual_form=residual_form,
+#                         arguments=[input_name_1, input_name_2])
+#         fea.add_output(name=output_name_1,
+#                         type='scalar',
+#                         form=output_form_1,
+#                         arguments=[state_name,input_name_1])
+#         fea.add_output(name=output_name_2,
+#                         type='scalar',
+#                         form=output_form_2,
+#                         arguments=[input_name_1])
+#         fea.add_output(name=output_name_3,
+#                         type='scalar',
+#                         form=output_form_3,
+#                         arguments=[input_name_1,state_name])
+#         # fea.add_output(name=output_name_4,
+#         #                 type='scalar',
+#         #                 form=output_form_4,
+#         #                 arguments=[input_name_1,state_name])
+#
+#         force_reshaping_model = ForceReshapingModel(pde=pde,
+#                                     input_name=shell_name+'_forces',
+#                                     output_name=input_name_2)
+#         solid_model = StateModel(fea=fea,
+#                                 debug_mode=False,
+#                                 state_name=state_name,
+#                                 arg_name_list=fea.states_dict[state_name]['arguments'])
+#         compliance_model = OutputModel(fea=fea,
+#                                     output_name=output_name_1,
+#                                     arg_name_list=fea.outputs_dict[output_name_1]['arguments'])
+#         mass_model = OutputModel(fea=fea,
+#                                     output_name=output_name_2,
+#                                     arg_name_list=fea.outputs_dict[output_name_2]['arguments'])
+#         elastic_energy_model = OutputModel(fea=fea,
+#                                     output_name=output_name_3,
+#                                     arg_name_list=fea.outputs_dict[output_name_3]['arguments'])
+#         # von_mises_stress_model = OutputModel(fea=fea,
+#         #                             output_name=output_name_4,
+#         #                             arg_name_list=fea.outputs_dict[output_name_4]['arguments'])
+#
+#         disp_extraction_model = DisplacementExtractionModel(pde=pde,
+#                                     input_name=state_name,
+#                                     output_name=shell_name+'_displacement')
+#         # aggregated_stress_model = AggregatedStressModel(m=m, rho=rho,
+#         #                             input_name=output_name_4,
+#         #                             output_name=shell_name+'_aggregated_stress')
+#
+#         self.add(force_reshaping_model, name='force_reshaping_model')
+#         self.add(solid_model, name='solid_model')
+#         self.add(disp_extraction_model, name='disp_extraction_model')
+#         self.add(compliance_model, name='compliance_model')
+#         self.add(mass_model, name='mass_model')
+#         self.add(elastic_energy_model, name='elastic_energy_model')
+#         # self.add(von_mises_stress_model, name='von_mises_stress_model')
+#         # self.add(aggregated_stress_model, name='aggregated_stress_model')
+#
+
+
 class ShellModule(ModuleCSDL):
     def initialize(self):
         self.parameters.declare('pde', default=None)
@@ -65,10 +186,10 @@ class ShellModule(ModuleCSDL):
         output_form_2 = pde.mass(input_function_1, rho)
         output_name_3 = 'elastic_energy'
         output_form_3 = pde.elastic_energy(state_function,input_function_1,E)
-        # output_name_4 = 'pnorm_stress'
-        # m, rho = 1e-6, 100
-        # output_form_4 = pde.pnorm_stress(state_function,input_function_1,E,nu,
-        #                         dx,m=m,rho=rho,alpha=None,regularization=False)
+        output_name_4 = 'pnorm_stress'
+        m, rho = 1e-6, 100
+        output_form_4 = pde.pnorm_stress(state_function,input_function_1,E,nu,
+                                dx,m=m,rho=rho,alpha=None,regularization=False)
 
         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=True)
         fea.add_input(input_name_2, input_function_2, record=False)
@@ -88,10 +209,10 @@ class ShellModule(ModuleCSDL):
                         type='scalar',
                         form=output_form_3,
                         arguments=[input_name_1,state_name])
-        # fea.add_output(name=output_name_4,
-        #                 type='scalar',
-        #                 form=output_form_4,
-        #                 arguments=[input_name_1,state_name])
+        fea.add_output(name=output_name_4,
+                        type='scalar',
+                        form=output_form_4,
+                        arguments=[input_name_1,state_name])
 
         force_reshaping_model = ForceReshapingModel(pde=pde,
                                     input_name=shell_name+'_forces',
@@ -109,16 +230,16 @@ class ShellModule(ModuleCSDL):
         elastic_energy_model = OutputModel(fea=fea,
                                     output_name=output_name_3,
                                     arg_name_list=fea.outputs_dict[output_name_3]['arguments'])
-        # von_mises_stress_model = OutputModel(fea=fea,
-        #                             output_name=output_name_4,
-        #                             arg_name_list=fea.outputs_dict[output_name_4]['arguments'])
 
         disp_extraction_model = DisplacementExtractionModel(pde=pde,
                                     input_name=state_name,
                                     output_name=shell_name+'_displacement')
-        # aggregated_stress_model = AggregatedStressModel(m=m, rho=rho,
-        #                             input_name=output_name_4,
-        #                             output_name=shell_name+'_aggregated_stress')
+        pnorm_stress_model = OutputModel(fea=fea,
+                                    output_name=output_name_4,
+                                    arg_name_list=fea.outputs_dict[output_name_4]['arguments'])
+        aggregated_stress_model = AggregatedStressModel(m=m, rho=rho,
+                                    input_name=output_name_4,
+                                    output_name=shell_name+'_aggregated_stress')
 
         self.add(force_reshaping_model, name='force_reshaping_model')
         self.add(solid_model, name='solid_model')
@@ -126,8 +247,8 @@ class ShellModule(ModuleCSDL):
         self.add(compliance_model, name='compliance_model')
         self.add(mass_model, name='mass_model')
         self.add(elastic_energy_model, name='elastic_energy_model')
-        # self.add(von_mises_stress_model, name='von_mises_stress_model')
-        # self.add(aggregated_stress_model, name='aggregated_stress_model')
+        self.add(pnorm_stress_model, name='von_mises_stress_model')
+        self.add(aggregated_stress_model, name='aggregated_stress_model')
 
 class AggregatedStressModel(csdl.Model):
     def initialize(self):
@@ -287,6 +408,9 @@ class ShellPDE(object):
             ##### alpha is a parameter based on the surface area
             alpha_form = Constant(self.mesh,1.0)*dx
             alpha = assemble_scalar(form(alpha_form))
+        print('='*40)
+        print(alpha, type(pnorm))
+        print('='*40)
         return 1/alpha*pnorm
 
     def von_Mises_stress(self,w,h,E,nu,surface='Top'):
