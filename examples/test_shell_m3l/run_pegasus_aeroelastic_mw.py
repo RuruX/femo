@@ -374,10 +374,30 @@ print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
 print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 print("Wing tip deflection (on struture):",max(abs(uZ)))
 print("Wing total mass (kg):", wing_mass)
-print("Wing aggregated von Mises stress (psi):", wing_aggregated_stress)
-print("Wing maximum von Mises stress (psi):", max(wing_von_Mises_stress))
+print("Wing aggregated von Mises stress (Pa):", wing_aggregated_stress)
+print("Wing maximum von Mises stress (Pa):", max(wing_von_Mises_stress))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))
+
+
+########## sensitivity analysis of the aggregated stress wrt thickness ############
+# import timeit
+# start = timeit.default_timer()
+# aggregated_stress_name = 'system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'
+# thickness_name = 'system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.solid_model.wing_shell_thicknesses'
+# derivative_dict = sim.compute_totals(of=[aggregated_stress_name],
+#                                     wrt=[thickness_name])
+#
+# stop = timeit.default_timer()
+# print('time for compute_totals:', stop-start)
+# dCdT = derivative_dict[(aggregated_stress_name, thickness_name)]
+# dCdT_function = Function(shell_pde.VT)
+# dCdT_function.vector.setArray(dCdT)
+# path = 'records'
+# if MPI.COMM_WORLD.Get_rank() == 0:
+#     with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT.xdmf", "w") as xdmf:
+#         xdmf.write_mesh(fenics_mesh)
+#         xdmf.write_function(dCdT_function)
 
 ########## Visualization: ##############
 # import vedo
