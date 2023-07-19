@@ -638,7 +638,7 @@ sim.run()
 # ('mass', 'h_rib')      102288.0061464967      3.1974576790283684e-11     3.2706157071515918e-06
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ########################### Run optimization ##################################
-# prob = CSDLProblem(problem_name='lpc', simulator=sim)
+# prob = CSDLProblem(problem_name='pav', simulator=sim)
 # optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
 # optimizer.solve()
 # optimizer.print_results()

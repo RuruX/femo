@@ -27,6 +27,8 @@ from modopt.csdl_library import CSDLProblem
 import m3l
 import lsdo_geo as lg
 import array_mapper as am
+import meshio
+import pickle
 
 # CADDEE geometry initialization
 caddee = cd.CADDEE()
@@ -37,8 +39,6 @@ file_name = 'pegasus.stp'
 
 
 spatial_rep = sys_rep.spatial_representation
-# spatial_rep.import_file(file_name=STP_FILES_FOLDER / file_name)
-# spatial_rep.refit_geometry(file_name=STP_FILES_FOLDER / file_name)
 spatial_rep.import_file(file_name='./pegasus_wing/'+file_name)
 spatial_rep.refit_geometry(file_name='./pegasus_wing/'+file_name)
 
@@ -46,20 +46,89 @@ spatial_rep.refit_geometry(file_name='./pegasus_wing/'+file_name)
 wing_primitive_names = list(spatial_rep.get_primitives(search_names=['Wing,']).keys())
 wing = LiftingSurface(name='wing', spatial_representation=spatial_rep, primitive_names=wing_primitive_names)
 
-tail_primitive_names = list(spatial_rep.get_primitives(search_names=['HT']).keys())
-horizontal_stabilizer = LiftingSurface(name='tail', spatial_representation=spatial_rep, primitive_names=tail_primitive_names)
+# make thickness function and function space
+wing_spaces = {}
+wing_t_spaces = {}
+coefficients = {}
+thickness_coefficients = {}
+t = 0.01 # starting wing thickness control point values
 
-fuselage_primitive_names = list(spatial_rep.get_primitives(search_names=['Fuselage']))
-fuselage = Component(name='fuselage', spatial_representation=spatial_rep, primitive_names=fuselage_primitive_names)
+for name in wing_primitive_names:
+    primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
+    space = lg.BSplineSpace(name=primitive.name,
+                            order=(primitive.order_u, primitive.order_v),
+                            control_points_shape=primitive.shape,
+                            knots=(primitive.knots_u, primitive.knots_v))
+    space_t = lg.BSplineSpace(name=primitive.name,
+                            order=(primitive.order_u, primitive.order_v),
+                            control_points_shape=(primitive.control_points.shape[0], primitive.control_points.shape[1], 1),
+                            knots=(primitive.knots_u, primitive.knots_v))
+    wing_spaces[name] = space
+    wing_t_spaces[name] = space_t
+    coefficients[name] = m3l.Variable(name = name.replace(' ', '_').replace(',', '') + '_geo_coefficients', shape = primitive.control_points.shape, value = primitive.control_points)
+    thickness_coefficients[name] = m3l.Variable(name = name.replace(' ', '_').replace(',', '') + '_t_coefficients', shape = (primitive.control_points.shape[0], primitive.control_points.shape[1], 1), value = t * np.ones((primitive.control_points.shape[0], primitive.control_points.shape[1], 1)))
+
+wing_space_m3l = m3l.IndexedFunctionSpace(name='wing_space', spaces=wing_spaces)
+wing_t_space_m3l = m3l.IndexedFunctionSpace(name='wing_space', spaces=wing_t_spaces)
+wing_geo = m3l.IndexedFunction('wing_geo', space=wing_space_m3l, coefficients=coefficients)
+wing_thickness = m3l.IndexedFunction('wing_thickness', space = wing_t_space_m3l, coefficients=thickness_coefficients)
+# exit()
+
+############################### Generate projection ##############################
+# # import mesh
+#
+# filename = "./pegasus_wing_old/pegasus_6257_quad_SI.xdmf"
+# mesh = meshio.read(filename)
+# nodes = mesh.points
+# nodes += np.tile(np.array([0.,0.,0.5]), (mesh.points.shape[0],1))
+# nodes_parametric = []
+#
+# targets = spatial_rep.get_primitives(wing_primitive_names)
+# num_targets = len(targets.keys())
+# print(targets.keys())
+# projected_points_on_each_target = []
+# target_names = []
+# # Project all points onto each target
+# for target_name in targets.keys():
+#     target = targets[target_name]
+#     target_projected_points = target.project(points=nodes, properties=['geometry', 'parametric_coordinates'])
+#             # properties are not passed in here because we NEED geometry
+#     projected_points_on_each_target.append(target_projected_points)
+#     target_names.append(target_name)
+# num_targets = len(target_names)
+# projected_points_on_each_target_numpy = np.zeros(tuple((num_targets,)) + nodes.shape)
+#
+# for i in range(num_targets):
+#         projected_points_on_each_target_numpy[i] = projected_points_on_each_target[i]['geometry'].value
+#
+# distances = np.linalg.norm(projected_points_on_each_target_numpy - nodes, axis=-1)   # Computes norm across spatial axis
+# closest_surfaces_indices = np.argmin(distances, axis=0) # Take argmin across surfaces
+# flattened_surface_indices = closest_surfaces_indices.flatten()
+#
+# for i in range(nodes.shape[0]):
+#      target_index = flattened_surface_indices[i]
+#      receiving_target_name = target_names[target_index]
+#      receiving_target = targets[receiving_target_name]
+#      node_parametric_coordinates = projected_points_on_each_target[target_index]['parametric_coordinates']
+#      nodes_parametric.append((receiving_target_name, node_parametric_coordinates))
+#
+# with open('data.pickle', 'wb') as f:
+#     pickle.dump(nodes_parametric, f)
+#
+# exit()
+########################################################################################
+
+with open('data.pickle', 'rb') as f:
+     nodes_parametric = pickle.load(f)
+
+for i in range(len(nodes_parametric)):
+    u_coord = nodes_parametric[i][1][0][i]
+    v_coord = nodes_parametric[i][1][1][i]
+    coord = np.array([u_coord, v_coord])
+    nodes_parametric[i] = (nodes_parametric[i][0], np.reshape(coord, (1,2)))
+thickness_nodes = wing_thickness.evaluate(nodes_parametric)
 
 sys_rep.add_component(wing)
-sys_rep.add_component(horizontal_stabilizer)
-sys_rep.add_component(fuselage)
-
-
-# (interactive visualization not available if using docker container)
-# from shell_analysis_fenicsx.pyvista_plotter import plotter_3d
-
 
 # filename = "./pegasus_wing/pegasus_wing.xdmf"
 filename = "./pegasus_wing_old/pegasus_6257_quad_SI.xdmf"
@@ -69,8 +138,6 @@ nel = fenics_mesh.topology.index_map(fenics_mesh.topology.dim).size_local
 nn = fenics_mesh.topology.index_map(0).size_local
 
 shell_pde = ShellPDE(fenics_mesh)
-
-# print(shell_mesh_coord)
 
 # Aluminum 7050
 E = 6.9E10 # unit: Pa (N/m^2)
@@ -110,7 +177,6 @@ shells['wing_shell'] = {'E': E, 'nu': nu, 'rho': rho,# material properties
                         'g': g}
 # Meshes definitions
 # Wing VLM Mesh
-
 # [RU] simulating semispan only
 num_spanwise_vlm = 11
 num_chordwise_vlm = 5
@@ -121,15 +187,6 @@ trailing_edge = wing.project(np.linspace(np.array([13., 0., 2.5]),
                             np.array([13., 13.5, 2.5]), num_spanwise_vlm),
                              direction=np.array([0., 0., -1.]))
 
-
-# num_spanwise_vlm = 22
-# num_chordwise_vlm = 5
-# leading_edge = wing.project(am.linspace(am.array([7.5, -13.5, 2.5]),
-#                             am.array([7.5, 13.5, 2.5]), num_spanwise_vlm),
-#                             direction=am.array([0., 0., -1.]))  # returns MappedArray
-# trailing_edge = wing.project(np.linspace(np.array([13., -13.5, 2.5]),
-#                             np.array([13., 13.5, 2.5]), num_spanwise_vlm),
-#                              direction=np.array([0., 0., -1.]))   # returns MappedArray
 chord_surface = am.linspace(leading_edge, trailing_edge, num_chordwise_vlm)
 wing_upper_surface_wireframe = wing.project(
                             chord_surface.value + np.array([0., 0., 1.5]),
@@ -200,7 +257,6 @@ vlm_model = VASTFluidSover(
     mesh_unit='m',
     cl0=[0.43, 0]
 )
-
 # aero forces and moments
 vlm_panel_forces, vlm_force, vlm_moment  = vlm_model.evaluate(ac_states=ac_states)
 cruise_model.register_output(vlm_force)
@@ -221,9 +277,6 @@ vlm_force_mapping_model = VASTNodalForces(
 oml_forces = vlm_force_mapping_model.evaluate(vlm_forces=vlm_panel_forces, nodal_force_meshes=[oml_mesh, oml_mesh])
 wing_forces = oml_forces[0]
 
-# cruise_structural_wing_nodal_forces = cruise_wing_pressure(
-#                                 mesh=cruise_wing_structural_nodal_force_mesh)
-
 shell_force_map_model = rmshell.RMShellForces(component=wing,
                                                 mesh=shell_mesh,
                                                 pde=shell_pde,
@@ -237,21 +290,10 @@ shell_displacements_model = rmshell.RMShell(component=wing,
                                             pde=shell_pde,
                                             shells=shells)
 
-# shell_displacements_model.set_module_input('wing_beamt_cap_in', val=0.005, dv_flag=True, lower=0.001, upper=0.02, scaler=1E3)
-# shell_displacements_model.set_module_input('wing_beamt_web_in', val=0.005, dv_flag=True, lower=0.001, upper=0.02, scaler=1E3)
-
 cruise_structural_wing_mesh_displacements, cruise_structural_wing_mesh_rotations, wing_mass = \
                                 shell_displacements_model.evaluate(
-                                    forces=cruise_structural_wing_mesh_forces)
-
-# shell_displacement_map_model = rmshell.RMShellNodalDisplacements(
-#                                             component=wing,
-#                                             mesh=shell_mesh,
-#                                             pde=shell_pde,
-#                                             shells=shells)
-# cruise_structural_wing_nodal_displacements = shell_displacement_map_model.evaluate(
-#             shell_displacements=cruise_structural_wing_mesh_displacements,
-#             nodal_displacements_mesh=cruise_wing_structural_nodal_displacements_mesh)
+                                    forces=cruise_structural_wing_mesh_forces,
+                                    thicknesses=thickness_nodes)
 
 cruise_model.register_output(cruise_structural_wing_mesh_displacements)
 cruise_model.register_output(wing_mass)
@@ -264,15 +306,43 @@ design_scenario.add_design_condition(ha_cruise)
 system_model.add_design_scenario(design_scenario=design_scenario)
 
 testing_csdl_model = caddee.assemble_csdl()
-testing_csdl_model.create_input('wing_shell_mesh', wing_shell_mesh.value.reshape((-1,3)))
-# force_vector = np.zeros((num_control_points_u,3))
-# force_vector[:,2] = 50000
-# cruise_wing_forces = testing_csdl_model.create_input(
-#                                 'cruise_wing_pressure_input', val=force_vector)
-# testing_csdl_model.connect('cruise_wing_pressure_input',
-#                             'cruise_wing_pressure_evaluation.'+\
-#                             cruise_wing_pressure_coefficients.name)
 
+
+# Wing_0_16
+# Wing_0_17
+# Wing_0_18
+# Wing_0_19
+# Wing_0_20
+# Wing_0_21
+# Wing_0_22 # not found
+# Wing_0_23 # not found
+# Wing_1_24
+# Wing_1_25
+# Wing_1_26 # not found
+# Wing_1_27
+# Wing_1_28 # not found
+# Wing_1_29 # not found
+# Wing_1_30 # not found
+# Wing_1_31 # not found
+right_wing_id = [16, 17, 18, 19, 20, 21, 24, 25, 27]
+# h_init = 0.001*np.arange(len(right_wing_id))
+h_init = 0.01*np.ones(len(right_wing_id))
+# h_init[0] = 0.01
+i = 0
+shape = (625, 1)
+for id in right_wing_id:
+    surface_id = id
+    if surface_id <= 23:
+        surface_name = 'Wing_0_'+str(surface_id)
+    else:
+        surface_name = 'Wing_1_'+str(surface_id)
+    h_i = testing_csdl_model.create_input('wing_thickness_'+str(surface_id), val=h_init[i])
+    testing_csdl_model.register_output('wing_thickness_surface_'+str(surface_id), csdl.expand(h_i, shape))
+    testing_csdl_model.connect('wing_thickness_surface_'+str(surface_id),
+                                'system_model.recon_mission.cruise_1.cruise_1.wing_thickness_evaluation.'+\
+                                surface_name+'_t_coefficients')
+                                # thickness_coefficients[name].name)
+    i += 1
 #################### end of m3l ########################
 
 sim = Simulator(testing_csdl_model, analytics=True)
@@ -286,13 +356,48 @@ u_shell = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.
 # u_nodal = sim['wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
 uZ = u_shell[:,2]
 # uZ_nodal = u_nodal[:,2]
+
+'''
+vlm forces: -1879.3736799156954 0.0 -19286.701054888195
+shell forces: -1879.3736799156907 0.0 -19286.70105488822
+Wing tip deflection (on struture): 0.013594238254103594
+Wing total mass (kg): 91.70632079110337
+'''
+
+
+wing_mass = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.mass_model.mass']
+wing_elastic_energy = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
+wing_aggregated_stress = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
+wing_von_Mises_stress = sim['system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
 ########## Output: ##########
 print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
 print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 print("Wing tip deflection (on struture):",max(abs(uZ)))
-# print("Wing tip deflection (on oml):",max(uZ_nodal))
+print("Wing total mass (kg):", wing_mass)
+print("Wing aggregated von Mises stress (Pa):", wing_aggregated_stress)
+print("Wing maximum von Mises stress (Pa):", max(wing_von_Mises_stress))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))
+
+
+########## sensitivity analysis of the aggregated stress wrt thickness ############
+# import timeit
+# start = timeit.default_timer()
+# aggregated_stress_name = 'system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'
+# thickness_name = 'system_model.recon_mission.cruise_1.cruise_1.wing_rm_shell_model.rm_shell.solid_model.wing_shell_thicknesses'
+# derivative_dict = sim.compute_totals(of=[aggregated_stress_name],
+#                                     wrt=[thickness_name])
+#
+# stop = timeit.default_timer()
+# print('time for compute_totals:', stop-start)
+# dCdT = derivative_dict[(aggregated_stress_name, thickness_name)]
+# dCdT_function = Function(shell_pde.VT)
+# dCdT_function.vector.setArray(dCdT)
+# path = 'records'
+# if MPI.COMM_WORLD.Get_rank() == 0:
+#     with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT.xdmf", "w") as xdmf:
+#         xdmf.write_mesh(fenics_mesh)
+#         xdmf.write_function(dCdT_function)
 
 ########## Visualization: ##############
 # import vedo

@@ -13,7 +13,7 @@ from caddee.core.caddee_core.system_representation.component.component import Li
 import caddee.core.primitives.bsplines.bspline_functions as bsf
 from caddee.core.caddee_core.system_representation.system_primitive.system_primitive import SystemPrimitive
 from caddee.core.caddee_core.system_representation.spatial_representation import SpatialRepresentation
-from caddee.core.caddee_core.system_representation.utils.mesh_utils import import_mesh
+from caddee.core.caddee_core.system_representation.utils.mesh_utils import import_mesh as caddee_import_mesh
 
 from caddee import GEOMETRY_FILES_FOLDER
 
@@ -254,11 +254,9 @@ nodes = fenics_mesh.geometry.x
 
 #############################################
 
-
-if process_gmsh:
-# if process_gmsh or run_reprojection:
+if process_gmsh or run_reprojection:
     file = '/pav_wing/pav_v2_gmsh_2472.msh'
-    nodes, connectivity = import_mesh(cfile + file,
+    nodes, connectivity = caddee_import_mesh(cfile + file,
                                     spatial_rep,
                                     component = wing_left_structural,
                                     targets = list(wing_left_structural.get_primitives().values()),
@@ -658,7 +656,7 @@ sim.run()
 # ('mass', 'h_rib')      102288.0061464967      3.1974576790283684e-11     3.2706157071515918e-06
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ########################### Run optimization ##################################
-# prob = CSDLProblem(problem_name='lpc', simulator=sim)
+# prob = CSDLProblem(problem_name='pav', simulator=sim)
 # optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
 # optimizer.solve()
 # optimizer.print_results()
@@ -681,6 +679,7 @@ print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin']
 print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
 print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 print("Wing tip deflection (on struture):",max(abs(uZ)))
+
 print("Wing total mass (kg):", wing_mass)
 print("Wing aggregated von Mises stress (Pa):", wing_aggregated_stress)
 print("Wing maximum von Mises stress (Pa):", max(wing_von_Mises_stress))
