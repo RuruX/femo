@@ -334,11 +334,11 @@ if run_reprojection:
     with open(cfile + file_name, 'wb') as f:
         pickle.dump(nodes_parametric, f)
 # exit()
-with open(cfile + '/pav_wing/pav_wing_mesh_data_new.pickle', 'rb') as f:
+with open(cfile + '/pav_wing/pav_wing_mesh_data.pickle', 'rb') as f:
     nodes_parametric = pickle.load(f)
 
 for i in range(len(nodes_parametric)):
-    nodes_parametric[i] = (nodes_parametric[i][0].replace(' ', '_').replace(',',''), nodes_parametric[i][1])
+    nodes_parametric[i] = (nodes_parametric[i][0].replace(' ', '_').replace(',',''), np.array([nodes_parametric[i][1]]))
 
 
 thickness_nodes = wing_thickness.evaluate(nodes_parametric)
@@ -400,18 +400,11 @@ plots_flag = False
 # left wing only
 num_wing_vlm = 11
 num_chordwise_vlm = 5
-# point00 = np.array([8.167, 13.997,  1.989 + 0.1]) # * ft2m # Right tip leading edge
-# point01 = np.array([10.565, 13.997,  1.989]) # * ft2m # Right tip trailing edge
-# point10 = np.array([8.171, 0.0000,  1.989 + 0.1]) # * ft2m # Center Leading Edge
-# point11 = np.array([13.549, 0.0000,  1.989]) # * ft2m # Center Trailing edge
-# point20 = np.array([8.167, -13.997, 1.989 + 0.1]) # * ft2m # Left tip leading edge
-# point21 = np.array([10.565, -13.997, 1.989]) # * ft2m # Left tip trailing edge
 
-point10 = np.array([10.278, 0, 2.719])
-point11 = np.array([17.030, 0., 2.365])
-point20 = np.array([10.261, -17.596, 2.5])
-point21 = np.array([13.276, -17.596, 2.5])
-
+point10 = root_le
+point11 = root_te
+point20 = tip_le
+point21 = tip_te
 
 leading_edge_points = np.linspace(point10, point20, num_wing_vlm)
 trailing_edge_points = np.linspace(point11, point21, num_wing_vlm)
@@ -645,10 +638,10 @@ sim.run()
 # ('mass', 'h_rib')      102288.0061464967      3.1974576790283684e-11     3.2706157071515918e-06
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ########################### Run optimization ##################################
-prob = CSDLProblem(problem_name='lpc', simulator=sim)
-optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
-optimizer.solve()
-optimizer.print_results()
+# prob = CSDLProblem(problem_name='lpc', simulator=sim)
+# optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
+# optimizer.solve()
+# optimizer.print_results()
 
 # Comparing the solution to the Kirchhoff analytical solution
 f_shell = sim[system_model_name+'wing_rm_shell_force_mapping.wing_shell_forces']
@@ -664,7 +657,7 @@ wing_elastic_energy = sim[system_model_name+'wing_rm_shell_model.rm_shell.elasti
 wing_aggregated_stress = sim[system_model_name+'wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
 wing_von_Mises_stress = sim[system_model_name+'wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
 ########## Output: ##########
-print("Optimizated spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
+print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
 print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
 print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 print("Wing tip deflection (on struture):",max(abs(uZ)))

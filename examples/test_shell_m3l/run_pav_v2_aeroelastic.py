@@ -72,7 +72,7 @@ left_wing_bottom_names = []
 left_wing_te_top_names = []
 left_wing_te_bottom_names = []
 for i in range(22,37):
-    surf_name = 'ing_1, ' + str(i)
+    surf_name = 'ing 1, ' + str(i)
     left_wing_names.append(surf_name)
     if i%4 == 2:
         left_wing_te_bottom_names.append(surf_name)
@@ -243,7 +243,7 @@ run_reprojection = False
 
 #############################################
 # filename = "./pav_wing/pav_wing_caddee_mesh_10530_quad.xdmf"
-filename = "./pav_wing/pav_wing_caddee_mesh_2472_quad.xdmf" # TODO: make this file
+filename = "./pav_wing/pav_wing_v2_caddee_mesh_2303_quad.xdmf" # TODO: make this file
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
     fenics_mesh = xdmf.read_mesh(name="Grid")
 nel = fenics_mesh.topology.index_map(fenics_mesh.topology.dim).size_local
@@ -345,7 +345,8 @@ with open(cfile + '/pav_wing/pav_wing_v2_mesh_data.pickle', 'rb') as f:
     nodes_parametric = pickle.load(f)
 
 for i in range(len(nodes_parametric)):
-    nodes_parametric[i] = (nodes_parametric[i][0].replace(' ', '_').replace(',',''), nodes_parametric[i][1])
+    # print(nodes_parametric[i][0].replace(' ', '_').replace(',',''))
+    nodes_parametric[i] = (nodes_parametric[i][0].replace(' ', '_').replace(',',''), np.array([nodes_parametric[i][1]]))
 
 
 thickness_nodes = wing_thickness.evaluate(nodes_parametric)
@@ -407,18 +408,10 @@ plots_flag = False
 # left wing only
 num_wing_vlm = 11
 num_chordwise_vlm = 5
-# point00 = np.array([8.167, 13.997,  1.989 + 0.1]) # * ft2m # Right tip leading edge
-# point01 = np.array([10.565, 13.997,  1.989]) # * ft2m # Right tip trailing edge
-# point10 = np.array([8.171, 0.0000,  1.989 + 0.1]) # * ft2m # Center Leading Edge
-# point11 = np.array([13.549, 0.0000,  1.989]) # * ft2m # Center Trailing edge
-# point20 = np.array([8.167, -13.997, 1.989 + 0.1]) # * ft2m # Left tip leading edge
-# point21 = np.array([10.565, -13.997, 1.989]) # * ft2m # Left tip trailing edge
-
 point10 = root_le
 point11 = root_te
 point20 = tip_le
 point21 = tip_te
-
 
 leading_edge_points = np.linspace(point10, point20, num_wing_vlm)
 trailing_edge_points = np.linspace(point11, point21, num_wing_vlm)
@@ -578,14 +571,27 @@ skin_shape = (625, 1)
 spar_shape = (4, 1)
 rib_shape = (40, 1)
 shape = (4, 1)
+valid_wing_surf = [23, 24, 27, 28, 31, 32, 35, 36]
+valid_structural_left_wing_names = []
 for name in structural_left_wing_names:
+    if "spar" in name:
+        valid_structural_left_wing_names.append(name)
+    elif "rib" in name:
+        valid_structural_left_wing_names.append(name)
+    elif "ing" in name:
+        for id in valid_wing_surf:
+            if str(id) in name:
+                valid_structural_left_wing_names.append(name)
+# print("Full list of surface names for left wing:", structural_left_wing_names)
+# print("Valid list of surface names for left wing:", svalid_structural_left_wing_names)
+for name in valid_structural_left_wing_names:
     primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
     name = name.replace(' ', '_').replace(',','')
     surface_id = i
     if "spar" in name:
         shape = spar_shape
         h_init = h_spar
-    elif "FrontWing" in name:
+    elif "ing" in name:
         shape = skin_shape
         h_init = h_skin
     elif "rib" in name:
@@ -652,10 +658,10 @@ sim.run()
 # ('mass', 'h_rib')      102288.0061464967      3.1974576790283684e-11     3.2706157071515918e-06
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ########################### Run optimization ##################################
-prob = CSDLProblem(problem_name='lpc', simulator=sim)
-optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
-optimizer.solve()
-optimizer.print_results()
+# prob = CSDLProblem(problem_name='lpc', simulator=sim)
+# optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
+# optimizer.solve()
+# optimizer.print_results()
 
 # Comparing the solution to the Kirchhoff analytical solution
 f_shell = sim[system_model_name+'wing_rm_shell_force_mapping.wing_shell_forces']
@@ -671,7 +677,7 @@ wing_elastic_energy = sim[system_model_name+'wing_rm_shell_model.rm_shell.elasti
 wing_aggregated_stress = sim[system_model_name+'wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
 wing_von_Mises_stress = sim[system_model_name+'wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
 ########## Output: ##########
-print("Optimizated spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
+print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
 print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
 print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 print("Wing tip deflection (on struture):",max(abs(uZ)))
@@ -693,7 +699,7 @@ print("  Number of vertices = "+str(nn))
 # plotter = vedo.Plotter()
 # wing_oml_plot = vedo.Points(wing_oml_mesh.value.reshape((-1,3)))
 # plotter.show([wing_oml_plot], interactive=True, axes=1)    # Plotting point cloud
-#
+
 # #
 # plotter = vedo.Plotter()
 # deformed_wing_shell_mesh_plot = vedo.Points(u_shell+wing_shell_mesh.value.reshape((-1,3)))
