@@ -28,12 +28,14 @@ class OutputModel(Model):
                                         val=1.0)
             args_list.append(arg)
 
+
         e = OutputOperation(fea=self.fea,
                             args_dict=args_dict,
                             output_name=output_name,
                             )
         output = csdl.custom(*args_list, op=e)
-        self.register_output(output_name, output)
+        output_ = self.register_output(output_name, output)
+        self.print_var(output_)
 
 class OutputOperation(CustomExplicitOperation):
     """

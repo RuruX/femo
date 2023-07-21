@@ -223,7 +223,7 @@ class FEA(object):
 
     def projectFieldOutput(self,form,func):
         project(form, func, lump_mass=False)
-        
+
 
     def createRecorder(self, name, record=False):
         recorder = None

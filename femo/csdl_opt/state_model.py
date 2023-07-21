@@ -103,11 +103,12 @@ class StateOperation(CustomImplicitOperation):
 
         outputs[self.state_name] = getFuncArray(self.state['function'])
         if self.fea.record:
-            u_mid,_ = self.state['function'].split()
-            self.state['recorder'].write_function(u_mid, self.fea.opt_iter)
+            if self.state['function'].function_space.num_sub_spaces > 1:
+                u_mid,_ = self.state['function'].split()
+                self.state['recorder'].write_function(u_mid, self.fea.opt_iter)
 
-        if self.state['record']:
-            self.state['recorder'].write_function(self.state['function'],
+            else:
+                self.state['recorder'].write_function(self.state['function'],
                                                     self.fea.opt_iter)
 
     def compute_derivatives(self, inputs, outputs, derivatives):

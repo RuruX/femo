@@ -97,53 +97,6 @@ class RMShell(m3l.ExplicitOperation):
         return displacements, rotations, mass
 
 
-    # def evaluate(self, forces:m3l.Variable=None,
-    #                     moments:m3l.Variable=None) -> m3l.Variable:
-    #     '''
-    #     Evaluates the shell model.
-    #
-    #     Parameters
-    #     ----------
-    #     forces : m3l.Variable = None
-    #         The forces on the mesh nodes.
-    #     moments : m3l.Variable = None
-    #         The moments on the mesh nodes.
-    #
-    #     Returns
-    #     -------
-    #     displacements : m3l.Variable
-    #         The displacements of the mesh nodes.
-    #     rotations : m3l.Variable
-    #         The rotations of the mesh nodes.
-    #
-    #     '''
-    #
-    #     # Gets information for naming/shapes
-    #     shell_name = list(self.parameters['shells'].keys())[0]
-    #     # this is only taking the first mesh added to the solver.
-    #     mesh = list(self.parameters['mesh'].parameters['meshes'].values())[0]
-    #     # this is only taking the first mesh added to the solver.
-    #     self.component = self.parameters['component']
-    #     # Define operation arguments
-    #     self.name = f'{self.component.name}_rm_shell_model'
-    #
-    #     self.arguments = {}
-    #     # TODO: add input for thicknesses
-    #     if forces is not None:
-    #         self.arguments[f'{shell_name}_forces'] = forces
-    #     if moments is not None:
-    #         self.arguments[f'{shell_name}_moments'] = moments
-    #
-    #     # Create the M3L variables that are being output
-    #     displacements = m3l.Variable(name=f'{shell_name}_displacement',
-    #                         shape=mesh.shape, operation=self)
-    #     rotations = m3l.Variable(name=f'{shell_name}_rotation',
-    #                         shape=mesh.shape, operation=self)
-    #     mass = m3l.Variable(name='mass', shape=(1,), operation=self)
-    #     inertia_tensor = m3l.Variable(name='inertia_tensor', shape=(3,3), operation=self)
-    #     return displacements, rotations, mass
-
-
 class RMShellForces(m3l.ExplicitOperation):
     def initialize(self, kwargs):
         self.parameters.declare('component')
@@ -181,7 +134,7 @@ class RMShellForces(m3l.ExplicitOperation):
         flatenned_shell_mesh_forces = csdl.matmat(force_map_csdl, flattened_nodal_forces)
         output_shape = tuple(mesh.shape[:-1]) + (nodal_forces.shape[-1],)
         shell_mesh_forces = csdl.reshape(flatenned_shell_mesh_forces, new_shape=output_shape)
-        csdl_model.register_module_output(f'{shell_name}_forces', shell_mesh_forces)
+        csdl_model.register_module_output(f'{shell_name}_forces', -1.0*shell_mesh_forces)
 
         return csdl_model
 

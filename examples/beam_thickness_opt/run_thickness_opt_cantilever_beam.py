@@ -6,7 +6,8 @@ this example uses Euler-Bernoulli ("classical") beam theory
 '''
 
 
-from femo.fea.fea_dolfinx import FEA
+# from femo.fea.fea_dolfinx import FEA
+from femo.fea.fea_dolfinx import *
 from femo.csdl_opt.fea_model import FEAModel
 from femo.csdl_opt.state_model import StateModel
 from femo.csdl_opt.output_model import OutputModel
@@ -24,6 +25,7 @@ from python_csdl_backend import Simulator as py_simulator
 from matplotlib import pyplot as plt
 import argparse
 import basix
+
 
 from mpi4py import MPI
 from modopt.csdl_library import CSDLProblem
@@ -53,8 +55,9 @@ nel = 50
 mesh = create_interval(MPI.COMM_WORLD, nel, [0., L])
 
 x = ufl.SpatialCoordinate(mesh)
-width = ufl.Constant(mesh,b)
-E = ufl.Constant(mesh,E)
+# width = ufl.Constant(mesh,b)
+# E = ufl.Constant(mesh,E)
+width = b
 
 
 '''
@@ -67,6 +70,8 @@ E = ufl.Constant(mesh,E)
 
 # Define Moment expression
 def M(u, t, E, width):
+    t3 = t**3
+    a = width*t**3
     EI = (E*width*t**3)/12
     return EI*div(grad(u))
 
@@ -77,7 +82,7 @@ def pdeRes(u, v, t, f, dss, E, width):
 def volume(t, width, L):
     return t*width*L*dx
 
-def compliance(u, f, dss=ds):
+def compliance(u, f, dss=ufl.ds):
     return dot(f,u)*dss
 
 '''

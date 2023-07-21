@@ -606,8 +606,8 @@ for name in valid_structural_left_wing_names:
     i += 1
 #################### end of m3l ########################
 #### self-weight
-# testing_csdl_model.add_constraint(system_model_name+'wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=7E6,scaler=1E-6)
-testing_csdl_model.add_constraint(system_model_name+'wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=276E6/1.5,scaler=1E-8)
+testing_csdl_model.add_constraint(system_model_name+'wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=2E6,scaler=1E-6)
+# testing_csdl_model.add_constraint(system_model_name+'wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=276E6/1.5,scaler=1E-8)
 testing_csdl_model.add_objective(system_model_name+'wing_rm_shell_model.rm_shell.mass_model.mass', scaler=1e-2)
 
 
@@ -619,25 +619,68 @@ sim = Simulator(testing_csdl_model, analytics=True)
 sim.run()
 
 ########### Before optimization:
-# spar, rib, skin thicknesses: [0.003] [0.002] [0.001]
-# vlm forces: -2265.450180657876 0.0 -11177.903075432547
-# shell forces: -2265.450180657873 0.0 -11177.903075432556
-# Wing tip deflection (on struture): 0.01445614885310753
-# Wing total mass (kg): 553.634395542816
-# Wing aggregated von Mises stress (Pa): [5840444.30269203]
-# Wing maximum von Mises stress (Pa): 5967654.385303118
-#   Number of elements = 2880
-#   Number of vertices = 2690
-
+# Spar, rib, skin thicknesses: [0.003] [0.002] [0.001]
+# vlm forces: -2834.7473261292184 0.0 -19109.657174003994
+# shell forces: -2834.747326129222 0.0 -19109.657174003984
+# Wing tip deflection (on struture): 0.0031286585577061754
+# Wing total mass (kg): 522.5264655468192
+# Wing aggregated von Mises stress (Pa): [2144168.12353685]
+# Wing maximum von Mises stress (Pa): 1799872.9151822056
+#### new projection
+# Spar, rib, skin thicknesses: [0.003] [0.002] [0.001]
+# vlm forces: -2834.7473261292184 0.0 -19109.657174003994
+# shell forces: -2834.747326129222 0.0 -19109.657174003984
+# Wing tip deflection (on struture): 0.004148267650810253
+# Wing total mass (kg): 422.2882971939133
+# Wing aggregated von Mises stress (Pa): [2693636.71782115]
+# Wing maximum von Mises stress (Pa): 2797596.474368076
 ############ After optimization:
-# Optimizated spar, rib, skin thicknesses: [0.001] [0.001] [0.001]
-# vlm forces: -2265.450180657876 0.0 -11177.903075432547
-# shell forces: -2265.450180657873 0.0 -11177.903075432556
-# Wing tip deflection (on struture): 0.02129867769335885
-# Wing total mass (kg): 329.2466984375246
-# Wing aggregated von Mises stress (psi): [7303213.26992667]
-# Wing maximum von Mises stress (psi): 8703530.154728536
-
+# 	 Scipy summary:
+# 	 ==============
+# 	 Problem                    : pav
+# 	 Solver                     : scipy_slsqp
+# 	 Success                    : True
+# 	 Message                    : Optimization terminated successfully
+# 	 Objective                  : 4.127986476036599
+# 	 Gradient norm              : 1735.6607618990972
+# 	 Total time                 : 712.4515898227692
+# 	 Major iterations           : 13
+# 	 Total function evals       : 26
+# 	 Total gradient evals       : 13
+# 	 ==================================================
+# Spar, rib, skin thicknesses: [0.00115115] [0.00162484] [0.00136714]
+# vlm forces: -2834.7473261292184 0.0 -19109.657174004
+# shell forces: -2834.7473261292216 0.0 -19109.657174003984
+# Wing tip deflection (on struture): 0.0032439525500470305
+# Wing total mass (kg): 412.79864760365996
+# Wing aggregated von Mises stress (Pa): [2000003.56956509]
+# Wing maximum von Mises stress (Pa): 2503693.6573748067
+#   Number of elements = 2472
+#   Number of vertices = 2303
+###### new projection
+# 	 Scipy summary:
+# 	 ==============
+# 	 Problem                    : pav
+# 	 Solver                     : scipy_slsqp
+# 	 Success                    : False
+# 	 Message                    : Positive directional derivative for linesearch
+# 	 Objective                  : 4.251473102817001
+# 	 Gradient norm              : 2071.89427175824
+# 	 Total time                 : 184.53138184547424
+# 	 Major iterations           : 8
+# 	 Total function evals       : 5
+# 	 Total gradient evals       : 4
+# 	 ==================================================
+# Spar, rib, skin thicknesses: [0.00100113] [0.00100066] [0.00168938]
+# vlm forces: -2834.747318413123 0.0 -19109.657585803718
+# shell forces: -2834.747318413131 0.0 -19109.657585803725
+# Wing tip deflection (on struture): 0.00272975273321962
+# Wing total mass (kg): 425.14731028170013
+# Wing aggregated von Mises stress (Pa): [2004739.04573722]
+# Wing maximum von Mises stress (Pa): 2021821.440406924
+#   Number of elements = 2472
+#   Number of vertices = 2303
+#########################################################
 # sim.check_totals(of=[system_model_name+'wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
 #                                     wrt=['h_spar', 'h_skin', 'h_rib'])
 #                                     calc norm              relative error             absolute error
@@ -656,10 +699,10 @@ sim.run()
 # ('mass', 'h_rib')      102288.0061464967      3.1974576790283684e-11     3.2706157071515918e-06
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ########################### Run optimization ##################################
-# prob = CSDLProblem(problem_name='pav', simulator=sim)
-# optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
-# optimizer.solve()
-# optimizer.print_results()
+prob = CSDLProblem(problem_name='pav', simulator=sim)
+optimizer = SLSQP(prob, maxiter=1000, ftol=1E-5)
+optimizer.solve()
+optimizer.print_results()
 
 # Comparing the solution to the Kirchhoff analytical solution
 f_shell = sim[system_model_name+'wing_rm_shell_force_mapping.wing_shell_forces']
