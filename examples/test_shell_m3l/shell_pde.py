@@ -377,6 +377,7 @@ class ShellPDE(object):
         self.VF = VectorFunctionSpace(mesh, ("CG", 1))
         self.bf_sup_sizes = assemble_vector(
                 form(TestFunction(self.VF.sub(0).collapse()[0])*dx)).getArray()
+        # self.bf_sup_sizes = np.ones_like(self.bf_sup_sizes)
 
     def compute_alpha(self):
         h_mesh = ufl.CellDiameter(self.mesh)
@@ -430,7 +431,6 @@ class ShellPDE(object):
 
     def total_force(self,f):
         fz = f.sub(2).collapse()
-        print(fz.x.array)
         return fz*dx
 
     def mass(self,h,rho):
@@ -492,6 +492,23 @@ class ShellPDE(object):
         disp_extraction_mats = sp.vstack(deriv_us_to_ua_coord_list)
         # print(disp_extraction_mats.shape)
         return disp_extraction_mats
+
+    def compute_sparse_mass_matrix(self):
+        # functions used to assemble FEA mass matrix
+        f_trial = TrialFunction(self.VT)
+        f_test = TestFunction(self.VT)
+
+        # assemble PETSc mass matrix
+        Mat_f = assemble_matrix(form(inner(f_test, f_trial)*dx))
+        Mat_f.assemble()
+
+        # convert mass matrix to sparse Python array
+        Mat_f_csr = Mat_f.getValuesCSR()
+        Mat_f_sp = sp.csr_matrix((Mat_f_csr[2], Mat_f_csr[1], Mat_f_csr[0]))
+
+        # eliminate zeros that are present in mass matrix
+        Mat_f_sp.eliminate_zeros()
+        return Mat_f_sp
 
     def construct_disp_extraction_mats(self):
         # first we construct the extraction matrix for all displacements

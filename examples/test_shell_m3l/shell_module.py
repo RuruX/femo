@@ -5,6 +5,7 @@ from lsdo_modules.module_csdl.module_csdl import ModuleCSDL
 from lsdo_modules.module.module import Module
 from shell_pde import ShellPDE, ShellModule, NodalMap
 import numpy as np
+from scipy.sparse.linalg import spsolve
 
 from typing import Tuple, Dict
 """
@@ -171,13 +172,15 @@ class RMShellForces(m3l.ExplicitOperation):
                             shape=output_shape, operation=self)
         return shell_forces
 
+
     def fmap(self, mesh, oml):
-        # Fs = W*Fp
-        G_mat = NodalMap(mesh, oml, RBF_width_par=2.0,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=4.,
                             column_scaling_vec=self.pde.bf_sup_sizes)
-        weights = G_mat.map.T
-        # print("Force map shape:", weights.shape)
+        rhs_mats = G_mat.map.T
+        mat_f_sp = self.pde.compute_sparse_mass_matrix()
+        weights = spsolve(mat_f_sp, rhs_mats)
         return weights
+
 
 class RMShellNodalDisplacements(m3l.ExplicitOperation):
     def initialize(self, kwargs):
@@ -253,7 +256,6 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         G_mat = NodalMap(mesh, oml, RBF_width_par=2.0,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         weights = G_mat.map
-        # print("Disp map shape:", weights.shape)
         return weights
 
 
