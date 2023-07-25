@@ -676,7 +676,7 @@ bem_model.set_module_input('twist_cp', val=np.deg2rad(np.linspace(65, 15, 4)),
                            dv_flag=True,
                            lower=np.deg2rad(5), upper=np.deg2rad(85), scaler=1
                            )
-bem_forces, bem_moments, _, _, _ = bem_model.evaluate(ac_states=cruise_ac_states)
+bem_forces, bem_moments, _, _, _, _ = bem_model.evaluate(ac_states=cruise_ac_states)
 cruise_model.register_output(bem_forces)
 cruise_model.register_output(bem_moments)
 # endregion
