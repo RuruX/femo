@@ -965,7 +965,6 @@ if structure:
     # uZ_nodal = u_nodal[:,2]
 
 
-    wing_total_force = sim[system_model_name+'Wing_rm_shell_model.rm_shell.total_force_model.total_force']
     wing_tip_compliance = sim[system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance']
     wing_mass = sim[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass']
     wing_elastic_energy = sim[system_model_name+'Wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']

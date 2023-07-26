@@ -211,8 +211,6 @@ class ShellModule(ModuleCSDL):
                                 dx_reduced,m=m,rho=rho,alpha=None,regularization=False)
         output_name_5 = 'von_Mises_stress'
         output_form_5 = pde.von_Mises_stress(state_function,input_function_1,E,nu,surface='Top')
-        output_name_6 = 'total_force'
-        output_form_6 = pde.total_force(input_function_2)
 
         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=True)
         fea.add_input(input_name_2, input_function_2, record=True)
@@ -240,10 +238,6 @@ class ShellModule(ModuleCSDL):
                         form=output_form_5,
                         arguments=[input_name_1,state_name],
                         record=True)
-        fea.add_output(name=output_name_6,
-                        type='scalar',
-                        form=output_form_6,
-                        arguments=[input_name_2])
         force_reshaping_model = ForceReshapingModel(pde=pde,
                                     input_name=shell_name+'_forces',
                                     output_name=input_name_2)
@@ -266,9 +260,6 @@ class ShellModule(ModuleCSDL):
         von_Mises_stress_model = OutputFieldModel(fea=fea,
                                     output_name=output_name_5,
                                     arg_name_list=fea.outputs_field_dict[output_name_5]['arguments'])
-        total_force_model = OutputModel(fea=fea,
-                                    output_name=output_name_6,
-                                    arg_name_list=fea.outputs_dict[output_name_6]['arguments'])
         disp_extraction_model = DisplacementExtractionModel(pde=pde,
                                     input_name=state_name,
                                     output_name=shell_name+'_displacement')
@@ -283,7 +274,6 @@ class ShellModule(ModuleCSDL):
         self.add(von_Mises_stress_model, name='von_Mises_stress_model')
         self.add(mass_model, name='mass_model')
         self.add(elastic_energy_model, name='elastic_energy_model')
-        self.add(total_force_model, name='total_force_model')
         self.add(pnorm_stress_model, name='von_mises_stress_model')
         self.add(aggregated_stress_model, name='aggregated_stress_model')
 
@@ -428,10 +418,6 @@ class ShellPDE(object):
 
     def volume(self,h):
         return h*dx
-
-    def total_force(self,f):
-        fz = f.sub(2).collapse()
-        return fz*dx
 
     def mass(self,h,rho):
         return rho*h*dx

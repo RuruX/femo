@@ -43,11 +43,8 @@ if fenics:
     import shell_module as rmshell
     from shell_pde import ShellPDE
 
-SI = True
-ft2m = 1.
-lbs2kg = 1.
-psf2pa = 1.
 
+in2m = 0.0254
 ft2m = 0.3048
 lbs2kg = 0.453592
 psf2pa = 50
@@ -494,12 +491,10 @@ if process_gmsh:
 # exit()
 
 #############################################
-# filename = "./pav_wing/pav_wing_caddee_mesh_10530_quad.xdmf"
-filename = "./pav_wing/pav_wing_v2_caddee_mesh_2303_quad.xdmf"
-# filename = "./pav_wing/pav_wing_v2_caddee_mesh_6307_quad.xdmf"
-if SI:
-    # filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
-    filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
+
+# filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
+filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
+
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
     fenics_mesh = xdmf.read_mesh(name="Grid")
 nel = fenics_mesh.topology.index_map(fenics_mesh.topology.dim).size_local
@@ -590,28 +585,24 @@ thickness_nodes = wing_thickness.evaluate(nodes_parametric)
 
 shell_pde = ShellPDE(fenics_mesh)
 
-
-nu = 0.327
-E = 1380000000.0
-h = 0.00984251968503937
-rho = 43249.81583034032
-f_d = -260.69881889763775
-
-if SI:
-    # Aluminum 7050
-    E = 6.9E10 # unit: Pa (N/m^2)
-    h = 3E-3 # overall thickness (unit: m)
-    rho = 2700
-    f_d = -rho*h*9.81
+#
+# nu = 0.327
+# # Aluminum 7050
+# E = 6.9E10 # unit: Pa (N/m^2)
+# h = 3E-3 # overall thickness (unit: m)
+# rho = 2700
+# f_d = -rho*h*9.81
 
 
-# # convert units from SI to Imperial
-# E /= psf2pa
-# h /= ft2m
-# ft2m_rho = ft2m**3/lbs2kg
-# rho /= ft2m_rho #kg/m^3 to lb/ft^3
-# f_d /= ft2m
-
+# Unstiffened Aluminum 2024
+# reference: https://asm.matweb.com/search/SpecificMaterial.asp?bassnum=ma2024t4
+E = 73.1E9 # unit: Pa
+nu = 0.33
+h = 0.02*in2m # unit: m
+rho = 2780 # unit: kg/m^3
+f_d = -rho*h*9.81 # self-weight unit: N
+tensile_yield_strength = 324E6 # unit: Pa
+safety_factor = 1.5
 
 y_bc = -1e-6
 semispan = tip_te[1]
@@ -667,7 +658,7 @@ cruise_condition.atmosphere_model = cd.SimpleAtmosphereModel()
 cruise_condition.set_module_input(name='altitude', val=600*ft2m)
 cruise_condition.set_module_input(name='mach_number', val=0.145972)  # 112 mph = 0.145972 Mach = 50m/s
 cruise_condition.set_module_input(name='range', val=80467.2)  # 50 miles = 80467.2 m
-cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(0), dv_flag=True, lower=np.deg2rad(-10), upper=np.deg2rad(10))
+cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(6), dv_flag=True, lower=np.deg2rad(-10), upper=np.deg2rad(10))
 cruise_condition.set_module_input(name='flight_path_angle', val=0)
 cruise_condition.set_module_input(name='roll_angle', val=0)
 cruise_condition.set_module_input(name='yaw_angle', val=0)
@@ -726,8 +717,8 @@ if structure:
             ],
         fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
         mesh_unit='m',
-        cl0=[0.0, 0.0] # need to tune the coefficient
-        # cl0=[0.3475, 0.0] # need to tune the coefficient
+        # cl0=[0.0, 0.0] # need to tune the coefficient
+        cl0=[0.3475, 0.0] # need to tune the coefficient
     )
     left_wing_vlm_panel_forces, left_wing_vlm_forces, left_wing_vlm_moments  = left_wing_vlm_model.evaluate(ac_states=cruise_ac_states)
     cruise_model.register_output(left_wing_vlm_forces)
@@ -847,29 +838,31 @@ if not structure:
         scaler=1e-1
     )
 else:
-    #### Trim + with structural sizing
+    #### structural sizing
     caddee_csdl_model.add_constraint(system_model_name+'euler_eom_gen_ref_pt.trim_residual', equals=0.)
-    caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=500E6/1.5,scaler=1E-8)
+    caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',
+                                    upper=tensile_yield_strength/safety_factor,scaler=1E-8)
     caddee_csdl_model.add_objective(system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass', scaler=1e-1)
 
-
-    h_spar = caddee_csdl_model.create_input('h_spar', val=0.003)
+    # Minimum thickness: 0.02 inch
+    h_min = h
+    h_spar = caddee_csdl_model.create_input('h_spar', val=h_min)
     caddee_csdl_model.add_design_variable('h_spar',
-                                          lower=0.001,
-                                          upper=0.1,
-                                          scaler=100,
+                                          lower=0.01 * in2m,
+                                          upper=0.1 * in2m,
+                                          scaler=1000,
                                           )
-    h_skin = caddee_csdl_model.create_input('h_skin', val=0.002)
+    h_skin = caddee_csdl_model.create_input('h_skin', val=h_min)
     caddee_csdl_model.add_design_variable('h_skin',
-                                          lower=0.001,
-                                          upper=0.1,
-                                          scaler=100,
+                                          lower=0.01 * in2m,
+                                          upper=0.1* in2m,
+                                          scaler=1000,
                                           )
-    h_rib = caddee_csdl_model.create_input('h_rib', val=0.001)
+    h_rib = caddee_csdl_model.create_input('h_rib', val=h_min)
     caddee_csdl_model.add_design_variable('h_rib',
-                                          lower=0.001,
-                                          upper=0.1,
-                                          scaler=100,
+                                          lower=0.01 * in2m,
+                                          upper=0.1 * in2m,
+                                          scaler=1000,
                                           )
     # h_spar, h_skin, h_rib = 0.003, 0.001, 0.002
     i = 0
@@ -921,8 +914,9 @@ sim = Simulator(caddee_csdl_model, analytics=True)
 sim.run()
 
 
-print('C_L: ', sim['system_model.aircraft_trim.cruise_1.cruise_1.left_wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.left_wing_vlm_mesh_C_L'])
-print('Total lift: ', sim['system_model.aircraft_trim.cruise_1.cruise_1.left_wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.total_lift'])
+print('C_L (left wing): ', sim['system_model.aircraft_trim.cruise_1.cruise_1.left_wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.left_wing_vlm_mesh_C_L'])
+print('Total lift (left wing): ', sim['system_model.aircraft_trim.cruise_1.cruise_1.left_wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.total_lift'])
+print('Total lift (whole wing + Tail): ', sim['system_model.aircraft_trim.cruise_1.cruise_1.wing_vlm_meshhtail_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.total_lift'])
 print('Total forces: ', sim[system_model_name+'euler_eom_gen_ref_pt.total_forces'])
 print('Total moments:', sim[system_model_name+'euler_eom_gen_ref_pt.total_moments'])
 print('Total mass: ', sim[system_model_name+'total_constant_mass_properties.total_mass'])
@@ -966,7 +960,6 @@ if structure:
     # uZ_nodal = u_nodal[:,2]
 
 
-    wing_total_force = sim[system_model_name+'Wing_rm_shell_model.rm_shell.total_force_model.total_force']
     wing_tip_compliance = sim[system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance']
     wing_mass = sim[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass']
     wing_elastic_energy = sim[system_model_name+'Wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
