@@ -26,6 +26,7 @@ from modopt.scipy_library import SLSQP
 from modopt.csdl_library import CSDLProblem
 import m3l
 from m3l.utils.utils import index_functions
+from m3l.core.function_spaces import IDWFunctionSpace
 import lsdo_geo as lg
 import array_mapper as am
 import pickle
@@ -542,11 +543,18 @@ wing_thickness = m3l.IndexedFunction('wing_thickness', space = wing_t_space_m3l,
 
 order = 3
 shape = 5
-space_u = lg.BSplineSpace(name=name,
+space_u = lg.BSplineSpace(name='displacement_base_space',
                         order=(order, order),
                         control_points_shape=(shape, shape))
 wing_displacement = index_functions(structural_left_wing_names, 'wing_displacement', space_u, 3)
 
+num = 5
+u, v = np.meshgrid(np.linspace(0,1,num), np.linspace(0,1,num))
+u = np.array(u).flatten()
+v = np.array(v).flatten()
+points = np.vstack((u,v)).T
+space_f = IDWFunctionSpace(name='force_base_space', points=points, order=1, coefficients_shape=(points.shape[0],))
+wing_force = index_functions(left_wing_names, 'wing_force', space_f, 3)
 
 
 # transfer mesh
@@ -558,21 +566,7 @@ for name in structural_left_wing_names:
         for v in np.linspace(0,1,grid_num):
             transfer_para_mesh.append((name, np.array([u,v]).reshape((1,2))))
 
-num_control_points = np.cumprod(spatial_rep.control_points['geometry'].shape[:-1])[-1]
-num_points = len(transfer_para_mesh)
-linear_map = sps.lil_array((num_points, num_control_points))
-i = 0
-for node in transfer_para_mesh:
-    receiving_target = spatial_rep.primitives[node[0]]
-    point_map_on_receiving_target = receiving_target.geometry_primitive.compute_evaluation_map(u_vec=np.array([node[1][0,0]]), v_vec=np.array([node[1][0,1]]))
-    receiving_target_control_point_indices = spatial_rep.primitive_indices[receiving_target.name]['geometry']
-    linear_map[i, receiving_target_control_point_indices] = point_map_on_receiving_target
-    i += 1
-shape = (len(transfer_para_mesh),spatial_rep.control_points['geometry'].shape[-1],)
-
-transfer_geo_nodes_ma = am.array(spatial_rep.control_points['geometry'], linear_map=linear_map.tocsc(), shape=shape)
-
-
+transfer_geo_nodes_ma = spatial_rep.evaluate_parametric(transfer_para_mesh)
 
 # make thickness mesh as m3l variable
 # this will take ~4 minutes
@@ -821,8 +815,12 @@ if structure:
             ]
     )
 
-    oml_forces = vlm_force_mapping_model.evaluate(vlm_forces=left_wing_vlm_panel_forces, nodal_force_meshes=[left_wing_oml_mesh, left_wing_oml_mesh])
+
+    oml_forces = vlm_force_mapping_model.evaluate(vlm_forces=left_wing_vlm_panel_forces, nodal_force_meshes=[left_wing_oml_mesh])
     wing_forces = oml_forces[0]
+
+    wing_force.inverse_evaluate(spatial_rep.project(left_wing_oml_mesh, properties=['parametric_coordinates'], targets=left_wing_names),oml_forces)
+    # cruise_model.register_output(wing_force.coefficients)
 
     shell_force_map_model = rmshell.RMShellForces(component=wing,
                                                     mesh=shell_mesh,
