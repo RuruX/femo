@@ -211,8 +211,6 @@ class ShellModule(ModuleCSDL):
                                 dx_reduced,m=m,rho=rho,alpha=None,regularization=False)
         output_name_5 = 'von_Mises_stress'
         output_form_5 = pde.von_Mises_stress(state_function,input_function_1,E,nu,surface='Top')
-        output_name_6 = 'total_force'
-        output_form_6 = pde.total_force(input_function_2)
 
         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=True)
         fea.add_input(input_name_2, input_function_2, record=True)
@@ -240,10 +238,6 @@ class ShellModule(ModuleCSDL):
                         form=output_form_5,
                         arguments=[input_name_1,state_name],
                         record=True)
-        fea.add_output(name=output_name_6,
-                        type='scalar',
-                        form=output_form_6,
-                        arguments=[input_name_2])
         force_reshaping_model = ForceReshapingModel(pde=pde,
                                     input_name=shell_name+'_forces',
                                     output_name=input_name_2)
@@ -266,9 +260,6 @@ class ShellModule(ModuleCSDL):
         von_Mises_stress_model = OutputFieldModel(fea=fea,
                                     output_name=output_name_5,
                                     arg_name_list=fea.outputs_field_dict[output_name_5]['arguments'])
-        total_force_model = OutputModel(fea=fea,
-                                    output_name=output_name_6,
-                                    arg_name_list=fea.outputs_dict[output_name_6]['arguments'])
         disp_extraction_model = DisplacementExtractionModel(pde=pde,
                                     input_name=state_name,
                                     output_name=shell_name+'_displacement')
@@ -283,7 +274,6 @@ class ShellModule(ModuleCSDL):
         self.add(von_Mises_stress_model, name='von_Mises_stress_model')
         self.add(mass_model, name='mass_model')
         self.add(elastic_energy_model, name='elastic_energy_model')
-        self.add(total_force_model, name='total_force_model')
         self.add(pnorm_stress_model, name='von_mises_stress_model')
         self.add(aggregated_stress_model, name='aggregated_stress_model')
 
@@ -377,6 +367,7 @@ class ShellPDE(object):
         self.VF = VectorFunctionSpace(mesh, ("CG", 1))
         self.bf_sup_sizes = assemble_vector(
                 form(TestFunction(self.VF.sub(0).collapse()[0])*dx)).getArray()
+        # self.bf_sup_sizes = np.ones_like(self.bf_sup_sizes)
 
     def compute_alpha(self):
         h_mesh = ufl.CellDiameter(self.mesh)
@@ -427,11 +418,6 @@ class ShellPDE(object):
 
     def volume(self,h):
         return h*dx
-
-    def total_force(self,f):
-        fz = f.sub(2).collapse()
-        print(fz.x.array)
-        return fz*dx
 
     def mass(self,h,rho):
         return rho*h*dx
@@ -492,6 +478,23 @@ class ShellPDE(object):
         disp_extraction_mats = sp.vstack(deriv_us_to_ua_coord_list)
         # print(disp_extraction_mats.shape)
         return disp_extraction_mats
+
+    def compute_sparse_mass_matrix(self):
+        # functions used to assemble FEA mass matrix
+        f_trial = TrialFunction(self.VT)
+        f_test = TestFunction(self.VT)
+
+        # assemble PETSc mass matrix
+        Mat_f = assemble_matrix(form(inner(f_test, f_trial)*dx))
+        Mat_f.assemble()
+
+        # convert mass matrix to sparse Python array
+        Mat_f_csr = Mat_f.getValuesCSR()
+        Mat_f_sp = sp.csr_matrix((Mat_f_csr[2], Mat_f_csr[1], Mat_f_csr[0]))
+
+        # eliminate zeros that are present in mass matrix
+        Mat_f_sp.eliminate_zeros()
+        return Mat_f_sp
 
     def construct_disp_extraction_mats(self):
         # first we construct the extraction matrix for all displacements

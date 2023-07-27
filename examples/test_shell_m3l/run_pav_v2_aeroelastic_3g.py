@@ -43,6 +43,11 @@ if fenics:
     import shell_module as rmshell
     from shell_pde import ShellPDE
 
+SI = False
+ft2m = 1.
+lbs2kg = 1.
+psf2pa = 1.
+
 ft2m = 0.3048
 lbs2kg = 0.453592
 psf2pa = 50
@@ -63,6 +68,7 @@ spatial_rep = sys_rep.spatial_representation
 # import initial geomrty
 file_name = '/pav_wing/pav.stp'
 cfile = str(pathlib.Path(__file__).parent.resolve())
+print(cfile)
 spatial_rep.import_file(file_name=cfile+file_name)
 spatial_rep.refit_geometry(file_name=cfile+file_name)
 
@@ -108,10 +114,10 @@ spar_rib_spacing_ratio = 3
 num_rib_pts = 20
 
 # Important points from openVSP
-root_te = np.array([15.170, 0., 1.961])
-root_le = np.array([8.800, 0, 1.989])
-tip_te = np.array([11.300, -14.000, 1.978])
-tip_le = np.array([8.796, -14.000, 1.989])
+root_te = np.array([15.170, 0., 1.961]) # * ft2m
+root_le = np.array([8.800, 0, 1.989]) # * ft2m
+tip_te = np.array([11.300, -14.000, 1.978]) # * ft2m
+tip_le = np.array([8.796, -14.000, 1.989]) # * ft2m
 
 root_25 = (3*root_le+root_te)/4
 root_75 = (root_le+3*root_te)/4
@@ -194,51 +200,51 @@ for i in range(num_ribs):
 spatial_rep.assemble()
 
 
-
-
-## make additional geometry for meshing
-write_geometry = False
-save_file = '/pav_wing/pav_wing_v2_structue.iges'
-
-mesh_spatial_rep = SpatialRepresentation()
-# mesh_spatial_rep.primitives[f_spar.name] = f_spar
-# mesh_spatial_rep.primitives[r_spar.name] = r_spar
-
-# add ribs
-for i in range(num_ribs):
-    name = 'rib_' + str(i)
-    mesh_spatial_rep.primitives[name] = spatial_rep.primitives[name]
-
-# add spars
-for i in range(num_ribs-1):
-    name = 'f_spar_' + str(i)
-    mesh_spatial_rep.primitives[name] = spatial_rep.primitives[name]
-    name = 'r_spar_' + str(i)
-    mesh_spatial_rep.primitives[name] = spatial_rep.primitives[name]
-
-# make surface panels
-n_cp = (num_rib_pts,2)
-order = (2,)
-
-for i in range(num_ribs-1):
-    t_panel_points = ribs_top.value[:,(i,i+1),:]
-    t_panel_bspline = bsf.fit_bspline(t_panel_points, num_control_points=n_cp, order=order)
-    t_panel = SystemPrimitive('t_panel_' + str(i), t_panel_bspline)
-    mesh_spatial_rep.primitives[t_panel.name] = t_panel
-
-    b_panel_points = ribs_bottom.value[:,(i,i+1),:]
-    b_panel_bspline = bsf.fit_bspline(b_panel_points, num_control_points=n_cp, order=order)
-    b_panel = SystemPrimitive('b_panel_' + str(i), b_panel_bspline)
-    mesh_spatial_rep.primitives[b_panel.name] = b_panel
-
-mesh_spatial_rep.assemble()
-if do_plots:
-    mesh_spatial_rep.plot(plot_types=['wireframe'])
-
-if write_geometry:
-    mesh_spatial_rep.write_iges(cfile + save_file)
-## At this point, use gmsh to generate a mesh using ^this^ .iges file
-
+# region Generate structure mesh
+#
+# ## make additional geometry for meshing
+# write_geometry = False
+# save_file = '/pav_wing/pav_wing_v2_structue.iges'
+#
+# mesh_spatial_rep = SpatialRepresentation()
+# # mesh_spatial_rep.primitives[f_spar.name] = f_spar
+# # mesh_spatial_rep.primitives[r_spar.name] = r_spar
+#
+# # add ribs
+# for i in range(num_ribs):
+#     name = 'rib_' + str(i)
+#     mesh_spatial_rep.primitives[name] = spatial_rep.primitives[name]
+#
+# # add spars
+# for i in range(num_ribs-1):
+#     name = 'f_spar_' + str(i)
+#     mesh_spatial_rep.primitives[name] = spatial_rep.primitives[name]
+#     name = 'r_spar_' + str(i)
+#     mesh_spatial_rep.primitives[name] = spatial_rep.primitives[name]
+#
+# # make surface panels
+# n_cp = (num_rib_pts,2)
+# order = (2,)
+#
+# for i in range(num_ribs-1):
+#     t_panel_points = ribs_top.value[:,(i,i+1),:]
+#     t_panel_bspline = bsf.fit_bspline(t_panel_points, num_control_points=n_cp, order=order)
+#     t_panel = SystemPrimitive('t_panel_' + str(i), t_panel_bspline)
+#     mesh_spatial_rep.primitives[t_panel.name] = t_panel
+#
+#     b_panel_points = ribs_bottom.value[:,(i,i+1),:]
+#     b_panel_bspline = bsf.fit_bspline(b_panel_points, num_control_points=n_cp, order=order)
+#     b_panel = SystemPrimitive('b_panel_' + str(i), b_panel_bspline)
+#     mesh_spatial_rep.primitives[b_panel.name] = b_panel
+#
+# mesh_spatial_rep.assemble()
+# if do_plots:
+#     mesh_spatial_rep.plot(plot_types=['wireframe'])
+#
+# if write_geometry:
+#     mesh_spatial_rep.write_iges(cfile + save_file)
+# ## At this point, use gmsh to generate a mesh using ^this^ .iges file
+# endregion
 
 
 # Wing
@@ -308,50 +314,10 @@ sys_param.setup()
 plots_flag = False
 
 structure = True
-# left wing only
-num_wing_vlm = 21
-num_chordwise_vlm = 5
-point10 = root_le
-point11 = root_te
-point20 = tip_le
-point21 = tip_te
-
-leading_edge_points = np.linspace(point10, point20, num_wing_vlm)
-trailing_edge_points = np.linspace(point11, point21, num_wing_vlm)
-
-leading_edge = wing.project(leading_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag)
-trailing_edge = wing.project(trailing_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag)
-
-# Chord Surface
-wing_chord_surface = am.linspace(leading_edge, trailing_edge, num_chordwise_vlm)
-if plots_flag:
-    spatial_rep.plot_meshes([wing_chord_surface])
-
-# Upper and lower surface
-wing_upper_surface_wireframe = wing.project(wing_chord_surface.value + np.array([0., 0., 0.5]),
-                                            direction=np.array([0., 0., -1.]), grid_search_n=25,
-                                            plot=plots_flag, max_iterations=200)
-wing_lower_surface_wireframe = wing.project(wing_chord_surface.value - np.array([0., 0., 0.5]),
-                                            direction=np.array([0., 0., 1.]), grid_search_n=25,
-                                            plot=plots_flag, max_iterations=200)
-
-# Chamber surface
-left_wing_camber_surface = am.linspace(wing_upper_surface_wireframe, wing_lower_surface_wireframe, 1)
-left_wing_vlm_mesh_name = 'left_wing_vlm_mesh'
-sys_rep.add_output(left_wing_vlm_mesh_name, left_wing_camber_surface)
-
-# OML mesh
-left_wing_oml_mesh = am.vstack((wing_upper_surface_wireframe, wing_lower_surface_wireframe))
-left_wing_oml_mesh_name = 'left_wing_oml_mesh'
-sys_rep.add_output(left_wing_oml_mesh_name, left_wing_oml_mesh)
-
-sys_rep.add_output(name='left_wing_chord_distribution',
-                                    quantity=am.norm(leading_edge-trailing_edge))
-# endregion
 
 
 # region Wing
-num_wing_vlm = 21
+num_wing_vlm = 41
 num_chordwise_vlm = 5
 point00 = np.array([8.796,  14.000,  1.989]) # * ft2m # Right tip leading edge
 point01 = np.array([11.300, 14.000,  1.989]) # * ft2m # Right tip trailing edge
@@ -399,6 +365,49 @@ sys_rep.add_output(wing_oml_mesh_name, wing_oml_mesh)
 if debug_geom_flag:
     spatial_rep.plot_meshes([wing_oml_mesh])
 # endregion
+
+# left wing only
+num_wing_vlm = 21
+num_chordwise_vlm = 5
+point10 = root_le
+point11 = root_te
+point20 = tip_le
+point21 = tip_te
+
+leading_edge_points = np.linspace(point10, point20, num_wing_vlm)
+trailing_edge_points = np.linspace(point11, point21, num_wing_vlm)
+
+leading_edge = wing.project(leading_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag)
+trailing_edge = wing.project(trailing_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag)
+
+# Chord Surface
+wing_chord_surface = am.linspace(leading_edge, trailing_edge, num_chordwise_vlm)
+if plots_flag:
+    spatial_rep.plot_meshes([wing_chord_surface])
+
+# Upper and lower surface
+wing_upper_surface_wireframe = wing.project(wing_chord_surface.value + np.array([0., 0., 0.5]),
+                                            direction=np.array([0., 0., -1.]), grid_search_n=25,
+                                            plot=plots_flag, max_iterations=200)
+wing_lower_surface_wireframe = wing.project(wing_chord_surface.value - np.array([0., 0., 0.5]),
+                                            direction=np.array([0., 0., 1.]), grid_search_n=25,
+                                            plot=plots_flag, max_iterations=200)
+
+# Chamber surface
+left_wing_camber_surface = am.linspace(wing_upper_surface_wireframe, wing_lower_surface_wireframe, 1)
+left_wing_vlm_mesh_name = 'left_wing_vlm_mesh'
+sys_rep.add_output(left_wing_vlm_mesh_name, left_wing_camber_surface)
+
+# OML mesh
+left_wing_oml_mesh = am.vstack((wing_upper_surface_wireframe, wing_lower_surface_wireframe))
+left_wing_oml_mesh_name = 'left_wing_oml_mesh'
+sys_rep.add_output(left_wing_oml_mesh_name, left_wing_oml_mesh)
+
+sys_rep.add_output(name='left_wing_chord_distribution',
+                                    quantity=am.norm(leading_edge-trailing_edge))
+# endregion
+
+
 
 # region Tail
 
@@ -461,21 +470,10 @@ total_mass, total_cg, total_inertia = total_mass_properties.evaluate(mass, cg, I
 process_gmsh = False
 run_reprojection = False
 
-#############################################
-# filename = "./pav_wing/pav_wing_caddee_mesh_10530_quad.xdmf"
-filename = "./pav_wing/pav_wing_v2_caddee_mesh_2303_quad.xdmf" # TODO: make this file
-with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
-    fenics_mesh = xdmf.read_mesh(name="Grid")
-nel = fenics_mesh.topology.index_map(fenics_mesh.topology.dim).size_local
-nn = fenics_mesh.topology.index_map(0).size_local
-
-nodes = fenics_mesh.geometry.x
-
 
 #############################################
-
 if process_gmsh:
-    file = '/pav_wing/pav_v2_gmsh_2472.msh'
+    file = '/pav_wing/pav_v2_gmsh_6492.msh'
     nodes, connectivity = caddee_import_mesh(cfile + file,
                                     spatial_rep,
                                     component = wing_left_structural,
@@ -487,9 +485,26 @@ if process_gmsh:
                                     plot=do_plots,
                                     grid_search_n=100)
 
+
     cells = [("quad",connectivity)]
     mesh = meshio.Mesh(nodes.value, cells)
     meshio.write(cfile + '/pav_wing/pav_wing_v2_caddee_mesh_' + str(nodes.shape[0]) + '_quad.msh', mesh, file_format='gmsh')
+# exit()
+
+#############################################
+# filename = "./pav_wing/pav_wing_caddee_mesh_10530_quad.xdmf"
+filename = "./pav_wing/pav_wing_v2_caddee_mesh_2303_quad.xdmf"
+# filename = "./pav_wing/pav_wing_v2_caddee_mesh_6307_quad.xdmf"
+if SI:
+    # filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
+    filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
+with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
+    fenics_mesh = xdmf.read_mesh(name="Grid")
+nel = fenics_mesh.topology.index_map(fenics_mesh.topology.dim).size_local
+nn = fenics_mesh.topology.index_map(0).size_local
+
+nodes = fenics_mesh.geometry.x
+
 
 ## make thickness function and function space
 wing_spaces = {}
@@ -525,7 +540,7 @@ wing_thickness = m3l.IndexedFunction('wing_thickness', space = wing_t_space_m3l,
 # this will take ~4 minutes
 
 if run_reprojection:
-    file_name = '/pav_wing/pav_wing_v2_2_mesh_data.pickle'
+    file_name = '/pav_wing/pav_wing_v2_mesh_data_'+str(nodes.shape[0])+'.pickle'
 
     nodes_parametric = []
 
@@ -561,7 +576,7 @@ if run_reprojection:
     with open(cfile + file_name, 'wb') as f:
         pickle.dump(nodes_parametric, f)
 # exit()
-with open(cfile + '/pav_wing/pav_wing_v2_1_mesh_data.pickle', 'rb') as f:
+with open(cfile + '/pav_wing/pav_wing_v2_mesh_data_'+str(nodes.shape[0])+'.pickle', 'rb') as f:
     nodes_parametric = pickle.load(f)
 
 for i in range(len(nodes_parametric)):
@@ -573,18 +588,28 @@ thickness_nodes = wing_thickness.evaluate(nodes_parametric)
 
 shell_pde = ShellPDE(fenics_mesh)
 
-# Aluminum 7050
-E = 6.9E10 # unit: Pa (N/m^2)
-nu = 0.327
-h = 3E-3 / ft2m # overall thickness (unit: m)
-rho = 2700
-f_d = -rho*h*9.81
 
-# convert units from SI to Imperial
-E /= psf2pa
-h /= ft2m
-rho /= 16.018 #kg/m^3 to lb/ft^3
-f_d /= ft2m
+nu = 0.327
+E = 1380000000.0
+h = 0.00984251968503937
+rho = 43249.81583034032
+f_d = -260.69881889763775
+
+if SI:
+    # Aluminum 7050
+    E = 6.9E10 # unit: Pa (N/m^2)
+    h = 3E-3 # overall thickness (unit: m)
+    rho = 2700
+    f_d = -rho*h*9.81
+
+
+# # convert units from SI to Imperial
+# E /= psf2pa
+# h /= ft2m
+# ft2m_rho = ft2m**3/lbs2kg
+# rho /= ft2m_rho #kg/m^3 to lb/ft^3
+# f_d /= ft2m
+
 
 y_bc = -1e-6
 semispan = tip_te[1]
@@ -624,8 +649,7 @@ plots_flag = False
 
 # Wing shell Mesh
 z_offset = 0.0
-wing_shell_mesh = am.MappedArray(input=fenics_mesh.geometry.x + \
-                                        np.array([0.,0.,z_offset])).reshape((-1,3))
+wing_shell_mesh = am.MappedArray(input=fenics_mesh.geometry.x).reshape((-1,3))
 shell_mesh = rmshell.LinearShellMesh(
                     meshes=dict(
                     wing_shell_mesh=wing_shell_mesh,
@@ -639,7 +663,7 @@ cruise_model = m3l.Model()
 cruise_condition = cd.CruiseCondition(name="cruise_1")
 cruise_condition.atmosphere_model = cd.SimpleAtmosphereModel()
 cruise_condition.set_module_input(name='altitude', val=600*ft2m)
-cruise_condition.set_module_input(name='mach_number', val=0.145972)  # 112 mph = 0.145972 Mach
+cruise_condition.set_module_input(name='mach_number', val=0.145972)  # 112 mph = 0.145972 Mach = 50m/s
 cruise_condition.set_module_input(name='range', val=80467.2)  # 50 miles = 80467.2 m
 cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(0), dv_flag=True, lower=np.deg2rad(-10), upper=np.deg2rad(10))
 cruise_condition.set_module_input(name='flight_path_angle', val=0)
@@ -660,6 +684,7 @@ pusher_bem_mesh = BEMMesh(
     use_airfoil_ml=False,
     use_rotor_geometry=False,
     mesh_units='ft',
+    # mesh_units='ft',
     chord_b_spline_rep=True,
     twist_b_spline_rep=True
 )
@@ -700,7 +725,8 @@ if structure:
             ],
         fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
         mesh_unit='ft',
-        cl0=[0.0, 0.0]
+        cl0=[0.0, 0.0] # need to tune the coefficient
+        # cl0=[0.3475, 0.0] # need to tune the coefficient
     )
     left_wing_vlm_panel_forces, left_wing_vlm_forces, left_wing_vlm_moments  = left_wing_vlm_model.evaluate(ac_states=cruise_ac_states)
     cruise_model.register_output(left_wing_vlm_forces)
@@ -822,7 +848,7 @@ if not structure:
 else:
     #### Trim + with structural sizing
     caddee_csdl_model.add_constraint(system_model_name+'euler_eom_gen_ref_pt.trim_residual', equals=0.)
-    caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=344468.,scaler=1E-5)
+    caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=500E6/1.5,scaler=1E-8)
     caddee_csdl_model.add_objective(system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass', scaler=1e-1)
 
 
@@ -893,6 +919,9 @@ else:
 sim = Simulator(caddee_csdl_model, analytics=True)
 sim.run()
 
+
+print('C_L: ', sim['system_model.aircraft_trim.cruise_1.cruise_1.left_wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.left_wing_vlm_mesh_C_L'])
+print('Total lift: ', sim['system_model.aircraft_trim.cruise_1.cruise_1.left_wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.total_lift'])
 print('Total forces: ', sim[system_model_name+'euler_eom_gen_ref_pt.total_forces'])
 print('Total moments:', sim[system_model_name+'euler_eom_gen_ref_pt.total_moments'])
 print('Total mass: ', sim[system_model_name+'total_constant_mass_properties.total_mass'])
@@ -907,13 +936,13 @@ print('Total mass: ', sim[system_model_name+'total_constant_mass_properties.tota
 # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 # # from modopt.snopt_library import SNOPT
 # # optimizer = SNOPT(prob,
-# #                   Major_iterations = 100,
+# #                   Major_iterations = 10,
 # #                   Major_optimality = 1e-5,
 # #                   append2file=False)
 #
 # optimizer.solve()
 # optimizer.print_results()
-#
+
 
 print('Trim residual: ', sim[system_model_name+'euler_eom_gen_ref_pt.trim_residual'])
 print('Trim forces: ', sim[system_model_name+'euler_eom_gen_ref_pt.total_forces'])
@@ -923,10 +952,6 @@ print('Pitch: ', np.rad2deg(
 print('RPM: ', sim[system_model_name+'pp_disk_bem_model.rpm'])
 print('Horizontal tail actuation: ',
       np.rad2deg(sim['system_parameterization.ffd_set.rotational_section_properties_model.h_tail_act']))
-
-# print(sim[system_model_name+'pp_disk_bem_model.induced_velocity_model.eta'])
-# print(sim[
-#           system_model_name+'wing_vlm_meshhtail_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.L_over_D'])
 
 if structure:
     ####### Structural output
@@ -939,7 +964,7 @@ if structure:
     uZ = u_shell[:,2]
     # uZ_nodal = u_nodal[:,2]
 
-    wing_total_force = sim[system_model_name+'Wing_rm_shell_model.rm_shell.total_force_model.total_force']
+
     wing_tip_compliance = sim[system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance']
     wing_mass = sim[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass']
     wing_elastic_energy = sim[system_model_name+'Wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
@@ -947,12 +972,24 @@ if structure:
     wing_von_Mises_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
     ########## Output: ##########
     print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
-    print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
-    print("shell forces:", sum(f_shell[:,0]),sum(f_shell[:,1]),sum(f_shell[:,2]))
 
     fz_func = Function(shell_pde.VT)
     fz_func.x.array[:] = f_shell[:,-1]
-    print("Wing total force in z direction (lbf):", dolfinx.fem.assemble_scalar(form(fz_func*ufl.dx)))
+
+    fx_func = Function(shell_pde.VT)
+    fx_func.x.array[:] = f_shell[:,0]
+
+    fy_func = Function(shell_pde.VT)
+    fy_func.x.array[:] = f_shell[:,1]
+
+    dummy_func = Function(shell_pde.VT)
+    dummy_func.x.array[:] = 1.0
+    print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
+    print("shell forces:", dolfinx.fem.assemble_scalar(form(fx_func*ufl.dx)),
+                            dolfinx.fem.assemble_scalar(form(fy_func*ufl.dx)),
+                            dolfinx.fem.assemble_scalar(form(fz_func*ufl.dx)))
+
+    print("Wing surface area:", dolfinx.fem.assemble_scalar(form(dummy_func*ufl.dx)))
     print("Wing tip deflection (ft):",max(abs(uZ)))
     print("Wing tip compliance (= tip deflection^3/2 ft^3):",wing_tip_compliance)
     print("Wing total mass (lbs):", wing_mass)
@@ -960,3 +997,21 @@ if structure:
     print("Wing maximum von Mises stress (psf):", max(wing_von_Mises_stress))
     print("  Number of elements = "+str(nel))
     print("  Number of vertices = "+str(nn))
+
+
+# ######## Visualization: ##############
+import vedo
+# #
+# plotter = vedo.Plotter()
+# wing_shell_mesh_plot = vedo.Points(wing_shell_mesh.value.reshape((-1,3)))
+# wing_oml_plot = vedo.Points(wing_oml_mesh.value.reshape((-1,3)))
+# plotter.show([wing_shell_mesh_plot, wing_oml_plot], interactive=True, axes=1)    # Plotting point cloud
+#
+# # plotter = vedo.Plotter()
+# # wing_oml_plot = vedo.Points(wing_oml_mesh.value.reshape((-1,3)))
+# # plotter.show([wing_oml_plot], interactive=True, axes=1)    # Plotting point cloud
+#
+# plotter = vedo.Plotter()
+# wing_shell_mesh_plot = vedo.Points(wing_shell_mesh.value.reshape((-1,3)))
+# wing_oml_plot = vedo.Points(left_wing_oml_mesh.value.reshape((-1,3)))
+# plotter.show([wing_shell_mesh_plot, wing_oml_plot], interactive=True, axes=1)    # Plotting point cloud
