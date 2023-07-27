@@ -614,7 +614,7 @@ if run_reprojection:
     with open(cfile + file_name, 'wb') as f:
         pickle.dump(nodes_parametric, f)
 # exit()
-with open(cfile + '/pav_wing/pav_wing_v2_1_mesh_data.pickle', 'rb') as f:
+with open(cfile + '/pav_wing/pav_wing_v2_2_mesh_data.pickle', 'rb') as f:
     nodes_parametric = pickle.load(f)
 
 for i in range(len(nodes_parametric)):
