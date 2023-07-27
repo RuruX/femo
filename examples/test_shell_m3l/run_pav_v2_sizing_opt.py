@@ -1,10 +1,8 @@
 """
-Structural analysis of the PAV wing
-with the Reissner--Mindlin shell model
+Structural sizing optimization of the PAV wing
+Structure: the Reissner--Mindlin shell model
+Aerodynamics: Vortex Lattice Method (rigid aerodynamic loads)
 
------------------------------------------------------------
-Test the integration of m3l and shell model
------------------------------------------------------------
 """
 from VAST.core.vast_solver import VASTFluidSover
 from VAST.core.fluid_problem import FluidProblem
@@ -49,6 +47,8 @@ psf2pa = 50
 
 debug_geom_flag = False
 visualize_flag = False
+do_plots = False
+force_reprojection = False
 
 # region Meshes
 plots_flag = False
@@ -70,6 +70,19 @@ cfile = str(pathlib.Path(__file__).parent.resolve())
 spatial_rep.import_file(file_name=cfile+file_name)
 spatial_rep.refit_geometry(file_name=cfile+file_name)
 
+# fix naming
+primitives_new = {}
+indicies_new = {}
+for key, item in spatial_rep.primitives.items():
+    item.name = item.name.replace(' ','_').replace(',','')
+    primitives_new[key.replace(' ','_').replace(',','')] = item
+
+for key, item in spatial_rep.primitive_indices.items():
+    indicies_new[key.replace(' ','_').replace(',','')] = item
+
+spatial_rep.primitives = primitives_new
+spatial_rep.primitive_indices = indicies_new
+
 wing_primitive_names = list(spatial_rep.get_primitives(search_names=['Wing']).keys())
 
 # Manual surface identification
@@ -87,7 +100,7 @@ left_wing_bottom_names = []
 left_wing_te_top_names = []
 left_wing_te_bottom_names = []
 for i in range(22+168,37+168):
-    surf_name = 'Wing, 1, ' + str(i)
+    surf_name = 'Wing_1_' + str(i)
     left_wing_names.append(surf_name)
     if i%4 == 2:
         left_wing_te_bottom_names.append(surf_name)
@@ -102,11 +115,11 @@ wing_left = LiftingSurface(name='wing_left', spatial_representation=spatial_rep,
 wing_left_top = LiftingSurface(name='wing_left_top', spatial_representation=spatial_rep, primitive_names=left_wing_top_names)
 wing_left_bottom = LiftingSurface(name='wing_left_bottom', spatial_representation=spatial_rep, primitive_names=left_wing_bottom_names)
 
-structural_left_wing_names = left_wing_names.copy()
+# structural_left_wing_names = left_wing_names.copy()
+structural_left_wing_names = []
 
 
 # projections for internal structure
-do_plots = False
 num_pts = 10
 spar_rib_spacing_ratio = 3
 num_rib_pts = 20
@@ -133,14 +146,14 @@ r_spar_projection_points = np.linspace(root_75, tip_75, num_ribs)
 
 rib_projection_points = np.linspace(f_spar_projection_points, r_spar_projection_points, num_rib_pts)
 
-f_spar_top = wing_left_top.project(f_spar_projection_points, plot=do_plots)
-f_spar_bottom = wing_left_bottom.project(f_spar_projection_points, plot=do_plots)
+f_spar_top = wing_left_top.project(f_spar_projection_points, plot=do_plots, force_reprojection=force_reprojection)
+f_spar_bottom = wing_left_bottom.project(f_spar_projection_points, plot=do_plots, force_reprojection=force_reprojection)
 
-r_spar_top = wing_left_top.project(r_spar_projection_points, plot=do_plots)
-r_spar_bottom = wing_left_bottom.project(r_spar_projection_points, plot=do_plots)
+r_spar_top = wing_left_top.project(r_spar_projection_points, plot=do_plots, force_reprojection=force_reprojection)
+r_spar_bottom = wing_left_bottom.project(r_spar_projection_points, plot=do_plots, force_reprojection=force_reprojection)
 
-ribs_top = wing_left_top.project(rib_projection_points, direction=[0.,0.,1.], plot=do_plots, grid_search_n=100)
-ribs_bottom = wing_left_bottom.project(rib_projection_points, direction=[0.,0.,1.], plot=do_plots, grid_search_n=100)
+ribs_top = wing_left_top.project(rib_projection_points, direction=[0.,0.,1.], plot=do_plots, grid_search_n=100, force_reprojection=force_reprojection)
+ribs_bottom = wing_left_bottom.project(rib_projection_points, direction=[0.,0.,1.], plot=do_plots, grid_search_n=100, force_reprojection=force_reprojection)
 
 
 # make monolithic spars - makes gaps in internal structure, not good
@@ -197,8 +210,28 @@ for i in range(num_ribs):
     spatial_rep.primitives[rib.name] = rib
     structural_left_wing_names.append(rib.name)
 
-spatial_rep.assemble()
+# make surface panels
+n_cp = (num_rib_pts,2)
+order = (2,)
 
+surface_dict = {}
+for i in range(num_ribs-1):
+    t_panel_points = ribs_top.value[:,(i,i+1),:]
+    t_panel_bspline = bsf.fit_bspline(t_panel_points, num_control_points=n_cp, order=order)
+    t_panel = SystemPrimitive('t_panel_' + str(i), t_panel_bspline)
+    surface_dict[t_panel.name] = t_panel
+    structural_left_wing_names.append(t_panel.name)
+
+    b_panel_points = ribs_bottom.value[:,(i,i+1),:]
+    b_panel_bspline = bsf.fit_bspline(b_panel_points, num_control_points=n_cp, order=order)
+    b_panel = SystemPrimitive('b_panel_' + str(i), b_panel_bspline)
+    surface_dict[b_panel.name] = b_panel
+    structural_left_wing_names.append(b_panel.name)
+
+surface_dict.update(spatial_rep.primitives)
+spatial_rep.primitives = surface_dict
+
+spatial_rep.assemble()
 
 # Wing
 wing_primitive_names = list(spatial_rep.get_primitives(search_names=['Wing']).keys())
@@ -232,8 +265,8 @@ point21 = tip_te
 leading_edge_points = np.linspace(point10, point20, num_wing_vlm)
 trailing_edge_points = np.linspace(point11, point21, num_wing_vlm)
 
-leading_edge = wing.project(leading_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag)
-trailing_edge = wing.project(trailing_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag)
+leading_edge = wing.project(leading_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag, force_reprojection=force_reprojection)
+trailing_edge = wing.project(trailing_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag, force_reprojection=force_reprojection)
 
 # Chord Surface
 wing_chord_surface = am.linspace(leading_edge, trailing_edge, num_chordwise_vlm)
@@ -243,10 +276,10 @@ if plots_flag:
 # Upper and lower surface
 wing_upper_surface_wireframe = wing.project(wing_chord_surface.value + np.array([0., 0., 0.5*ft2m]),
                                             direction=np.array([0., 0., -1.]), grid_search_n=25,
-                                            plot=plots_flag, max_iterations=200)
+                                            plot=plots_flag, max_iterations=200, force_reprojection=force_reprojection)
 wing_lower_surface_wireframe = wing.project(wing_chord_surface.value - np.array([0., 0., 0.5*ft2m]),
                                             direction=np.array([0., 0., 1.]), grid_search_n=25,
-                                            plot=plots_flag, max_iterations=200)
+                                            plot=plots_flag, max_iterations=200, force_reprojection=force_reprojection)
 
 # Chamber surface
 left_wing_camber_surface = am.linspace(wing_upper_surface_wireframe, wing_lower_surface_wireframe, 1)
@@ -265,8 +298,8 @@ sys_rep.add_output(name='left_wing_chord_distribution',
 
 
 #############################################
-# filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
-filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
+filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
+# filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
 
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
     fenics_mesh = xdmf.read_mesh(name="Grid")
@@ -284,7 +317,6 @@ thickness_coefficients = {}
 t = 0.005 # starting wing thickness control point values
 for name in structural_left_wing_names:
     primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
-    name = name.replace(' ', '_').replace(',','')
     space = lg.BSplineSpace(name=name,
                             order=(primitive.order_u, primitive.order_v),
                             control_points_shape=primitive.shape,
@@ -306,7 +338,7 @@ wing_geo = m3l.IndexedFunction('wing_geo', space=wing_space_m3l, coefficients=co
 wing_thickness = m3l.IndexedFunction('wing_thickness', space = wing_t_space_m3l, coefficients=thickness_coefficients)
 
 
-with open(cfile + '/pav_wing/pav_wing_v2_mesh_data_'+str(nodes.shape[0])+'.pickle', 'rb') as f:
+with open(cfile + '/pav_wing/pav_wing_v2_paneled_mesh_data_'+str(nodes.shape[0])+'.pickle', 'rb') as f:
     nodes_parametric = pickle.load(f)
 
 for i in range(len(nodes_parametric)):
@@ -318,13 +350,6 @@ thickness_nodes = wing_thickness.evaluate(nodes_parametric)
 
 shell_pde = ShellPDE(fenics_mesh)
 
-
-# # Aluminum 7050
-# nu = 0.327
-# E = 6.9E10 # unit: Pa (N/m^2)
-# h = 3E-3 # overall thickness (unit: m)
-# rho = 2700
-# f_d = -rho*h*9.81
 
 
 # Unstiffened Aluminum 2024 (T4)
@@ -392,7 +417,8 @@ cruise_condition.atmosphere_model = cd.SimpleAtmosphereModel()
 cruise_condition.set_module_input(name='altitude', val=600*ft2m)
 cruise_condition.set_module_input(name='mach_number', val=0.145972)  # 112 mph = 0.145972 Mach = 50m/s
 cruise_condition.set_module_input(name='range', val=80467.2)  # 50 miles = 80467.2 m
-cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(6))
+# cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(0.50921594)) # 1g case
+cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(6)) # 3g case
 cruise_condition.set_module_input(name='flight_path_angle', val=0)
 cruise_condition.set_module_input(name='roll_angle', val=0)
 cruise_condition.set_module_input(name='yaw_angle', val=0)
@@ -415,7 +441,6 @@ left_wing_vlm_model = VASTFluidSover(
         ],
     fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
     mesh_unit='m',
-    # cl0=[0.0, 0.0] # need to tune the coefficient
     cl0=[0.3475, 0.0] # need to tune the coefficient
 )
 left_wing_vlm_panel_forces, left_wing_vlm_forces, left_wing_vlm_moments  = left_wing_vlm_model.evaluate(ac_states=cruise_ac_states)
@@ -481,24 +506,26 @@ caddee_csdl_model.add_objective(system_model_name+'Wing_rm_shell_model.rm_shell.
 h_min = h
 
 i = 0
-skin_shape = (625, 1)
+# skin_shape = (625, 1)
 spar_shape = (4, 1)
 rib_shape = (40, 1)
+skin_shape = rib_shape
 shape = (4, 1)
 valid_wing_surf = [23, 24, 27, 28, 31, 32, 35, 36]
-valid_structural_left_wing_names = []
-for name in structural_left_wing_names:
-    if "spar" in name:
-        valid_structural_left_wing_names.append(name)
-    elif "rib" in name:
-        valid_structural_left_wing_names.append(name)
-    elif "Wing" in name:
-        for id in valid_wing_surf:
-            if str(id+168) in name:
-                valid_structural_left_wing_names.append(name)
+# valid_structural_left_wing_names = []
+# for name in structural_left_wing_names:
+#     if "spar" in name:
+#         valid_structural_left_wing_names.append(name)
+#     elif "rib" in name:
+#         valid_structural_left_wing_names.append(name)
+#     elif "Wing" in name:
+#         for id in valid_wing_surf:
+#             if str(id+168) in name:
+#                 valid_structural_left_wing_names.append(name)
 # print("Full list of surface names for left wing:", structural_left_wing_names)
 # print("Valid list of surface names for left wing:", svalid_structural_left_wing_names)
 
+valid_structural_left_wing_names = structural_left_wing_names
 
 ################################################################
 #### Full thicknesses: individual for spars, skins and ribs ####
@@ -509,13 +536,12 @@ for name in valid_structural_left_wing_names:
     surface_id = i
     if "spar" in name:
         shape = spar_shape
-    elif "Wing" in name:
+    elif "panel" in name:
         shape = skin_shape
     elif "rib" in name:
         shape = rib_shape
 
     h_init = caddee_csdl_model.create_input('wing_thickness_'+name, val=h_min)
-    # h_init = caddee_csdl_model.create_input('wing_thickness_'+name, val=h_min+i*0.0001)
     caddee_csdl_model.add_design_variable('wing_thickness_'+name, # 0.02 in
                                           lower=0.005 * in2m,
                                           upper=0.1 * in2m,
@@ -529,73 +555,25 @@ for name in valid_structural_left_wing_names:
 
 
 
-################################################################
-#### Simple thicknesses: constant for spars, skins and ribs ####
-################################################################
-# h_spar = caddee_csdl_model.create_input('h_spar', val=h_min)
-# caddee_csdl_model.add_design_variable('h_spar',
-#                                       lower=0.01 * in2m,
-#                                       upper=0.1 * in2m,
-#                                       scaler=1000,
-#                                       )
-# h_skin = caddee_csdl_model.create_input('h_skin', val=h_min)
-# caddee_csdl_model.add_design_variable('h_skin',
-#                                       lower=0.01 * in2m,
-#                                       upper=0.1* in2m,
-#                                       scaler=1000,
-#                                       )
-# h_rib = caddee_csdl_model.create_input('h_rib', val=h_min)
-# caddee_csdl_model.add_design_variable('h_rib',
-#                                       lower=0.01 * in2m,
-#                                       upper=0.1 * in2m,
-#                                       scaler=1000,
-#                                       )
-# for name in valid_structural_left_wing_names:
-#     primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
-#     name = name.replace(' ', '_').replace(',','')
-#     surface_id = i
-#     if "spar" in name:
-#         shape = spar_shape
-#         h_init = h_spar
-#     elif "Wing" in name:
-#         shape = skin_shape
-#         h_init = h_skin
-#     elif "rib" in name:
-#         shape = rib_shape
-#         h_init = h_rib
-#
-#     # h_init = caddee_csdl_model.create_input('wing_thickness_'+name, val=h_min)
-#     caddee_csdl_model.register_output('wing_thickness_surface_'+name, csdl.expand(h_init, shape))
-#     caddee_csdl_model.connect('wing_thickness_surface_'+name,
-#                                 system_model_name+'wing_thickness_evaluation.'+\
-#                                 name+'_t_coefficients')
-#     i += 1
-#################### end of m3l ########################
-
 # region Optimization Setup
 
 
 sim = Simulator(caddee_csdl_model, analytics=True)
 sim.run()
 
-# sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
-#                                     wrt=['h_spar', 'h_skin', 'h_rib'])
-
-# sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass'],
-#                                     wrt=['h_spar', 'h_skin', 'h_rib'])
 ########################## Run optimization ##################################
-prob = CSDLProblem(problem_name='pav', simulator=sim)
+# prob = CSDLProblem(problem_name='pav', simulator=sim)
 
 # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 
-from modopt.snopt_library import SNOPT
-optimizer = SNOPT(prob,
-                  Major_iterations = 100,
-                  Major_optimality = 1e-5,
-                  append2file=False)
+# # from modopt.snopt_library import SNOPT
+# # optimizer = SNOPT(prob,
+# #                   Major_iterations = 100,
+# #                   Major_optimality = 1e-5,
+# #                   append2file=False)
 
-optimizer.solve()
-optimizer.print_results()
+# optimizer.solve()
+# optimizer.print_results()
 
 
 ####### Aerodynamic output ##########
