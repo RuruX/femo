@@ -73,7 +73,7 @@ spatial_rep = sys_rep.spatial_representation
 
 # import initial geomrty
 # file_name = '/pav_wing/pav.stp'
-file_name = '/pav_wing/pav_SI.stp'
+file_name = '/pav_wing/pav_new_SI.stp'
 cfile = str(pathlib.Path(__file__).parent.resolve())
 spatial_rep.import_file(file_name=cfile+file_name)
 spatial_rep.refit_geometry(file_name=cfile+file_name)
@@ -107,7 +107,7 @@ left_wing_top_names = []
 left_wing_bottom_names = []
 left_wing_te_top_names = []
 left_wing_te_bottom_names = []
-for i in range(22+168,37+168):
+for i in range(22+172,37+172):
     surf_name = 'Wing_1_' + str(i)
     left_wing_names.append(surf_name)
     if i%4 == 2:
@@ -118,10 +118,30 @@ for i in range(22+168,37+168):
         left_wing_top_names.append(surf_name)
     else:
         left_wing_te_top_names.append(surf_name)
+
+right_wing_names = []
+right_wing_top_names = []
+right_wing_bottom_names = []
+right_wing_te_top_names = []
+right_wing_te_bottom_names = []
+for i in range(174,189):
+    surf_name = 'Wing_1_' + str(i)
+    right_wing_names.append(surf_name)
+    if i%4 == 2:
+        right_wing_te_bottom_names.append(surf_name)
+    elif i%4 == 3:
+        right_wing_bottom_names.append(surf_name)
+    elif i%4 == 0:
+        right_wing_top_names.append(surf_name)
+    else:
+        right_wing_te_top_names.append(surf_name)
+
+
 #wing = LiftingSurface(name='wing', spatial_representation=spatial_rep, primitive_names=list(spatial_rep.primitives.keys()))
 wing_left = LiftingSurface(name='wing_left', spatial_representation=spatial_rep, primitive_names=left_wing_names)
 wing_left_top = LiftingSurface(name='wing_left_top', spatial_representation=spatial_rep, primitive_names=left_wing_top_names)
 wing_left_bottom = LiftingSurface(name='wing_left_bottom', spatial_representation=spatial_rep, primitive_names=left_wing_bottom_names)
+wing_left_te = LiftingSurface(name='wing_te', spatial_representation=spatial_rep, primitive_names=left_wing_te_top_names+left_wing_te_bottom_names)
 
 # structural_left_wing_names = left_wing_names.copy()
 structural_left_wing_names = []
@@ -135,10 +155,14 @@ num_rib_pts = 20
 # Important points from openVSP
 root_te = np.array([15.170, 0., 1.961]) * ft2m
 root_le = np.array([8.800, 0, 1.989]) * ft2m
-tip_te = np.array([11.300, -14.000, 1.978]) * ft2m
-tip_le = np.array([8.796, -14.000, 1.989]) * ft2m
+l_tip_te = np.array([11.300, -14.000, 1.978]) * ft2m
+l_tip_le = np.array([8.796, -14.000, 1.989]) * ft2m
+r_tip_te = np.array([11.300, 14.000, 1.978]) * ft2m
+r_tip_le = np.array([8.796, 14.000, 1.989]) * ft2m
 
 
+tip_te = l_tip_te
+tip_le = l_tip_le
 
 root_25 = (3*root_le+root_te)/4
 root_75 = (root_le+3*root_te)/4
@@ -264,17 +288,20 @@ sys_rep.add_component(wing_left_structural)
 
 # left wing only
 num_wing_vlm = 21
-num_chordwise_vlm = 5
+num_chordwise_vlm = 2
 point10 = root_le
 point11 = root_te
 point20 = tip_le
 point21 = tip_te
 
+le_offset = [-10,0,0]
+te_offset = [10,0,0]
+
 leading_edge_points = np.linspace(point10, point20, num_wing_vlm)
 trailing_edge_points = np.linspace(point11, point21, num_wing_vlm)
 
-leading_edge = wing.project(leading_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag, force_reprojection=force_reprojection)
-trailing_edge = wing.project(trailing_edge_points, direction=np.array([-1., 0., 0.]), plot=plots_flag, force_reprojection=force_reprojection)
+leading_edge = wing.project(leading_edge_points + le_offset, direction=np.array([0., 0., -1]), plot=True, force_reprojection=True)
+trailing_edge = wing_left_te.project(trailing_edge_points, direction=np.array([1., 0., 0.]), plot=True, force_reprojection=True)
 
 # Chord Surface
 wing_chord_surface = am.linspace(leading_edge, trailing_edge, num_chordwise_vlm)
@@ -315,6 +342,85 @@ oml_geo_mesh = spatial_rep.evaluate_parametric(oml_para_mesh)
 
 # endregion
 
+
+# region ML Mesh
+
+wing_trailing_edge = trailing_edge
+wing_leading_edge = leading_edge
+num_spanwise_vlm = num_wing_vlm
+num_spanwise_ml = num_spanwise_vlm - 1
+wing_surface_offset_ml = [10,0,0]
+wing_surface_offset_ml_2 = [10,0,0]
+grid_search_n = 50
+# OML mesh for ML pressures wing
+wing_trailing_edge_ml_2 = wing_left_te.project(np.linspace(tip_te, root_te, num_spanwise_vlm), direction=np.array([1, 0., 0.]), plot=True, force_reprojection=True)  
+wing_leading_edge_ml_2 = wing.project(wing_trailing_edge_ml_2.evaluate() - wing_surface_offset_ml_2, direction=np.array([0., 0., -1.]), grid_search_n=25, plot=True, force_reprojection=True)
+wing_chord_surface_ml_2 = am.linspace(wing_leading_edge_ml_2, wing_trailing_edge_ml_2, num_chordwise_vlm)
+
+print(wing_trailing_edge.value)
+wing_trailing_edge_array = wing_trailing_edge.value
+wing_trailing_edge_array_ml = np.zeros((num_spanwise_ml, 3))
+for i in range(num_spanwise_vlm-1):
+    x = wing_trailing_edge_array[i, 0] + (wing_trailing_edge_array[i+1, 0] - wing_trailing_edge_array[i, 0])/2
+    y = wing_trailing_edge_array[i, 1] + (wing_trailing_edge_array[i+1, 1] - wing_trailing_edge_array[i, 1])/2
+    z = wing_trailing_edge_array[i, 2] + (wing_trailing_edge_array[i+1, 2] - wing_trailing_edge_array[i, 2])/2
+    wing_trailing_edge_array_ml[i, 0] = x
+    wing_trailing_edge_array_ml[i, 1] = y
+    wing_trailing_edge_array_ml[i, 2] = z
+
+print(wing_trailing_edge_array_ml)
+
+wing_trailing_edge_ml = wing_left_te.project(wing_trailing_edge_array_ml, direction=np.array([1., 0., 0.]), plot=True, force_reprojection=True)
+wing_leading_edge_ml = wing_left.project(wing_trailing_edge_ml.evaluate() - wing_surface_offset_ml, direction=np.array([0., 0., -1.]), grid_search_n=25, plot=True, force_reprojection=True)
+wing_chord_surface_ml = am.linspace(wing_leading_edge_ml, wing_trailing_edge_ml, num_chordwise_vlm)
+
+
+num_ml_points = 100
+chord_surface_ml = am.linspace(wing_leading_edge_ml, wing_trailing_edge_ml, num_ml_points)
+i_vec = np.arange(0, len(chord_surface_ml.value))
+x_range = np.linspace(0, 1, num_ml_points)
+
+x_interp_x = wing_chord_surface_ml.value[1,:, 0].reshape(num_spanwise_ml, 1) - ((wing_chord_surface_ml.value[1, :, 0] - wing_chord_surface_ml.value[0, :, 0]).reshape(num_spanwise_ml, 1) * np.cos(np.pi/(2 * len(x_range)) * i_vec).reshape(1,100))
+x_interp_y = wing_chord_surface_ml.value[1,:, 1].reshape(num_spanwise_ml, 1) - ((wing_chord_surface_ml.value[1, :, 1] - wing_chord_surface_ml.value[0, :, 1]).reshape(num_spanwise_ml, 1) * np.cos(np.pi/(2 * len(x_range)) * i_vec).reshape(1,100))
+x_interp_z = wing_chord_surface_ml.value[1,:, 2].reshape(num_spanwise_ml, 1) - ((wing_chord_surface_ml.value[1, :, 2] - wing_chord_surface_ml.value[0, :, 2]).reshape(num_spanwise_ml, 1) * np.cos(np.pi/(2 * len(x_range)) * i_vec).reshape(1,100))
+
+x_interp_x_2 = wing_chord_surface_ml_2.value[1,:, 0].reshape(num_spanwise_vlm, 1) - ((wing_chord_surface_ml_2.value[1, :, 0] - wing_chord_surface_ml_2.value[0, :, 0]).reshape(num_spanwise_vlm, 1) * np.cos(np.pi/(2 * len(x_range)) * i_vec).reshape(1,100))
+x_interp_y_2 = wing_chord_surface_ml_2.value[1,:, 1].reshape(num_spanwise_vlm, 1) - ((wing_chord_surface_ml_2.value[1, :, 1] - wing_chord_surface_ml_2.value[0, :, 1]).reshape(num_spanwise_vlm, 1) * np.cos(np.pi/(2 * len(x_range)) * i_vec).reshape(1,100))
+x_interp_z_2 = wing_chord_surface_ml_2.value[1,:, 2].reshape(num_spanwise_vlm, 1) - ((wing_chord_surface_ml_2.value[1, :, 2] - wing_chord_surface_ml_2.value[0, :, 2]).reshape(num_spanwise_vlm, 1) * np.cos(np.pi/(2 * len(x_range)) * i_vec).reshape(1,100))
+
+new_chord_surface = np.zeros((num_ml_points, num_spanwise_ml, 3))
+new_chord_surface[:, :, 0] = x_interp_x.T
+new_chord_surface[:, :, 1] = x_interp_y.T
+new_chord_surface[:, :, 2] = x_interp_z.T
+
+new_chord_surface_2 = np.zeros((num_ml_points, num_spanwise_vlm, 3))
+new_chord_surface_2[:, :, 0] = x_interp_x_2.T
+new_chord_surface_2[:, :, 1] = x_interp_y_2.T
+new_chord_surface_2[:, :, 2] = x_interp_z_2.T
+
+wing_upper_surface_ml = wing_left_top.project(new_chord_surface + np.array([0., 0., 0.5]), direction=np.array([0., 0., -1.]), grid_search_n=grid_search_n, plot=True, max_iterations=100, force_reprojection=True)
+wing_lower_surface_ml = wing_left_bottom.project(new_chord_surface - np.array([0., 0., 0.5]), direction=np.array([0., 0., 1.]), grid_search_n=grid_search_n, plot=True, max_iterations=100, force_reprojection=True)
+
+wing_upper_surface_ml_2 = wing_left_top.project(new_chord_surface_2 + np.array([0., 0., 0.5]), direction=np.array([0., 0., -1.]), grid_search_n=grid_search_n, plot=True, max_iterations=100, force_reprojection=True)
+wing_lower_surface_ml_2 = wing_left_bottom.project(new_chord_surface_2 - np.array([0., 0., 0.5]), direction=np.array([0., 0., 1.]), grid_search_n=grid_search_n, plot=True, max_iterations=100, force_reprojection=True)
+
+
+# print(wing_lower_surface_ml_2.value.shape)
+# exit()
+# exit()
+# wing_upper_surface_np_array = wing_upper_surface_ml_2.value
+# for i in range(num_spanwise_vlm-1):
+#     for j in range(100):
+#         if j==0:
+#             dy = np.linalg.norm(wing_upper_surface_np_array[j, i+1, :] - wing_upper_surface_np_array[j, i, :])
+#             dx = np.linalg.norm(wing_upper_surface_np_array[j, i, :] +  (wing_upper_surface_np_array[j, i, :] + wing_upper_surface_np_array[j, i, :])/2)
+#             area = dy * dx
+
+# exit()
+wing_oml_mesh_name_ml = 'wing_oml_mesh_ML'
+wing_oml_mesh_ml = am.vstack((wing_upper_surface_ml, wing_lower_surface_ml))
+
+# endregion
 
 
 #############################################
@@ -491,6 +597,58 @@ left_wing_vlm_panel_forces, left_wing_vlm_forces, left_wing_vlm_moments  = left_
 cruise_model.register_output(left_wing_vlm_forces)
 cruise_model.register_output(left_wing_vlm_moments)
 # endregion
+
+exit()
+
+# region ML
+
+ml_pressures = PressureProfile(
+    airfoil_name='NASA_langley_ga_1',
+    use_inverse_cl_map=True,
+)
+
+cp_upper, cp_lower, Cd = ml_pressures.evaluate(cl_distribution, re_spans) #, mach_number, reynolds_number)
+system_m3l_model.register_output(cp_upper, design_condition=cruise_condition)
+system_m3l_model.register_output(cp_lower, design_condition=cruise_condition)
+
+viscous_drag_correction = ViscousCorrectionModel(
+    surface_names=[
+        f'{wing_vlm_mesh_name}_cruise',
+        f'{htail_vlm_mesh_name}_cruise',
+    ],
+    surface_shapes=[
+        (1, ) + wing_camber_surface.evaluate().shape[1:],
+        (1, ) + htail_camber_surface.evaluate().shape[1:],
+    ],
+)
+moment_point = None
+vlm_F, vlm_M = viscous_drag_correction.evaluate(ac_states=ac_states, forces=vlm_panel_forces, cd_v=Cd, panel_area=panel_areas, moment_pt=moment_point, evaluation_pt=evaluation_pt, design_condition=cruise_condition)
+system_m3l_model.register_output(vlm_F, design_condition=cruise_condition)
+system_m3l_model.register_output(vlm_M, design_condition=cruise_condition)
+
+ml_pressures_oml_map = NodalPressureProfile(
+    surface_names=[
+        f'{wing_vlm_mesh_name}_cruise',
+        f'{htail_vlm_mesh_name}_cruise',
+    ],
+    surface_shapes=[
+        wing_upper_surface_ml.value.shape,
+        htail_upper_surface_ml.value.shape,
+    ]
+)
+
+cp_upper_oml, cp_lower_oml = ml_pressures_oml_map.evaluate(cp_upper, cp_lower, nodal_pressure_mesh=[])
+wing_oml_pressure_upper = cp_upper_oml[0]
+htail_oml_pressure_upper = cp_upper_oml[1]
+wing_oml_pressure_lower = cp_lower_oml[0]
+htail_oml_pressure_lower = cp_lower_oml[1]
+
+vstack = m3l.VStack()
+wing_oml_pressure = vstack.evaluate(wing_oml_pressure_upper, wing_oml_pressure_lower)
+
+
+# endregion
+
 
 
 # region Force transfer
