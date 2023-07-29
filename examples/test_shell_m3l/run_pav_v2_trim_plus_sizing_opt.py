@@ -505,19 +505,21 @@ total_mass, total_cg, total_inertia = total_mass_properties.evaluate(mass, cg, I
 # endregion
 
 
-process_gmsh = False
+process_gmsh = True
 
 
 #############################################
 if process_gmsh:
-    file = '/pav_wing/pav_v2_gmsh_6492.msh'
+    # file = '/pav_wing/gmsh_9888.msh'
+    file = '/pav_wing/gmsh_20144.msh'
+    # file = '/pav_wing/gmsh_39552.msh'
     nodes, connectivity = caddee_import_mesh(cfile + file,
                                     spatial_rep,
                                     component = wing_left_structural,
                                     targets = list(wing_left_structural.get_primitives().values()),
                                     rescale=1e-3,
                                     remove_dupes=True,
-                                    optimize_projection=False,
+                                    optimize_projection=False, # could turn on this option for speedup
                                     tol=1e-8,
                                     plot=do_plots,
                                     grid_search_n=100)
@@ -526,7 +528,7 @@ if process_gmsh:
     cells = [("quad",connectivity)]
     mesh = meshio.Mesh(nodes.value, cells)
     meshio.write(cfile + '/pav_wing/pav_wing_v2_caddee_mesh_' + str(nodes.shape[0]) + '_quad.msh', mesh, file_format='gmsh')
-# exit()
+exit()
 
 #############################################
 
@@ -999,7 +1001,7 @@ if structure:
     wing_mass = sim[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass']
     wing_elastic_energy = sim[system_model_name+'Wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
     wing_aggregated_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
-    wing_von_Mises_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
+    wing_von_Mises_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.von_Mises_stress_model.wing_shell_stress']
     ########## Output: ##########
     print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
 

@@ -255,7 +255,8 @@ sys_rep.add_component(wing_left_structural)
 
 
 # left wing only
-num_wing_vlm = 21
+# num_wing_vlm = 21
+num_wing_vlm = 11 
 num_chordwise_vlm = 5
 point10 = root_le
 point11 = root_te
@@ -296,10 +297,9 @@ sys_rep.add_output(name='left_wing_chord_distribution',
 # endregion
 
 
-
 #############################################
-filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
-# filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
+# filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
+filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
 
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
     fenics_mesh = xdmf.read_mesh(name="Grid")
@@ -417,8 +417,9 @@ cruise_condition.atmosphere_model = cd.SimpleAtmosphereModel()
 cruise_condition.set_module_input(name='altitude', val=600*ft2m)
 cruise_condition.set_module_input(name='mach_number', val=0.145972)  # 112 mph = 0.145972 Mach = 50m/s
 cruise_condition.set_module_input(name='range', val=80467.2)  # 50 miles = 80467.2 m
-# cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(0.50921594)) # 1g case
-cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(6)) # 3g case
+cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(0.50921594)) # 1g
+# cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(6)) # climb
+# cruise_condition.set_module_input(name='pitch_angle', val=np.deg2rad(13.74084308)) # 3g
 cruise_condition.set_module_input(name='flight_path_angle', val=0)
 cruise_condition.set_module_input(name='roll_angle', val=0)
 cruise_condition.set_module_input(name='yaw_angle', val=0)
@@ -479,12 +480,33 @@ shell_displacements_model = rmshell.RMShell(component=wing,
                                             pde=shell_pde,
                                             shells=shells)
 
-cruise_structural_wing_mesh_displacements, cruise_structural_wing_mesh_rotations, wing_mass = \
+cruise_structural_wing_mesh_displacements, _, cruise_structural_wing_mesh_stresses, wing_mass = \
                                 shell_displacements_model.evaluate(
                                     forces=cruise_structural_wing_mesh_forces,
                                     thicknesses=thickness_nodes)
 cruise_model.register_output(cruise_structural_wing_mesh_displacements)
+cruise_model.register_output(cruise_structural_wing_mesh_stresses)
 cruise_model.register_output(wing_mass)
+
+
+shell_disp_map_model = rmshell.RMShellNodalDisplacements(component=wing,
+                                                mesh=shell_mesh,
+                                                pde=shell_pde,
+                                                shells=shells)
+cruise_oml_wing_mesh_disp = shell_disp_map_model.evaluate(
+                        shell_displacements=cruise_structural_wing_mesh_displacements,
+                        nodal_displacements_mesh=left_wing_oml_mesh)
+
+shell_stress_map_model = rmshell.RMShellNodalStress(component=wing,
+                                                mesh=shell_mesh,
+                                                pde=shell_pde,
+                                                shells=shells)
+cruise_oml_wing_mesh_stress = shell_stress_map_model.evaluate(
+                        shell_stress=cruise_structural_wing_mesh_stresses,
+                        nodal_stress_mesh=left_wing_oml_mesh)
+
+cruise_model.register_output(cruise_oml_wing_mesh_disp)
+cruise_model.register_output(cruise_oml_wing_mesh_stress)
 
 # Add cruise m3l model to cruise condition
 cruise_condition.add_m3l_model('cruise_model', cruise_model)
@@ -506,25 +528,10 @@ caddee_csdl_model.add_objective(system_model_name+'Wing_rm_shell_model.rm_shell.
 h_min = h
 
 i = 0
-# skin_shape = (625, 1)
 spar_shape = (4, 1)
 rib_shape = (40, 1)
 skin_shape = rib_shape
 shape = (4, 1)
-valid_wing_surf = [23, 24, 27, 28, 31, 32, 35, 36]
-# valid_structural_left_wing_names = []
-# for name in structural_left_wing_names:
-#     if "spar" in name:
-#         valid_structural_left_wing_names.append(name)
-#     elif "rib" in name:
-#         valid_structural_left_wing_names.append(name)
-#     elif "Wing" in name:
-#         for id in valid_wing_surf:
-#             if str(id+168) in name:
-#                 valid_structural_left_wing_names.append(name)
-# print("Full list of surface names for left wing:", structural_left_wing_names)
-# print("Valid list of surface names for left wing:", svalid_structural_left_wing_names)
-
 valid_structural_left_wing_names = structural_left_wing_names
 
 ################################################################
@@ -561,6 +568,8 @@ for name in valid_structural_left_wing_names:
 sim = Simulator(caddee_csdl_model, analytics=True)
 sim.run()
 
+
+
 ########################## Run optimization ##################################
 # prob = CSDLProblem(problem_name='pav', simulator=sim)
 
@@ -574,7 +583,7 @@ sim.run()
 
 # optimizer.solve()
 # optimizer.print_results()
-
+# endregion
 
 ####### Aerodynamic output ##########
 print("="*60)
@@ -593,16 +602,16 @@ print("="*60)
 f_shell = sim[system_model_name+'Wing_rm_shell_force_mapping.wing_shell_forces']
 f_vlm = sim[system_model_name+'left_wing_vlm_mesh_vlm_force_mapping_model.left_wing_vlm_mesh_oml_forces'].reshape((-1,3))
 u_shell = sim[system_model_name+'Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
-# u_nodal = sim['Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
+u_nodal = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
 uZ = u_shell[:,2]
-# uZ_nodal = u_nodal[:,2]
+uZ_nodal = u_nodal[:,2]
 
 
 wing_tip_compliance = sim[system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance']
 wing_mass = sim[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass']
 wing_elastic_energy = sim[system_model_name+'Wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
 wing_aggregated_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
-wing_von_Mises_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
+wing_von_Mises_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.von_Mises_stress_model.wing_shell_stress']
 ########## Output: ##########
 # print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
 
@@ -623,10 +632,14 @@ print("shell forces:", dolfinx.fem.assemble_scalar(form(fx_func*ufl.dx)),
                         dolfinx.fem.assemble_scalar(form(fz_func*ufl.dx)))
 
 print("Wing surface area:", dolfinx.fem.assemble_scalar(form(dummy_func*ufl.dx)))
+print("Wing tip deflection on OML (m):", max(abs(uZ_nodal)))
 print("Wing tip deflection (m):",max(abs(uZ)))
 print("Wing tip compliance (= tip deflection^3/2 m^3):",wing_tip_compliance)
 print("Wing total mass (kg):", wing_mass)
+
 print("Wing aggregated von Mises stress (Pascal):", wing_aggregated_stress)
+stress_oml = sim[system_model_name+'Wing_rm_shell_stress_map.wing_shell_nodal_stress']
+print("Wing maximum von Mises stress on OML (Pascal):", max(stress_oml))
 print("Wing maximum von Mises stress (Pascal):", max(wing_von_Mises_stress))
 print("  Number of elements = "+str(nel))
 print("  Number of vertices = "+str(nn))
