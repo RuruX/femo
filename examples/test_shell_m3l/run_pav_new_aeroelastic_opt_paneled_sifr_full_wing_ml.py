@@ -22,7 +22,7 @@ from VAST.core.vast_solver import VASTFluidSover
 from VAST.core.fluid_problem import FluidProblem
 from VAST.core.generate_mappings_m3l import VASTNodalForces
 from VAST.core.vlm_llt.viscous_correction import ViscousCorrectionModel
-from lsdo_airfoil.core.pressure_profile import PressureProfile, NodalPressureProfile
+from lsdo_airfoil.core.pressure_profile import PressureProfile, NodalPressureProfile, NodalForces
 import dolfinx
 from femo.fea.utils_dolfinx import *
 import shell_module as rmshell
@@ -415,8 +415,11 @@ if do_ML:
     new_chord_surface_2[:, :, 1] = x_interp_y_2.T
     new_chord_surface_2[:, :, 2] = x_interp_z_2.T
 
-    wing_upper_surface_ml = wing_top.project(new_chord_surface, direction=np.array([0., 0., 1.]), grid_search_n=grid_search_n, plot=do_plots, max_iterations=100, force_reprojection=force_reprojection)
-    wing_lower_surface_ml = wing_bottom.project(new_chord_surface, direction=np.array([0., 0., -1.]), grid_search_n=grid_search_n, plot=do_plots, max_iterations=100, force_reprojection=force_reprojection)
+    wing_upper_surface_ml_dict = wing_top.project(new_chord_surface, direction=np.array([0., 0., 1.]), grid_search_n=grid_search_n, plot=True, properties=['geometry', 'parametric_coordinates'], max_iterations=100, force_reprojection=force_reprojection)
+    wing_lower_surface_ml_dict = wing_bottom.project(new_chord_surface, direction=np.array([0., 0., -1.]), grid_search_n=grid_search_n, plot=True, properties=['geometry', 'parametric_coordinates'], max_iterations=100, force_reprojection=force_reprojection)
+
+    wing_upper_surface_ml = wing_upper_surface_ml_dict['geometry']
+    wing_lower_surface_ml = wing_lower_surface_ml_dict['geometry']
 
     wing_upper_surface_ml_2 = wing_top.project(new_chord_surface_2, direction=np.array([0., 0., 1.]), grid_search_n=grid_search_n, plot=do_plots, max_iterations=100, force_reprojection=force_reprojection)
     wing_lower_surface_ml_2 = wing_bottom.project(new_chord_surface_2, direction=np.array([0., 0., -1.]), grid_search_n=grid_search_n, plot=do_plots, max_iterations=100, force_reprojection=force_reprojection)
@@ -436,12 +439,8 @@ if do_ML:
         avg_pts_upper[j+1,:,:] = (upper_surface_pts[j,:,:] + upper_surface_pts[j+1,:,:])/2
         avg_pts_lower[j+1,:,:] = (lower_surface_pts[j,:,:] + lower_surface_pts[j+1,:,:])/2
 
-    wing_upper_corner_pts = wing_oml.project(avg_pts_upper, plot=True, force_reprojection=force_reprojection)
-    wing_lower_corner_pts = wing_oml.project(avg_pts_lower, plot=True, force_reprojection=force_reprojection)
-    
-    ml_vectors_upper = wing_oml.project(upper_surface_pts)
-    
-    exit()
+    wing_upper_corner_pts = wing_oml.project(avg_pts_upper, grid_search_n=grid_search_n, plot=do_plots, max_iterations=100, force_reprojection=force_reprojection)
+    wing_lower_corner_pts = wing_oml.project(avg_pts_lower, grid_search_n=grid_search_n, plot=do_plots, max_iterations=100, force_reprojection=force_reprojection) 
     
 
 
@@ -475,6 +474,21 @@ nn = fenics_mesh.topology.index_map(0).size_local
 nodes = fenics_mesh.geometry.x
 
 # region Functions
+
+# geometry funciton
+coefficients = {}
+
+geo_space = lg.BSplineSpace(name='geo_base_space',
+                            order=(4,4),
+                            control_points_shape=(25,25))
+wing_oml_geo = index_functions(left_wing_names+right_wing_names, 'wing_oml_geo', geo_space, 3)
+
+for name in left_wing_names+right_wing_names:
+    primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
+    coefficients[name] = m3l.Variable(name = name + '_geo_coefficients', shape = primitive.control_points.shape, value = primitive.control_points)
+
+wing_oml_geo.coefficients = coefficients
+
 
 # wing thickness function
 order = 2
@@ -663,6 +677,28 @@ if do_ML:
     wing_oml_pressure_upper = cp_upper_oml[0]
     wing_oml_pressure_lower = cp_lower_oml[0]
 
+    upper_normals_ml = wing_oml_geo.evaluate_normals(wing_upper_surface_ml_dict['parametric_coordinates'])
+    lower_normals_ml = wing_oml_geo.evaluate_normals(wing_lower_surface_ml_dict['parametric_coordinates'])
+
+    # print(wing_upper_surface_ml.shape)
+    # print(wing_upper_surface_ml_2.shape)
+    # exit()
+
+
+    ml_nodal_force_map = NodalForces()
+    ml_f_upper, ml_f_lower = ml_nodal_force_map.evaluate(oml_pressures_upper=wing_oml_pressure_upper, 
+                                                         oml_pressures_lower=wing_oml_pressure_lower, 
+                                                         normals_upper=upper_normals_ml, 
+                                                         normals_lower=lower_normals_ml, 
+                                                         upper_ml_mesh=wing_upper_surface_ml,
+                                                         lower_ml_mesh=wing_lower_surface_ml,
+                                                         upper_ml_vlm_mesh=wing_upper_surface_ml_2,
+                                                         lower_ml_vlm_mesh=wing_lower_surface_ml_2)
+
+    cruise_model.register_output(ml_f_upper)
+    cruise_model.register_output(ml_f_lower)
+
+
     print(wing_oml_pressure_upper.shape)
 
     vstack = m3l.VStack()
@@ -795,7 +831,7 @@ i = 0
 spar_shape = (4, 1)
 rib_shape = (40, 1)
 skin_shape = rib_shape
-shape = (3, 3)
+shape = (9, 1)
 valid_wing_surf = [23, 24, 27, 28, 31, 32, 35, 36]
 # valid_structural_left_wing_names = []
 # for name in structural_left_wing_names:
@@ -892,6 +928,55 @@ for name in valid_structural_left_wing_names:
 
 sim = Simulator(caddee_csdl_model, analytics=True)
 sim.run()
+print('!!!!!!!!!!!!!!!!!!!!!')
+print(sim['system_model.structural_sizing.cruise_3.cruise_3.ml_nodal_force_evaluation.ml_f_upper'])
+print(np.linalg.norm(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_oml_geo_function_normal_evaluation.evaluated_normal_wing_oml_geo_function'], axis=1))
+
+
+vlm_forces = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces']
+ml_u_forces = sim['system_model.structural_sizing.cruise_3.cruise_3.ml_nodal_force_evaluation.ml_f_upper']
+ml_l_forces = sim['system_model.structural_sizing.cruise_3.cruise_3.ml_nodal_force_evaluation.ml_f_lower']
+normals = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_oml_geo_function_normal_evaluation.evaluated_normal_wing_oml_geo_function']
+
+
+vector = normals.reshape((100*40,3))
+u = vector[:,0]
+v = vector[:,1]
+w = vector[:,2]
+
+locations = wing_upper_surface_ml.value.reshape((100*40,3))
+x = locations[:,0]
+y = locations[:,1]
+z = locations[:,2]
+
+import matplotlib.pyplot as plt
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.quiver(x,y,z,u,v,w, length=0.1)
+ax.set_aspect('equal')
+plt.show()
+
+
+vector = ml_u_forces.reshape((100*40,3))
+u = vector[:,0]
+v = vector[:,1]
+w = vector[:,2]
+
+
+locations = wing_upper_surface_ml.value.reshape((100*40,3))
+x = locations[:,0]
+y = locations[:,1]
+z = locations[:,2]
+
+import matplotlib.pyplot as plt
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.quiver(x,y,z,u,v,w, length=50)
+ax.set_aspect('equal')
+plt.show()
+
+
+
 
 
 # # plotting
