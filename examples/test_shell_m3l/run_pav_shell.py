@@ -24,6 +24,7 @@ import lsdo_geo as lg
 import array_mapper as am
 from m3l.core.function_spaces import IDWFunctionSpace
 
+
 ## Other stuff
 import numpy as np
 from mpi4py import MPI
@@ -33,9 +34,12 @@ import sys
 
 sys.setrecursionlimit(100000)
 
+
 debug_geom_flag = False
 force_reprojection = False
 visualize_flag = False
+dashboard = True
+
 ft2m = 0.3048
 in2m = 0.0254
 
@@ -243,11 +247,11 @@ shell_displacements_model = rmshell.RMShell(component=wing_component,
                                             pde=shell_pde,
                                             shells=shells)
 
-cruise_structural_wing_mesh_displacements, cruise_structural_wing_mesh_rotations, wing_mass = \
+cruise_structural_wing_mesh_displacements, _, cruise_structural_wing_mesh_stresses, wing_mass = \
                                 shell_displacements_model.evaluate(
                                     forces=cruise_structural_wing_mesh_forces,
                                     thicknesses=thickness_nodes)
-
+cruise_model.register_output(cruise_structural_wing_mesh_stresses)
 cruise_model.register_output(cruise_structural_wing_mesh_displacements)
 cruise_model.register_output(wing_mass)
 
@@ -270,11 +274,18 @@ shell_nodal_displacements_model = rmshell.RMShellNodalDisplacements(component=wi
                                                                     mesh=shell_mesh,
                                                                     pde=shell_pde,
                                                                     shells=shells)
-nodal_displacements = shell_nodal_displacements_model.evaluate(cruise_structural_wing_mesh_displacements, transfer_geo_nodes_ma)
+nodal_displacements, tip_displacement = shell_nodal_displacements_model.evaluate(cruise_structural_wing_mesh_displacements, transfer_geo_nodes_ma)
 wing_displacement = pav_geom_mesh.functions['wing_displacement']
 
 wing_displacement.inverse_evaluate(transfer_para_mesh, nodal_displacements)
 cruise_model.register_output(wing_displacement.coefficients)
+
+wing_stress = pav_geom_mesh.functions['wing_stress']
+wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses)
+cruise_model.register_output(wing_stress.coefficients)
+
+cruise_model.register_output(tip_displacement)
+cruise_model.register_output(nodal_displacements)
 
 # endregion
 
@@ -289,7 +300,9 @@ caddee_csdl_model = caddee.assemble_csdl()
 
 system_model_name = 'system_model.'+design_scenario_name+'.'+cruise_name+'.'+cruise_name+'.'
 
-caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance',upper=2E-4,scaler=1E4)
+
+caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_displacement_map.wing_shell_tip_displacement',upper=0.1,scaler=1E1)
+# caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance',upper=2E-4,scaler=1E4)
 caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress',upper=324E6/1.5,scaler=1E-8)
 caddee_csdl_model.add_objective(system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass', scaler=1e-1)
 
@@ -310,7 +323,6 @@ for name in valid_structural_left_wing_names:
     surface_id = i
 
     h_init = caddee_csdl_model.create_input('wing_thickness_dv_'+name, val=h_min)
-    # h_init = caddee_csdl_model.create_input('wing_thickness_'+name, val=h_min+i*0.0001)
     caddee_csdl_model.add_design_variable('wing_thickness_dv_'+name, # 0.02 in
                                           lower=0.005 * in2m,
                                           upper=0.1 * in2m,
@@ -322,82 +334,111 @@ for name in valid_structural_left_wing_names:
                                 name+'_wing_thickness_coefficients')
     i += 1
 
+if dashboard:
+    import lsdo_dash.api as ld
+    index_functions_map = {}
+    
+    index_functions_map['wing_thickness'] = wing_thickness  
+    index_functions_map['wing_force'] = wing_force
+    index_functions_map['wing_displacement'] = wing_displacement
+    index_functions_map['wing_stress'] = wing_stress
 
-sim = Simulator(caddee_csdl_model, analytics=True)
-sim.run()
+    rep = csdl.GraphRepresentation(caddee_csdl_model)
 
-# sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
-#                                     wrt=['h_spar', 'h_skin', 'h_rib'])
+    # profiler.disable()
+    # profiler.dump_stats('output')
 
-# sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass'],
-#                                     wrt=['h_spar', 'h_skin', 'h_rib'])
-########################## Run optimization ##################################
-prob = CSDLProblem(problem_name='pav', simulator=sim)
+    caddee_viz = ld.caddee_plotters.CaddeeViz(
+        caddee = caddee,
+        system_m3l_model = system_model,
+        design_configuration_map={},
+    )
 
-# optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
+if __name__ == '__main__':
+    if dashboard:
+        from dash_pav import TC2DB
+        dashbuilder = TC2DB()
+        sim = Simulator(rep, analytics=True, dashboard = dashbuilder)
+    else:
+        sim = Simulator(caddee_csdl_model, analytics=True)
 
-from modopt.snopt_library import SNOPT
-optimizer = SNOPT(prob,
-                  Major_iterations = 100,
-                  Major_optimality = 1e-5,
-                  append2file=False)
+    sim.run()
 
-optimizer.solve()
-optimizer.print_results()
+    # sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
+    #                                     wrt=['h_spar', 'h_skin', 'h_rib'])
 
+    # sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass'],
+    #                                     wrt=['h_spar', 'h_skin', 'h_rib'])
+    ########################## Run optimization ##################################
+    prob = CSDLProblem(problem_name='pav', simulator=sim)
 
-####### Aerodynamic output ##########
-print("="*60)
-print("="*20+'aerodynamic outputs'+"="*20)
-print("="*60)
-print('Pitch: ', np.rad2deg(
-    sim[system_model_name+cruise_name+'_ac_states_operation.'+cruise_name+'_pitch_angle']))
-print('C_L: ', sim[system_model_name+'wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_vlm_mesh_C_L'])
-# print('Total lift: ', sim[system_model_name+'wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.total_lift'])
+    # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 
-####### Structural output ##########
-print("="*60)
-print("="*20+'structure outputs'+"="*20)
-print("="*60)
-# Comparing the solution to the Kirchhoff analytical solution
-f_shell = sim[system_model_name+'Wing_rm_shell_force_mapping.wing_shell_forces']
-f_vlm = sim[system_model_name+'wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
-u_shell = sim[system_model_name+'Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
-# u_nodal = sim['Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
-uZ = u_shell[:,2]
-# uZ_nodal = u_nodal[:,2]
+    from modopt.snopt_library import SNOPT
+    optimizer = SNOPT(prob,
+                      Major_iterations = 100,
+                      Major_optimality = 1e-5,
+                      append2file=False)
+
+    optimizer.solve()
+    optimizer.print_results()
 
 
-wing_tip_compliance = sim[system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance']
-wing_mass = sim[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass']
-wing_elastic_energy = sim[system_model_name+'Wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
-wing_aggregated_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
-wing_von_Mises_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.von_Mises_stress_model.von_Mises_stress']
-########## Output: ##########
-# print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
+    ####### Aerodynamic output ##########
+    print("="*60)
+    print("="*20+'aerodynamic outputs'+"="*20)
+    print("="*60)
+    print('Pitch: ', np.rad2deg(
+        sim[system_model_name+cruise_name+'_ac_states_operation.'+cruise_name+'_pitch_angle']))
+    print('C_L: ', sim[system_model_name+'wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_vlm_mesh_C_L'])
+    # print('Total lift: ', sim[system_model_name+'wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.total_lift'])
 
-fz_func = Function(shell_pde.VT)
-fz_func.x.array[:] = f_shell[:,-1]
+    ####### Structural output ##########
+    print("="*60)
+    print("="*20+'structure outputs'+"="*20)
+    print("="*60)
+    # Comparing the solution to the Kirchhoff analytical solution
+    f_shell = sim[system_model_name+'Wing_rm_shell_force_mapping.wing_shell_forces']
+    f_vlm = sim[system_model_name+'wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
+    u_shell = sim[system_model_name+'Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
+    u_nodal = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
+    u_tip = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_tip_displacement']
+    uZ = u_shell[:,2]
+    # uZ_nodal = u_nodal[:,2]
 
-fx_func = Function(shell_pde.VT)
-fx_func.x.array[:] = f_shell[:,0]
 
-fy_func = Function(shell_pde.VT)
-fy_func.x.array[:] = f_shell[:,1]
+    wing_von_Mises_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.von_Mises_stress_model.wing_shell_stress']
+    wing_tip_compliance = sim[system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance']
+    wing_mass = sim[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass']
+    wing_elastic_energy = sim[system_model_name+'Wing_rm_shell_model.rm_shell.elastic_energy_model.elastic_energy']
+    wing_aggregated_stress = sim[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress']
+    ########## Output: ##########
+    # print("Spar, rib, skin thicknesses:", sim['h_spar'], sim['h_rib'], sim['h_skin'])
 
-dummy_func = Function(shell_pde.VT)
-dummy_func.x.array[:] = 1.0
-print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
-print("shell forces:", dolfinx.fem.assemble_scalar(form(fx_func*ufl.dx)),
-                        dolfinx.fem.assemble_scalar(form(fy_func*ufl.dx)),
-                        dolfinx.fem.assemble_scalar(form(fz_func*ufl.dx)))
+    fz_func = Function(shell_pde.VT)
+    fz_func.x.array[:] = f_shell[:,-1]
 
-print("Wing surface area:", dolfinx.fem.assemble_scalar(form(dummy_func*ufl.dx)))
-print("Wing tip deflection (m):",max(abs(uZ)))
-print("Wing tip compliance (= tip deflection^3/2 m^3):",wing_tip_compliance)
-print("Wing total mass (kg):", wing_mass)
-print("Wing aggregated von Mises stress (Pascal):", wing_aggregated_stress)
-print("Wing maximum von Mises stress (Pascal):", max(wing_von_Mises_stress))
-print("  Number of elements = "+str(nel))
-print("  Number of vertices = "+str(nn))
+    fx_func = Function(shell_pde.VT)
+    fx_func.x.array[:] = f_shell[:,0]
+
+    fy_func = Function(shell_pde.VT)
+    fy_func.x.array[:] = f_shell[:,1]
+
+    dummy_func = Function(shell_pde.VT)
+    dummy_func.x.array[:] = 1.0
+    print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
+    print("shell forces:", dolfinx.fem.assemble_scalar(form(fx_func*ufl.dx)),
+                            dolfinx.fem.assemble_scalar(form(fy_func*ufl.dx)),
+                            dolfinx.fem.assemble_scalar(form(fz_func*ufl.dx)))
+
+    print("Wing surface area:", dolfinx.fem.assemble_scalar(form(dummy_func*ufl.dx)))
+    print("Wing tip deflection (m):",max(abs(uZ)))
+    print("Wing tip deflection computed by CSDL (m):",np.max(u_nodal))
+    print("Wing tip deflection computed by CSDL (m):",u_tip)
+    print("Wing total mass (kg):", wing_mass)
+    print("Wing aggregated von Mises stress (Pascal):", wing_aggregated_stress)
+    print("Wing maximum von Mises stress (Pascal):", max(wing_von_Mises_stress))
+    print("Wing maximum von Mises stress on OML (Pascal):", wing_aggregated_stress)
+    print("  Number of elements = "+str(nel))
+    print("  Number of vertices = "+str(nn))
 

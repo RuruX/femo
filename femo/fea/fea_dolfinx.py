@@ -93,7 +93,7 @@ class FEA(object):
         self.opt_iter = 0
         self.initial_solve = True
         self.initialize = False
-        self.record = True
+        self.record = False
         self.recorder_path = "records"
         self.linear_problem = False
 
