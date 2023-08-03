@@ -27,27 +27,32 @@ class TC2DB(ld.DashBuilder):
             hspace=0.4,
         )
         
-        geo_frame[0,0] = ld.default_plotters.build_historic_plotter(
-            [system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
-            title = 'Aggregated Stress',
-            legend = False,
-        )
+        # geo_frame[0,0] = ld.default_plotters.build_historic_plotter(
+        #     [system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
+        #     title = 'Aggregated Stress',
+        #     legend = False,
+        # )
         # Try SNOPT here
-        # geo_frame[0, 0] = ld.default_plotters.build_SNOPT_plotter()
+        geo_frame[0, 0] = ld.default_plotters.build_SNOPT_plotter(show_merit = False)
 
         geo_frame[1,0] = ld.default_plotters.build_historic_plotter(
             [system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass'],
-            title = 'Mass',
+            title = 'Mass [kg]',
             legend = False,
         )
+        # geo_frame[0,1] = ld.default_plotters.build_historic_plotter(
+        #     [system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance'],
+        #     title = 'Compliance',
+        #     legend = False,
+        # )
         geo_frame[0,1] = ld.default_plotters.build_historic_plotter(
-            [system_model_name+'Wing_rm_shell_model.rm_shell.compliance_model.compliance'],
-            title = 'Compliance',
+            [system_model_name+'Wing_rm_shell_displacement_map.wing_shell_tip_displacement'],
+            title = 'Tip displacement [m]',
             legend = False,
         )
         geo_frame[1,1] = ld.default_plotters.build_historic_plotter(
             [system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
-            title = 'Stress',
+            title = 'Stress [Pa]',
             legend = False,
         )
 
