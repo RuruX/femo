@@ -47,8 +47,15 @@ dashboard = False
 ft2m = 0.3048
 in2m = 0.0254
 
-wing_cl0 = 0.3366
-pitch_angle_list = [-0.02403544, 6, 12.48100761]
+# wing_cl0 = 0.3366
+# pitch_angle_list = [-0.02403544, 6, 12.48100761]
+# h_0 = 0.02*in2m
+
+wing_cl0 = 0.3662
+pitch_angle_list = [-0.38129494, 6, 12.11391141]
+h_0 = 0.05*in2m
+pitch_angle = np.deg2rad(pitch_angle_list[2])
+
 
 
 pitch_angle = np.deg2rad(pitch_angle_list[2])
@@ -108,7 +115,7 @@ shell_pde = ShellPDE(fenics_mesh)
 # reference: https://asm.matweb.com/search/SpecificMaterial.asp?bassnum=ma2024t4
 E = 73.1E9 # unit: Pa
 nu = 0.33
-h = 0.02*in2m # unit: m
+h = h_0
 rho = 2780 # unit: kg/m^3
 f_d = -rho*h*9.81 # self-weight unit: N
 tensile_yield_strength = 324E6 # unit: Pa
@@ -417,6 +424,7 @@ caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell
 caddee_csdl_model.add_objective(system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass', scaler=1e-1)
 
 # Minimum thickness: 0.02 inch -> 0.000508 m
+# Minimum thickness: 0.05 inch 
 
 h_min = h
 
@@ -433,7 +441,7 @@ for name in valid_structural_left_wing_names:
     surface_id = i
 
     h_init = caddee_csdl_model.create_input('wing_thickness_dv_'+name, val=h_min)
-    caddee_csdl_model.add_design_variable('wing_thickness_dv_'+name, # 0.02 in
+    caddee_csdl_model.add_design_variable('wing_thickness_dv_'+name, # 0.05 in
                                           lower=0.005 * in2m,
                                           upper=0.1 * in2m,
                                           scaler=1000,

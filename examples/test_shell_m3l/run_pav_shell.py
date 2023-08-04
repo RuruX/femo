@@ -43,10 +43,13 @@ dashboard = True
 ft2m = 0.3048
 in2m = 0.0254
 
-wing_cl0 = 0.3366
-pitch_angle_list = [-0.02403544, 6, 12.48100761]
+# wing_cl0 = 0.3366
+# pitch_angle_list = [-0.02403544, 6, 12.48100761]
+# h_0 = 0.02*in2m
 
-
+wing_cl0 = 0.3662
+pitch_angle_list = [-0.38129494, 6, 12.11391141]
+h_0 = 0.05*in2m
 pitch_angle = np.deg2rad(pitch_angle_list[2])
 
 
@@ -103,7 +106,7 @@ shell_pde = ShellPDE(fenics_mesh)
 # reference: https://asm.matweb.com/search/SpecificMaterial.asp?bassnum=ma2024t4
 E = 73.1E9 # unit: Pa
 nu = 0.33
-h = 0.02*in2m # unit: m
+h = h_0 # unit: m
 rho = 2780 # unit: kg/m^3
 f_d = -rho*h*9.81 # self-weight unit: N
 tensile_yield_strength = 324E6 # unit: Pa
@@ -373,14 +376,14 @@ if __name__ == '__main__':
 
     # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 
-    from modopt.snopt_library import SNOPT
-    optimizer = SNOPT(prob,
-                      Major_iterations = 100,
-                      Major_optimality = 1e-5,
-                      append2file=False)
+    # from modopt.snopt_library import SNOPT
+    # optimizer = SNOPT(prob,
+    #                   Major_iterations = 100,
+    #                   Major_optimality = 1e-5,
+    #                   append2file=False)
 
-    optimizer.solve()
-    optimizer.print_results()
+    # optimizer.solve()
+    # optimizer.print_results()
 
 
     ####### Aerodynamic output ##########
