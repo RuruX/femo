@@ -7,7 +7,11 @@ from VAST.core.vast_solver import VASTFluidSover
 from VAST.core.fluid_problem import FluidProblem
 from VAST.core.generate_mappings_m3l import VASTNodalForces
 from VAST.core.vlm_llt.viscous_correction import ViscousCorrectionModel
-# from lsdo_airfoil.core.pressure_profile import PressureProfile, NodalPressureProfile
+############## Add these lines to avoid importing error of lsdo_airfoil ############
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
+####################################################################################
+from lsdo_airfoil.core.pressure_profile import PressureProfile, NodalPressureProfile, NodalForces
 import dolfinx
 from femo.fea.utils_dolfinx import *
 import shell_module as rmshell
@@ -34,11 +38,11 @@ import sys
 
 sys.setrecursionlimit(100000)
 
-
+do_ML = True
 debug_geom_flag = False
 force_reprojection = False
 visualize_flag = False
-dashboard = True
+dashboard = False
 
 ft2m = 0.3048
 in2m = 0.0254
@@ -64,9 +68,10 @@ pav_geom_mesh.setup_internal_wingbox_geometry(debug_geom_flag=debug_geom_flag,
 pav_geom_mesh.sys_rep.spatial_representation.assemble()
 pav_geom_mesh.oml_mesh(include_wing_flag=True,
                        debug_geom_flag=debug_geom_flag, force_reprojection=force_reprojection)
-pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=21, num_wing_chordwise_vlm=5,
-                         visualize_flag=visualize_flag, force_reprojection=force_reprojection)
 pav_geom_mesh.setup_index_functions()
+pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=21, num_wing_chordwise_vlm=5,
+                         visualize_flag=visualize_flag, force_reprojection=force_reprojection, ml=do_ML)
+# pav_geom_mesh.setup_index_functions()
 
 caddee.system_representation = sys_rep = pav_geom_mesh.sys_rep
 caddee.system_parameterization = sys_param = pav_geom_mesh.sys_param
@@ -191,12 +196,119 @@ vlm_model = VASTFluidSover(
         ],
     fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
     mesh_unit='m',
-    cl0=[wing_cl0, ]
+    cl0=[wing_cl0, ],
+    ML = do_ML
 )
-wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
+
+if do_ML:
+    cl_distribution, re_spans, wing_vlm_panel_forces, panel_areas, evaluation_pt, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
+else: 
+    wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
 cruise_model.register_output(vlm_forces)
 cruise_model.register_output(vlm_moments)
+# endregion
 
+# region ML
+
+wing_force = pav_geom_mesh.functions['wing_force']
+wing_cp = pav_geom_mesh.functions['wing_cp']
+
+if do_ML:
+    ml_pressures = PressureProfile(
+        airfoil_name='NASA_langley_ga_1',
+        use_inverse_cl_map=True,
+    )
+
+    cp_upper, cp_lower, Cd = ml_pressures.evaluate(cl_distribution, re_spans) #, mach_number, reynolds_number)
+    cruise_model.register_output(cp_upper)
+    cruise_model.register_output(cp_lower)
+
+    wing_vlm_mesh_name = pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing']
+    wing_camber_surface = pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing']
+    wing_upper_surface_ml = pav_geom_mesh.mesh_data['ml']['wing_upper']
+    wing_lower_surface_ml = pav_geom_mesh.mesh_data['ml']['wing_lower']
+    wing_oml_geo = pav_geom_mesh.functions['wing_geo']
+
+    viscous_drag_correction = ViscousCorrectionModel(
+        surface_names=[
+            f'{wing_vlm_mesh_name}_cruise',
+        ],
+        surface_shapes=[
+            (1, ) + wing_camber_surface.evaluate().shape[1:],
+        ],
+    )
+    moment_point = None
+    vlm_F, vlm_M = viscous_drag_correction.evaluate(ac_states=cruise_ac_states, 
+                                                    forces=wing_vlm_panel_forces, 
+                                                    cd_v=Cd, 
+                                                    panel_area=panel_areas, 
+                                                    moment_pt=moment_point, 
+                                                    evaluation_pt=evaluation_pt, 
+                                                    design_condition=cruise_condition)
+    cruise_model.register_output(vlm_F)
+    cruise_model.register_output(vlm_M)
+
+    ml_pressures_oml_map = NodalPressureProfile(
+        surface_names=[
+            f'{wing_vlm_mesh_name}_cruise',
+        ],
+        surface_shapes=[
+            wing_upper_surface_ml.value.shape,
+        ]
+    )
+
+    cp_upper_oml, cp_lower_oml = ml_pressures_oml_map.evaluate(cp_upper, cp_lower, nodal_pressure_mesh=[])
+    wing_oml_pressure_upper = cp_upper_oml[0]
+    wing_oml_pressure_lower = cp_lower_oml[0]
+
+    upper_normals_ml = pav_geom_mesh.mesh_data['ml']['wing_upper_normals']
+    lower_normals_ml = pav_geom_mesh.mesh_data['ml']['wing_lower_normals']
+    wing_upper_surface_ml_2 = pav_geom_mesh.mesh_data['ml']['wing_upper_vlm']
+    wing_lower_surface_ml_2 = pav_geom_mesh.mesh_data['ml']['wing_lower_vlm']
+    # print(wing_upper_surface_ml.shape)
+    # print(wing_upper_surface_ml_2.shape)
+    # exit()
+
+
+    ml_nodal_force_map = NodalForces()
+    ml_f_upper, ml_f_lower = ml_nodal_force_map.evaluate(vlm_F = vlm_F,
+                                                         oml_pressures_upper=wing_oml_pressure_upper, 
+                                                         oml_pressures_lower=wing_oml_pressure_lower, 
+                                                         normals_upper=upper_normals_ml, 
+                                                         normals_lower=lower_normals_ml, 
+                                                         upper_ml_mesh=wing_upper_surface_ml,
+                                                         lower_ml_mesh=wing_lower_surface_ml,
+                                                         upper_ml_vlm_mesh=wing_upper_surface_ml_2,
+                                                         lower_ml_vlm_mesh=wing_lower_surface_ml_2)
+
+    cruise_model.register_output(ml_f_upper)
+    cruise_model.register_output(ml_f_lower)
+
+    # ml_parametric_nodes = wing_upper_surface_ml_dict['parametric_coordinates']+wing_lower_surface_ml_dict['parametric_coordinates']
+
+    vstack = m3l.VStack()
+    wing_oml_force = vstack.evaluate(ml_f_upper, ml_f_lower)
+    
+    vstack = m3l.VStack()
+    wing_oml_pressure = vstack.evaluate(wing_oml_pressure_upper, wing_oml_pressure_lower)
+
+    cruise_model.register_output(wing_oml_pressure_upper)
+    cruise_model.register_output(wing_oml_pressure_lower)
+
+    valid_surfaces_ml = pav_geom_mesh.mesh_data['ml']['wing_valid_surfaces']
+    wing_upper_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_upper_parametric']
+    wing_lower_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_lower_parametric']
+    ml_nodes_parametric = wing_upper_surface_parametric + wing_lower_surface_parametric
+    
+    wing_force.inverse_evaluate(ml_nodes_parametric, wing_oml_force)
+    cruise_model.register_output(wing_force.coefficients)
+
+    wing_cp.inverse_evaluate(ml_nodes_parametric, wing_oml_pressure)
+    cruise_model.register_output(wing_cp.coefficients)
+# endregion
+
+
+# region VLM forces
 vlm_force_mapping_model = VASTNodalForces(
     surface_names=[
         pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing'],
@@ -218,12 +330,11 @@ wing_forces = oml_forces[0]
 
 # region Strucutral Loads
 
-wing_force = pav_geom_mesh.functions['wing_force']
 oml_para_nodes = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
 
-
-wing_force.inverse_evaluate(oml_para_nodes, wing_forces)
-cruise_model.register_output(wing_force.coefficients)
+if not do_ML:
+    wing_force.inverse_evaluate(oml_para_nodes, wing_forces)
+    cruise_model.register_output(wing_force.coefficients)
 
 left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
 left_oml_geo_nodes = spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
@@ -369,18 +480,18 @@ if __name__ == '__main__':
     # sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass'],
     #                                     wrt=['h_spar', 'h_skin', 'h_rib'])
     ########################## Run optimization ##################################
-    prob = CSDLProblem(problem_name='pav', simulator=sim)
+    # prob = CSDLProblem(problem_name='pav', simulator=sim)
 
-    # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
+    # # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 
-    from modopt.snopt_library import SNOPT
-    optimizer = SNOPT(prob,
-                      Major_iterations = 100,
-                      Major_optimality = 1e-5,
-                      append2file=False)
+    # from modopt.snopt_library import SNOPT
+    # optimizer = SNOPT(prob,
+    #                   Major_iterations = 100,
+    #                   Major_optimality = 1e-5,
+    #                   append2file=False)
 
-    optimizer.solve()
-    optimizer.print_results()
+    # optimizer.solve()
+    # optimizer.print_results()
 
 
     ####### Aerodynamic output ##########
