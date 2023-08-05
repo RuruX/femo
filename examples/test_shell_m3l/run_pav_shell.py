@@ -38,7 +38,9 @@ sys.setrecursionlimit(100000)
 debug_geom_flag = False
 force_reprojection = False
 visualize_flag = False
+# Dashboard and xdmf recorder cannot be turned on at the same time
 dashboard = False
+xdmf_record = False
 
 ft2m = 0.3048
 in2m = 0.0254
@@ -142,7 +144,8 @@ shells['wing_shell'] = {'E': E, 'nu': nu, 'rho': rho,# material properties
                         'dss': ds_1(100), # custom integrator: ds measure
                         'dSS': dS_1(100), # custom integrator: dS measure
                         'dxx': dx_2(10),  # custom integrator: dx measure
-                        'g': g}
+                        'g': g,
+                        'record': xdmf_record}
 
 
 ################# PAV  Wing #################

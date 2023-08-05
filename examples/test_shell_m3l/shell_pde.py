@@ -29,13 +29,14 @@ class ShellModule(ModuleCSDL):
         dSS = shells[shell_name]['dSS']
         dxx = shells[shell_name]['dxx']
         g = shells[shell_name]['g']
+        record = shells[shell_name]['record']
 
         PENALTY_BC = True
-        record = False
 
         fea = FEA(shell_mesh)
         fea.PDE_SOLVER = "Newton"
         fea.REPORT = False
+        fea.record = record
         fea.initialize = True
         fea.linear_problem = True
         # Add input to the PDE problem:

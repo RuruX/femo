@@ -7,11 +7,8 @@ from VAST.core.vast_solver import VASTFluidSover
 from VAST.core.fluid_problem import FluidProblem
 from VAST.core.generate_mappings_m3l import VASTNodalForces
 from VAST.core.vlm_llt.viscous_correction import ViscousCorrectionModel
-############## Add these lines to avoid importing error of lsdo_airfoil ############
-import os
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
-####################################################################################
-from lsdo_airfoil.core.pressure_profile import PressureProfile, NodalPressureProfile, NodalForces
+from caddee.core.caddee_core.system_representation.component.component import LiftingSurface
+# from lsdo_airfoil.core.pressure_profile import PressureProfile, NodalPressureProfile
 import dolfinx
 from femo.fea.utils_dolfinx import *
 import shell_module as rmshell
@@ -38,7 +35,7 @@ import sys
 
 sys.setrecursionlimit(100000)
 
-do_ML = True
+
 debug_geom_flag = False
 force_reprojection = False
 visualize_flag = False
@@ -54,7 +51,7 @@ in2m = 0.0254
 
 wing_cl0 = 0.3662
 pitch_angle_list = [-0.38129494, 6, 12.11391141]
-h_0 = 0.02*in2m
+h_0 = 0.05*in2m
 pitch_angle = np.deg2rad(pitch_angle_list[2])
 
 
@@ -72,10 +69,9 @@ pav_geom_mesh.setup_internal_wingbox_geometry(debug_geom_flag=debug_geom_flag,
 pav_geom_mesh.sys_rep.spatial_representation.assemble()
 pav_geom_mesh.oml_mesh(include_wing_flag=True,
                        debug_geom_flag=debug_geom_flag, force_reprojection=force_reprojection)
+pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=21, num_wing_chordwise_vlm=5,
+                         visualize_flag=visualize_flag, force_reprojection=force_reprojection)
 pav_geom_mesh.setup_index_functions()
-pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=41, num_wing_chordwise_vlm=2,
-                         visualize_flag=visualize_flag, force_reprojection=force_reprojection, ml=do_ML)
-# pav_geom_mesh.setup_index_functions()
 
 caddee.system_representation = sys_rep = pav_geom_mesh.sys_rep
 caddee.system_parameterization = sys_param = pav_geom_mesh.sys_param
@@ -86,24 +82,32 @@ spatial_rep = sys_rep.spatial_representation
 # region FEniCS
 #############################################
 # filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
-filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
+# filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
 
+filename = "./pav_wing/pav_wing_6rib_caddee_mesh_2374_quad.xdmf"
+# filename = "./pav_wing/pav_wing_6rib_caddee_mesh_4862_quad.xdmf"
+# filename = "./pav_wing/pav_wing_6rib_caddee_mesh_19744_quad.xdmf"
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
     fenics_mesh = xdmf.read_mesh(name="Grid")
 nel = fenics_mesh.topology.index_map(fenics_mesh.topology.dim).size_local
 nn = fenics_mesh.topology.index_map(0).size_local
 
 nodes = fenics_mesh.geometry.x
+#### if 6 ribs
+structural_left_wing_names = pav_geom_mesh.geom_data['primitive_names']['structural_left_wing_names']
+# wing_left_structural = LiftingSurface(name='wing_left', spatial_representation=spatial_rep, primitive_names=structural_left_wing_names)
+# nodes_parametric = wing_left_structural.project(nodes,properties=['parametric_coordinates'])
+# ###################
+# #### 19 ribs
+# # with open('./pav_wing/pav_wing_v2_paneled_mesh_data_'+str(nodes.shape[0])+'.pickle', 'rb') as f:
+# #     nodes_parametric = pickle.load(f)
 
-
-with open('./pav_wing/pav_wing_v2_paneled_mesh_data_'+str(nodes.shape[0])+'.pickle', 'rb') as f:
-    nodes_parametric = pickle.load(f)
-
-for i in range(len(nodes_parametric)):
-    nodes_parametric[i] = (nodes_parametric[i][0].replace(' ', '_').replace(',',''), np.array([nodes_parametric[i][1]]))
-
-wing_thickness = pav_geom_mesh.functions['wing_thickness']
-thickness_nodes = wing_thickness.evaluate(nodes_parametric)
+# # for i in range(len(nodes_parametric)):
+# #     nodes_parametric[i] = (nodes_parametric[i][0].replace(' ', '_').replace(',',''), np.array([nodes_parametric[i][1]]))
+# ################
+# # print(structural_left_wing_names)
+# wing_thickness = pav_geom_mesh.functions['wing_thickness']
+# thickness_nodes = wing_thickness.evaluate(nodes_parametric)
 
 shell_pde = ShellPDE(fenics_mesh)
 
@@ -112,7 +116,7 @@ shell_pde = ShellPDE(fenics_mesh)
 # reference: https://asm.matweb.com/search/SpecificMaterial.asp?bassnum=ma2024t4
 E = 73.1E9 # unit: Pa
 nu = 0.33
-h = h_0
+h = h_0 # unit: m
 rho = 2780 # unit: kg/m^3
 f_d = -rho*h*9.81 # self-weight unit: N
 tensile_yield_strength = 324E6 # unit: Pa
@@ -201,150 +205,12 @@ vlm_model = VASTFluidSover(
         ],
     fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
     mesh_unit='m',
-    cl0=[wing_cl0, ],
-    ML = do_ML
+    cl0=[wing_cl0, ]
 )
-
-if do_ML:
-    cl_distribution, re_spans, wing_vlm_panel_forces, panel_areas, evaluation_pt, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
-else: 
-    wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
+wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
 cruise_model.register_output(vlm_forces)
 cruise_model.register_output(vlm_moments)
-# endregion
 
-# region ML
-
-wing_force = pav_geom_mesh.functions['wing_force']
-wing_cp = pav_geom_mesh.functions['wing_cp']
-
-if do_ML:
-    ml_pressures = PressureProfile(
-        airfoil_name='NASA_langley_ga_1',
-        use_inverse_cl_map=True,
-    )
-
-    cp_upper, cp_lower, Cd = ml_pressures.evaluate(cl_distribution, re_spans) #, mach_number, reynolds_number)
-    cruise_model.register_output(cp_upper)
-    cruise_model.register_output(cp_lower)
-
-    wing_vlm_mesh_name = pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing']
-    wing_camber_surface = pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing']
-    wing_upper_surface_ml = pav_geom_mesh.mesh_data['ml']['wing_upper']
-    wing_lower_surface_ml = pav_geom_mesh.mesh_data['ml']['wing_lower']
-    wing_oml_geo = pav_geom_mesh.functions['wing_geo']
-
-    viscous_drag_correction = ViscousCorrectionModel(
-        surface_names=[
-            f'{wing_vlm_mesh_name}_cruise',
-        ],
-        surface_shapes=[
-            (1, ) + wing_camber_surface.evaluate().shape[1:],
-        ],
-    )
-    moment_point = None
-    vlm_F, vlm_M = viscous_drag_correction.evaluate(ac_states=cruise_ac_states, 
-                                                    forces=wing_vlm_panel_forces, 
-                                                    cd_v=Cd, 
-                                                    panel_area=panel_areas, 
-                                                    moment_pt=moment_point, 
-                                                    evaluation_pt=evaluation_pt, 
-                                                    design_condition=cruise_condition)
-    cruise_model.register_output(vlm_F)
-    cruise_model.register_output(vlm_M)
-
-    ml_pressures_oml_map = NodalPressureProfile(
-        surface_names=[
-            f'{wing_vlm_mesh_name}_cruise',
-        ],
-        surface_shapes=[
-            wing_upper_surface_ml.value.shape,
-        ]
-    )
-
-    cp_upper_oml, cp_lower_oml = ml_pressures_oml_map.evaluate(cp_upper, cp_lower, nodal_pressure_mesh=[])
-    wing_oml_pressure_upper = cp_upper_oml[0]
-    wing_oml_pressure_lower = cp_lower_oml[0]
-
-    upper_normals_ml = pav_geom_mesh.mesh_data['ml']['wing_upper_normals']
-    lower_normals_ml = pav_geom_mesh.mesh_data['ml']['wing_lower_normals']
-    wing_upper_surface_ml_2 = pav_geom_mesh.mesh_data['ml']['wing_upper_vlm']
-    wing_lower_surface_ml_2 = pav_geom_mesh.mesh_data['ml']['wing_lower_vlm']
-    # print(wing_upper_surface_ml.shape)
-    # print(wing_upper_surface_ml_2.shape)
-    # exit()
-
-
-    ml_nodal_force_map = NodalForces()
-    ml_f_upper, ml_f_lower = ml_nodal_force_map.evaluate(vlm_F = vlm_F,
-                                                         oml_pressures_upper=wing_oml_pressure_upper, 
-                                                         oml_pressures_lower=wing_oml_pressure_lower, 
-                                                         normals_upper=upper_normals_ml, 
-                                                         normals_lower=lower_normals_ml, 
-                                                         upper_ml_mesh=wing_upper_surface_ml,
-                                                         lower_ml_mesh=wing_lower_surface_ml,
-                                                         upper_ml_vlm_mesh=wing_upper_surface_ml_2,
-                                                         lower_ml_vlm_mesh=wing_lower_surface_ml_2)
-
-    cruise_model.register_output(ml_f_upper)
-    cruise_model.register_output(ml_f_lower)
-
-    # ml_parametric_nodes = wing_upper_surface_ml_dict['parametric_coordinates']+wing_lower_surface_ml_dict['parametric_coordinates']
-
-    vstack = m3l.VStack()
-    wing_oml_force = vstack.evaluate(ml_f_upper, ml_f_lower)
-    
-    vstack = m3l.VStack()
-    wing_oml_pressure = vstack.evaluate(wing_oml_pressure_upper, wing_oml_pressure_lower)
-
-    cruise_model.register_output(wing_oml_pressure_upper)
-    cruise_model.register_output(wing_oml_pressure_lower)
-
-    valid_surfaces_ml = pav_geom_mesh.mesh_data['ml']['wing_valid_surfaces']
-    wing_upper_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_upper_parametric']
-    wing_lower_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_lower_parametric']
-    ml_nodes_parametric = wing_upper_surface_parametric + wing_lower_surface_parametric
-    
-    coefficients = {}
-    spaces = {}
-    for name in wing_force.coefficients.keys():
-        if name in valid_surfaces_ml:
-            coefficients[name] = wing_force.coefficients[name]
-            spaces[name] = wing_force.space.spaces[name]
-    wing_force.coefficients = coefficients
-    wing_force.space.spaces = spaces
-
-    coefficients = {}
-    spaces = {}
-    for name in wing_cp.coefficients.keys():
-        if name in valid_surfaces_ml:
-            coefficients[name] = wing_cp.coefficients[name]
-            spaces[name] = wing_cp.space.spaces[name]
-    wing_cp.coefficients = coefficients
-    wing_cp.space.spaces = spaces
-
-    wing_oml_mesh_ml = am.vstack((wing_upper_surface_ml, wing_lower_surface_ml))
-    num_ml_points = 100
-    num_spanwise_ml = 40
-    ml_nodes = wing_oml_mesh_ml.value.reshape((num_ml_points*2*num_spanwise_ml, 3), order='F')
-    ml_nodes_correct = np.zeros(ml_nodes.shape)
-    for i in range(num_spanwise_ml):
-        ml_nodes_correct[i*100:i*100+100] = ml_nodes[i*200:i*200+100]
-        ml_nodes_correct[i*100+100*num_spanwise_ml:i*100+100*num_spanwise_ml+100] = ml_nodes[i*200+100:i*200+200]
-    ml_nodes = ml_nodes_correct
-    wing_oml = pav_geom_mesh.geom_data['components']['wing_oml']
-    ml_nodes_parametric = wing_oml.project(ml_nodes, properties=['parametric_coordinates'], force_reprojection=force_reprojection)
-    
-    
-    wing_force.inverse_evaluate(ml_nodes_parametric, wing_oml_force)
-    cruise_model.register_output(wing_force.coefficients)
-
-    wing_cp.inverse_evaluate(ml_nodes_parametric, wing_oml_pressure, regularization_coeff = 1e-3)
-    cruise_model.register_output(wing_cp.coefficients)
-# endregion
-
-
-# region VLM forces
 vlm_force_mapping_model = VASTNodalForces(
     surface_names=[
         pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing'],
@@ -366,43 +232,17 @@ wing_forces = oml_forces[0]
 
 # region Strucutral Loads
 
+wing_force = pav_geom_mesh.functions['wing_force']
 oml_para_nodes = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
 
-if not do_ML:
-    wing_force.inverse_evaluate(oml_para_nodes, wing_forces)
-    cruise_model.register_output(wing_force.coefficients)
+
+wing_force.inverse_evaluate(oml_para_nodes, wing_forces)
+cruise_model.register_output(wing_force.coefficients)
 
 left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
 left_oml_geo_nodes = spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
 
-if do_ML:
-    valid_surfaces_ml = pav_geom_mesh.mesh_data['ml']['wing_valid_surfaces']
-    left_wing_surfaces = pav_geom_mesh.geom_data['primitive_names']['left_wing']
-    
-    right_wing_surfaces = pav_geom_mesh.geom_data['primitive_names']['right_wing']
-    ml_para_mesh = []
-    valid_surfaces_ml_left_wing = []
-    valid_surfaces_ml_right_wing = []
-    for name in valid_surfaces_ml:
-        if name in right_wing_surfaces:
-            valid_surfaces_ml_right_wing.append(name)
-    num = 10
-    for name in valid_surfaces_ml:
-        if name in left_wing_surfaces:
-            valid_surfaces_ml_left_wing.append(name)
-            for u in np.linspace(0,1,10):
-                for v in np.linspace(0,1,10):
-                    ml_para_mesh.append((name, np.array([[u,v]])))
-    ml_geo_mesh = spatial_rep.evaluate_parametric(ml_para_mesh)
-    
-    # print(valid_surfaces_ml_left_wing)
-    
-    # print(valid_surfaces_ml_right_wing)
-#     wing_upper_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_upper_parametric']
-#     wing_lower_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_lower_parametric']
-#     ml_nodes_parametric = wing_upper_surface_parametric + wing_lower_surface_parametric
-
-left_wing_forces = wing_force.evaluate(ml_para_mesh)
+left_wing_forces = wing_force.evaluate(left_wing_oml_para_coords)
 wing_component = pav_geom_mesh.geom_data['components']['wing']
 
 shell_force_map_model = rmshell.RMShellForces(component=wing_component,
@@ -411,7 +251,7 @@ shell_force_map_model = rmshell.RMShellForces(component=wing_component,
                                                 shells=shells)
 cruise_structural_wing_mesh_forces = shell_force_map_model.evaluate(
                         nodal_forces=left_wing_forces,
-                        nodal_forces_mesh=ml_geo_mesh)
+                        nodal_forces_mesh=left_oml_geo_nodes)
 # endregion
 
 # region Structures
@@ -424,7 +264,8 @@ shell_displacements_model = rmshell.RMShell(component=wing_component,
 cruise_structural_wing_mesh_displacements, _, cruise_structural_wing_mesh_stresses, wing_mass = \
                                 shell_displacements_model.evaluate(
                                     forces=cruise_structural_wing_mesh_forces,
-                                    thicknesses=thickness_nodes)
+                                )
+                                    # thicknesses=thickness_nodes)
 cruise_model.register_output(cruise_structural_wing_mesh_stresses)
 cruise_model.register_output(cruise_structural_wing_mesh_displacements)
 cruise_model.register_output(wing_mass)
@@ -454,9 +295,9 @@ wing_displacement = pav_geom_mesh.functions['wing_displacement']
 wing_displacement.inverse_evaluate(transfer_para_mesh, nodal_displacements)
 cruise_model.register_output(wing_displacement.coefficients)
 
-wing_stress = pav_geom_mesh.functions['wing_stress']
-wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses, regularization_coeff=1e-3)
-cruise_model.register_output(wing_stress.coefficients)
+# wing_stress = pav_geom_mesh.functions['wing_stress']
+# wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses, regularization_coeff=1e-3)
+# cruise_model.register_output(wing_stress.coefficients)
 
 cruise_model.register_output(tip_displacement)
 cruise_model.register_output(nodal_displacements)
@@ -480,7 +321,6 @@ caddee_csdl_model.add_constraint(system_model_name+'Wing_rm_shell_model.rm_shell
 caddee_csdl_model.add_objective(system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass', scaler=1e-1)
 
 # Minimum thickness: 0.02 inch -> 0.000508 m
-# Minimum thickness: 0.05 inch 
 
 h_min = h
 
@@ -491,36 +331,42 @@ valid_structural_left_wing_names = structural_left_wing_names
 ################################################################
 #### Full thicknesses: individual for spars, skins and ribs ####
 ################################################################
-for name in valid_structural_left_wing_names:
-    primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
-    name = name.replace(' ', '_').replace(',','')
-    surface_id = i
+# for name in valid_structural_left_wing_names:
+#     primitive = spatial_rep.get_primitives([name])[name].geometry_primitive
+#     name = name.replace(' ', '_').replace(',','')
+#     surface_id = i
 
-    h_init = caddee_csdl_model.create_input('wing_thickness_dv_'+name, val=h_min)
-    caddee_csdl_model.add_design_variable('wing_thickness_dv_'+name, # 0.05 in
-                                          lower=0.005 * in2m,
-                                          upper=0.1 * in2m,
-                                          scaler=1000,
-                                          )
-    caddee_csdl_model.register_output('wing_thickness_surface_'+name, csdl.expand(h_init, shape))
-    caddee_csdl_model.connect('wing_thickness_surface_'+name,
-                                system_model_name+'wing_thickness_function_evaluation.'+\
-                                name+'_wing_thickness_coefficients')
-    i += 1
+#     h_init = caddee_csdl_model.create_input('wing_thickness_dv_'+name, val=h_min)
+#     caddee_csdl_model.add_design_variable('wing_thickness_dv_'+name, # 0.02 in
+#                                           lower=0.005 * in2m,
+#                                           upper=0.1 * in2m,
+#                                           scaler=1000,
+#                                           )
 
+    # caddee_csdl_model.register_output('wing_thickness_surface_'+name, csdl.expand(h_init, shape))
+    # caddee_csdl_model.connect('wing_thickness_surface_'+name,
+    #                             system_model_name+'wing_thickness_function_evaluation.'+\
+    #                             name+'_wing_thickness_coefficients')
+    # i += 1
+h_init = caddee_csdl_model.create_input('wing_thickness_dv_'+name, val=h_min)
+caddee_csdl_model.add_design_variable('wing_thickness_dv_'+name, # 0.02 in
+                                        lower=0.005 * in2m,
+                                        upper=0.1 * in2m,
+                                        scaler=1000,
+                                        )
+caddee_csdl_model.register_output('wing_thickness_surface_'+name, csdl.expand(h_init, nn))
+caddee_csdl_model.connect('wing_thickness_surface_'+name,
+                            'system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_model.rm_shell.solid_model.wing_shell_thicknesses')
+    
 if dashboard:
     import lsdo_dash.api as ld
     index_functions_map = {}
-    index_functions_surfaces = {}
-
+    
     index_functions_map['wing_thickness'] = wing_thickness  
     index_functions_map['wing_force'] = wing_force
-    index_functions_map['wing_cp'] = wing_cp
     index_functions_map['wing_displacement'] = wing_displacement
     index_functions_map['wing_stress'] = wing_stress
-    if do_ML:
-        index_functions_surfaces['valid_surfaces_ml_left_wing'] = valid_surfaces_ml_left_wing
-        index_functions_surfaces['valid_surfaces_ml_right_wing'] = valid_surfaces_ml_right_wing
+
     rep = csdl.GraphRepresentation(caddee_csdl_model)
 
     # profiler.disable()
@@ -534,12 +380,11 @@ if dashboard:
 
 if __name__ == '__main__':
     if dashboard:
-        from dash_pav_ml import TC2DB
+        from dash_pav import TC2DB
         dashbuilder = TC2DB()
         sim = Simulator(rep, analytics=True, dashboard = dashbuilder)
     else:
         sim = Simulator(caddee_csdl_model, analytics=True)
-
     sim.run()
 
     # sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
@@ -552,14 +397,14 @@ if __name__ == '__main__':
 
     # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 
-    from modopt.snopt_library import SNOPT
-    optimizer = SNOPT(prob,
-                      Major_iterations = 100,
-                      Major_optimality = 1e-5,
-                      append2file=True)
+    # from modopt.snopt_library import SNOPT
+    # optimizer = SNOPT(prob,
+    #                   Major_iterations = 100,
+    #                   Major_optimality = 1e-5,
+    #                   append2file=False)
 
-    optimizer.solve()
-    optimizer.print_results()
+    # optimizer.solve()
+    # optimizer.print_results()
 
 
     ####### Aerodynamic output ##########
@@ -570,15 +415,14 @@ if __name__ == '__main__':
         sim[system_model_name+cruise_name+'_ac_states_operation.'+cruise_name+'_pitch_angle']))
     print('C_L: ', sim[system_model_name+'wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_vlm_mesh_C_L'])
     # print('Total lift: ', sim[system_model_name+'wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.total_lift'])
-    wing_cp_upper = sim['system_model.structural_sizing.cruise_3.cruise_3.airfoil_ml_model.wing_cp_upper']
-    print('C_P upper:', np.min(wing_cp_upper), np.max(wing_cp_upper))
+
     ####### Structural output ##########
     print("="*60)
     print("="*20+'structure outputs'+"="*20)
     print("="*60)
     # Comparing the solution to the Kirchhoff analytical solution
     f_shell = sim[system_model_name+'Wing_rm_shell_force_mapping.wing_shell_forces']
-    # f_vlm = sim[system_model_name+'wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
+    f_vlm = sim[system_model_name+'wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
     u_shell = sim[system_model_name+'Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
     u_nodal = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
     u_tip = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_tip_displacement']
@@ -604,7 +448,7 @@ if __name__ == '__main__':
 
     dummy_func = Function(shell_pde.VT)
     dummy_func.x.array[:] = 1.0
-    # print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
+    print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
     print("shell forces:", dolfinx.fem.assemble_scalar(form(fx_func*ufl.dx)),
                             dolfinx.fem.assemble_scalar(form(fy_func*ufl.dx)),
                             dolfinx.fem.assemble_scalar(form(fz_func*ufl.dx)))

@@ -3,8 +3,7 @@ import lsdo_dash.api as ld
 # from tc2_main_script import caddee, system_m3l_model, rep
 # from run_pav_new_aeroelastic_opt_viz import caddee_viz, index_functions_map, rep, wing
 
-
-from run_pav_shell import caddee_viz, index_functions_map, rep, wing_component, pav_geom_mesh, system_model_name
+from run_pav_shell_ml import caddee_viz, index_functions_map, index_functions_surfaces, rep, wing_component, pav_geom_mesh, system_model_name
 
 class TC2DB(ld.DashBuilder):
 
@@ -15,9 +14,12 @@ class TC2DB(ld.DashBuilder):
         max_stress = 2.3e8
         min_stress = -3.6e7
 
-        max_force = None
-        min_force = None
-
+        # max_force = 0.082407
+        # min_force = -10.034668 
+        # max_force = None
+        # min_force = None
+        max_force = 1.0
+        min_force = -4.0
         # Optimization frame
         geo_frame = self.add_frame(
             'optimization',
@@ -31,7 +33,7 @@ class TC2DB(ld.DashBuilder):
         
         # geo_frame[0,0] = ld.default_plotters.build_historic_plotter(
         #     [system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
-        #     title = 'Aggregated Stress',
+        #     title = 'Maximum stress [Pa]',
         #     legend = False,
         # )
         # Try SNOPT here
@@ -124,14 +126,14 @@ class TC2DB(ld.DashBuilder):
         # geo_elements.append(caddee_viz.build_state_plotter(index_functions_map['wing_displacement'], rep=rep, displacements=20))
         
         geo_elements.append(caddee_viz.build_state_plotter(
-            index_functions_map['wing_force'],
+            index_functions_map['wing_cp'], 
             rep=rep,
-            remove_primitives=pav_geom_mesh.geom_data['primitive_names']['left_wing'],
+            remove_primitives=index_functions_surfaces['valid_surfaces_ml_left_wing'],
             grid_num = 15,
-            vmin = min_force,
+            vmin = min_force, 
             vmax = max_force,
             ))
-
+        
         geo_elements.append(build_combined_plotter(
             caddee_viz,
             index_functions_map['wing_thickness'], 
@@ -159,7 +161,7 @@ class TC2DB(ld.DashBuilder):
             import matplotlib.pyplot as plt
             plt.rcParams.update({'font.size': 14})
             plt.colorbar(matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=min_force, vmax=max_force), cmap='coolwarm'), cax = ax_subplot)
-            ax_subplot.set_title('Force')
+            ax_subplot.set_title('C_P')
         geo_frame[10:38, 214:220] = ld.BaseAxesPlotter(
             plot_function = add_axes,
         )
@@ -169,15 +171,15 @@ class TC2DB(ld.DashBuilder):
             'focalPoint': (3, -2.25, 0.8)
         }
         geo_elements = []
-
         geo_elements.append(caddee_viz.build_state_plotter(
-            index_functions_map['wing_force'],
+            index_functions_map['wing_cp'],
             rep=rep,
-            remove_primitives=pav_geom_mesh.geom_data['primitive_names']['right_wing'],
+            remove_primitives=index_functions_surfaces['valid_surfaces_ml_right_wing'],
             grid_num = 15,
-            vmin = max_force,
-            vmax = min_force,
-        ))
+            vmin = min_force,
+            vmax = max_force,
+            ))
+
         geo_frame[0:48, 135:220] = caddee_viz.build_vedo_renderer(
             geo_elements,
             camera_settings = camera_settings,
@@ -223,7 +225,7 @@ class TC2DB(ld.DashBuilder):
             import matplotlib.pyplot as plt
             plt.rcParams.update({'font.size': 14})
             plt.colorbar(matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=min_stress, vmax=max_stress), cmap='coolwarm'), cax = ax_subplot)
-            ax_subplot.set_title('Stress')
+            ax_subplot.set_title('Stress [Pa]')
         
         geo_frame[105:130, 214:220] = ld.BaseAxesPlotter(
             plot_function = add_axes,
@@ -353,6 +355,7 @@ def build_combined_plotter(
             v = np.linalg.norm(evaluated_states, axis=1)
 
         # print(v.shape, index_function.name)
+
         if vmin is None:
             min_v = np.min(v)
         else:
@@ -420,14 +423,14 @@ if __name__ == '__main__':
     # dash_object.visualize(frame_ind = n, show = True)
 
     # uncomment to produces image for last frame
-    dash_object.visualize_most_recent(show = True)
+    # dash_object.visualize_most_recent(show = True)
 
     # Visualize during optimization
     # dash_object.visualize_auto_refresh()
 
     # uncomment to make movie
-    # dash_object.visualize_all()
-    # dash_object.make_mov()
+    dash_object.visualize_all()
+    dash_object.make_mov()
 
     # uncomment to run gui
     # dash_object.run_GUI()
