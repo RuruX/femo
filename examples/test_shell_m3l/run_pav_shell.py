@@ -38,7 +38,7 @@ sys.setrecursionlimit(100000)
 debug_geom_flag = False
 force_reprojection = False
 visualize_flag = False
-dashboard = True
+dashboard = False
 
 ft2m = 0.3048
 in2m = 0.0254
@@ -284,7 +284,7 @@ wing_displacement.inverse_evaluate(transfer_para_mesh, nodal_displacements)
 cruise_model.register_output(wing_displacement.coefficients)
 
 wing_stress = pav_geom_mesh.functions['wing_stress']
-wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses)
+wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses, regularization_coeff=1e-3)
 cruise_model.register_output(wing_stress.coefficients)
 
 cruise_model.register_output(tip_displacement)

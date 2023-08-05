@@ -55,6 +55,11 @@ ft2m = 0.3048
 lbs2kg = 0.453592
 psf2pa = 50
 
+wing_cl0 = 0.3662
+pitch_angle_list = [-0.38129494, 6, 12.11391141]
+h_0 = 0.05*in2m
+pitch_angle = np.deg2rad(pitch_angle_list[2])
+
 debug_geom_flag = False
 visualize_flag = False
 do_plots = False
@@ -783,12 +788,14 @@ shell_displacements_model = rmshell.RMShell(component=wing,
                                             pde=shell_pde,
                                             shells=shells)
 
-cruise_structural_wing_mesh_displacements, cruise_structural_wing_mesh_rotations, wing_mass = \
+cruise_structural_wing_mesh_displacements, _, cruise_structural_wing_mesh_stresses, wing_mass = \
                                 shell_displacements_model.evaluate(
                                     forces=cruise_structural_wing_mesh_forces,
                                     thicknesses=thickness_nodes)
+cruise_model.register_output(cruise_structural_wing_mesh_stresses)
 cruise_model.register_output(cruise_structural_wing_mesh_displacements)
 cruise_model.register_output(wing_mass)
+
 
 # endregion
 

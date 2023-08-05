@@ -53,11 +53,7 @@ in2m = 0.0254
 
 wing_cl0 = 0.3662
 pitch_angle_list = [-0.38129494, 6, 12.11391141]
-h_0 = 0.05*in2m
-pitch_angle = np.deg2rad(pitch_angle_list[2])
-
-
-
+h_0 = 0.02*in2m
 pitch_angle = np.deg2rad(pitch_angle_list[2])
 
 
@@ -346,7 +342,34 @@ if not do_ML:
 left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
 left_oml_geo_nodes = spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
 
-left_wing_forces = wing_force.evaluate(left_wing_oml_para_coords)
+if do_ML:
+    valid_surfaces_ml = pav_geom_mesh.mesh_data['ml']['wing_valid_surfaces']
+    left_wing_surfaces = pav_geom_mesh.geom_data['primitive_names']['left_wing']
+    
+    right_wing_surfaces = pav_geom_mesh.geom_data['primitive_names']['right_wing']
+    ml_para_mesh = []
+    valid_surfaces_ml_left_wing = []
+    valid_surfaces_ml_right_wing = []
+    for name in valid_surfaces_ml:
+        if name in right_wing_surfaces:
+            valid_surfaces_ml_right_wing.append(name)
+    num = 10
+    for name in valid_surfaces_ml:
+        if name in left_wing_surfaces:
+            valid_surfaces_ml_left_wing.append(name)
+            for u in np.linspace(0,1,10):
+                for v in np.linspace(0,1,10):
+                    ml_para_mesh.append((name, np.array([[u,v]])))
+    ml_geo_mesh = spatial_rep.evaluate_parametric(ml_para_mesh)
+    
+    print(valid_surfaces_ml_left_wing)
+    
+    print(valid_surfaces_ml_right_wing)
+#     wing_upper_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_upper_parametric']
+#     wing_lower_surface_parametric = pav_geom_mesh.mesh_data['ml']['wing_lower_parametric']
+#     ml_nodes_parametric = wing_upper_surface_parametric + wing_lower_surface_parametric
+
+left_wing_forces = wing_force.evaluate(ml_para_mesh)
 wing_component = pav_geom_mesh.geom_data['components']['wing']
 
 shell_force_map_model = rmshell.RMShellForces(component=wing_component,
@@ -355,7 +378,7 @@ shell_force_map_model = rmshell.RMShellForces(component=wing_component,
                                                 shells=shells)
 cruise_structural_wing_mesh_forces = shell_force_map_model.evaluate(
                         nodal_forces=left_wing_forces,
-                        nodal_forces_mesh=left_oml_geo_nodes)
+                        nodal_forces_mesh=ml_geo_mesh)
 # endregion
 
 # region Structures
@@ -399,7 +422,7 @@ wing_displacement.inverse_evaluate(transfer_para_mesh, nodal_displacements)
 cruise_model.register_output(wing_displacement.coefficients)
 
 wing_stress = pav_geom_mesh.functions['wing_stress']
-wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses)
+wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses, regularization_coeff=1e-3)
 cruise_model.register_output(wing_stress.coefficients)
 
 cruise_model.register_output(tip_displacement)
@@ -455,12 +478,15 @@ for name in valid_structural_left_wing_names:
 if dashboard:
     import lsdo_dash.api as ld
     index_functions_map = {}
-    
+    index_functions_surfaces = {}
+
     index_functions_map['wing_thickness'] = wing_thickness  
     index_functions_map['wing_force'] = wing_force
     index_functions_map['wing_displacement'] = wing_displacement
     index_functions_map['wing_stress'] = wing_stress
-
+    if do_ML:
+        index_functions_surfaces['valid_surfaces_ml_left_wing'] = valid_surfaces_ml_left_wing
+        index_functions_surfaces['valid_surfaces_ml_right_wing'] = valid_surfaces_ml_right_wing
     rep = csdl.GraphRepresentation(caddee_csdl_model)
 
     # profiler.disable()
@@ -517,7 +543,7 @@ if __name__ == '__main__':
     print("="*60)
     # Comparing the solution to the Kirchhoff analytical solution
     f_shell = sim[system_model_name+'Wing_rm_shell_force_mapping.wing_shell_forces']
-    f_vlm = sim[system_model_name+'wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
+    # f_vlm = sim[system_model_name+'wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces'].reshape((-1,3))
     u_shell = sim[system_model_name+'Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
     u_nodal = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
     u_tip = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_tip_displacement']
@@ -543,7 +569,7 @@ if __name__ == '__main__':
 
     dummy_func = Function(shell_pde.VT)
     dummy_func.x.array[:] = 1.0
-    print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
+    # print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
     print("shell forces:", dolfinx.fem.assemble_scalar(form(fx_func*ufl.dx)),
                             dolfinx.fem.assemble_scalar(form(fy_func*ufl.dx)),
                             dolfinx.fem.assemble_scalar(form(fz_func*ufl.dx)))

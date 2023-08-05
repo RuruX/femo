@@ -31,7 +31,7 @@ class ShellModule(ModuleCSDL):
         g = shells[shell_name]['g']
 
         PENALTY_BC = True
-
+        record = False
 
         fea = FEA(shell_mesh)
         fea.PDE_SOLVER = "Newton"
@@ -76,8 +76,8 @@ class ShellModule(ModuleCSDL):
         output_name_5 = shell_name+'_stress'
         output_form_5 = pde.von_Mises_stress(state_function,input_function_1,E,nu,surface='Top')
 
-        fea.add_input(input_name_1, input_function_1, init_val=0.001, record=False)
-        fea.add_input(input_name_2, input_function_2, record=False)
+        fea.add_input(input_name_1, input_function_1, init_val=0.001, record=record)
+        fea.add_input(input_name_2, input_function_2, record=record)
         fea.add_state(name=state_name,
                         function=state_function,
                         residual_form=residual_form,
@@ -101,7 +101,7 @@ class ShellModule(ModuleCSDL):
         fea.add_field_output(name=output_name_5,
                         form=output_form_5,
                         arguments=[input_name_1,state_name],
-                        record=False)
+                        record=record)
         force_reshaping_model = ForceReshapingModel(pde=pde,
                                     input_name=shell_name+'_forces',
                                     output_name=input_name_2)
