@@ -188,23 +188,60 @@ cruise_ac_states = cruise_condition.evaluate_ac_states()
 cruise_model.register_output(cruise_ac_states)
 # endregion
 
+# Map displacements from column 3 (framework) to 2
+# TODO: Mirror wing displacements to OML surfaces of right wing
+wing_displacement_input = pav_geom_mesh.functions['wing_displacement_input']
+# for key in wing_displacement.coefficients:
+#     wing_displacement_input.coefficients[key].value = np.zeros(wing_displacement_input.coefficients[key].shape)
+
+oml_para_nodes_leftwing = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
+
+# we need to define the parametric coordinates of the coefficient sets on which we want to
+
+disp_oml_nodes = wing_displacement_input.evaluate(oml_para_nodes_leftwing)  # use OML parametric nodes to evaluate wing displacement function
+
+# Map displacements from column 2 to 1
+
+vlm_disp_mapping_model = VASTNodelDisplacements(
+    surface_names=[
+        pav_geom_mesh.functions['wing_displacement_input'].name,
+    ],
+    surface_shapes=[
+        (1,) + pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].evaluate().shape[1:],
+        ],
+    initial_meshes=[
+        pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'],
+    ],
+    output_names=[
+        'wing_mesh_displacements'
+    ]
+)
+wing_oml_leftwing_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['left_wing']
+vlm_nodal_displacements = vlm_disp_mapping_model.evaluate(nodal_displacements=[disp_oml_nodes, ],
+                                              nodal_displacements_mesh=[wing_oml_leftwing_mesh, ])
+
 # region VLM Solver
 # Construct VLM solver with CADDEE geometry
 vlm_model = VASTFluidSover(
     surface_names=[
-        pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing'],
+        'wing',
     ],
     surface_shapes=[
         (1,) + pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].evaluate().shape[1:],
         ],
     fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
     mesh_unit='m',
-    cl0=[wing_cl0, ]
+    cl0=[wing_cl0, ],
+    displacement_names=[
+        vlm_nodal_displacements[0].name
+    ]
 )
 # Compute VLM solution (input: displacements, output: forces)
 # NOTE: `wing_vlm_panel_forces` are the panel force vectors
-wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
-
+# print("pre-VLM model evaluate")
+# TODO: figure out why `wing_mesh_displacements` is not recognized below
+wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states, displacements=vlm_nodal_displacements)
+# print("post-VLM model evaluate")
 # register the total VLM forces and moments as outputs for the M3L Model (column 5)
 cruise_model.register_output(vlm_forces)
 cruise_model.register_output(vlm_moments)
@@ -212,7 +249,7 @@ cruise_model.register_output(vlm_moments)
 # construct operation to map from column 1 to column 2
 vlm_force_mapping_model = VASTNodalForces(
     surface_names=[
-        pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing'],
+        'wing',
     ],
     surface_shapes=[
         (1,) + pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].evaluate().shape[1:],
@@ -226,7 +263,7 @@ wing_oml_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['wing']
 oml_forces = vlm_force_mapping_model.evaluate(vlm_forces=wing_vlm_panel_forces,
                                               nodal_force_meshes=[wing_oml_mesh, ])
 wing_forces = oml_forces[0]
-
+# print("post-VLM force map evaluate")
 # endregion
 
 # region Strucutral Loads
@@ -272,6 +309,7 @@ cruise_model.register_output(wing_mass)
 
 # endregion
 
+# print("post-RMshell evaluate")
 # region Nodal Displacements
 
 grid_num = 10
@@ -297,53 +335,18 @@ shell_nodal_displacements_model = rmshell.RMShellNodalDisplacements(component=wi
 nodal_displacements, tip_displacement = shell_nodal_displacements_model.evaluate(cruise_structural_wing_mesh_displacements, transfer_geo_nodes_ma)
 
 # construct map from column 4 to 3 (the framework representation)
-# TODO: replace t_panel and b_panel in `nodal_parametric` with wing_1_194, etc. (if necessary)
 
-# TODO: Mirror wing displacements to OML surfaces of right wing
-wing_displacement = pav_geom_mesh.functions['wing_displacement']
+wing_displacement_output = pav_geom_mesh.functions['wing_displacement_output']
 
-wing_displacement.inverse_evaluate(transfer_para_mesh, nodal_displacements)
-cruise_model.register_output(wing_displacement.coefficients)
+wing_displacement_output.inverse_evaluate(transfer_para_mesh, nodal_displacements)
+cruise_model.register_output(wing_displacement_output.coefficients)
 
 wing_stress = pav_geom_mesh.functions['wing_stress']
-# TODO: replace t_panel and b_panel in `nodes_parametric`
 wing_stress.inverse_evaluate(nodes_parametric, cruise_structural_wing_mesh_stresses, regularization_coeff=1e-3)
 cruise_model.register_output(wing_stress.coefficients)
 
 cruise_model.register_output(tip_displacement)
 cruise_model.register_output(nodal_displacements)
-
-
-# Map displacements from column 3 to 2
-# TODO: filter out para nodes of left wing OML skins
-oml_para_nodes = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
-
-oml_para_nodes_leftwing = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
-# oml_geo_nodes = []
-# for oml_para_node in oml_para_nodes:
-#     if 'Wing_1' in oml_para_node[0]:
-#         oml_para_nodes_leftwing += [oml_para_node]
-
-# we need to define the parametric coordinates of the coefficient sets on which we want to
-
-disp_oml_nodes = wing_displacement.evaluate(oml_para_nodes_leftwing)  # use OML parametric nodes to evaluate wing displacement function
-
-# Map displacements from column 2 to 1
-
-vlm_disp_mapping_model = VASTNodelDisplacements(
-    surface_names=[
-        pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing'],
-    ],
-    surface_shapes=[
-        (1,) + pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].evaluate().shape[1:],
-        ],
-    initial_meshes=[
-        pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'],
-    ]
-)
-wing_oml_leftwing_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['left_wing']
-vlm_nodal_displacements = vlm_disp_mapping_model.evaluate(nodal_displacements=[disp_oml_nodes, ],
-                                              nodal_displacements_mesh=[wing_oml_leftwing_mesh, ])
 
 # endregion
 
@@ -397,7 +400,8 @@ if dashboard:
     
     index_functions_map['wing_thickness'] = wing_thickness  
     index_functions_map['wing_force'] = wing_force
-    index_functions_map['wing_displacement'] = wing_displacement
+    index_functions_map['wing_displacement_input'] = wing_displacement_input
+    index_functions_map['wing_displacement_output'] = wing_displacement_output
     index_functions_map['wing_stress'] = wing_stress
 
     rep = csdl.GraphRepresentation(caddee_csdl_model)
@@ -417,10 +421,60 @@ if __name__ == '__main__':
         dashbuilder = TC2DB()
         sim = Simulator(rep, analytics=True, dashboard = dashbuilder)
     else:
+        # print("pre-Simulator instantiation")
         sim = Simulator(caddee_csdl_model, analytics=True)
+        # print("post-Simulator instantiation")
 
-    # while running:
-    sim.run()
+    # TODO: Wrap `sim.run` in while loop. Modify the caddee_csdl_model above during each iteration to set the framework displacement
+
+
+    # displacement_arrays_old = []
+    # displacement_arrays_new = []
+    array_update_norms = np.zeros((len(wing_displacement_input.coefficients),))
+    running = True
+
+    # # we first loop over the framework displacement coefficients so we can store their initial values and shapes
+    # for key in wing_displacement_input.coefficients:
+    #     # query corresponding object in sim dict
+    #     displacement_arrays_old += [sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_inverse_evaluation.{}_wing_displacement_input_coefficients'.format(key)]]
+
+    # initialize iteration loop
+    iter_idx = 0
+    while running:
+        print("Iteration {}".format(iter_idx))
+        # run sim in current iteration
+        sim.run()
+
+        # extract new displacement arrays and compare new and old displacement arrays
+        # for i, key in enumerate(wing_displacement_output.coefficients):
+        #     # query corresponding object in sim dict
+        #     displacement_array_new = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_coefficients'.format(key)]
+        #     array_update_norms[i] = np.linalg.norm(np.subtract(displacement_array_new, displacement_arrays_old[i]))/np.linalg.norm(displacement_array_new)
+
+        #     # write array to displacement_arrays_old
+        #     displacement_arrays_old[i] = displacement_array_new
+
+        for i, key in enumerate(wing_displacement_output.coefficients):
+            # query corresponding object in sim dict
+            print(key)
+            displacement_array_input = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)]
+            displacement_array_output = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_coefficients'.format(key)]
+            array_update_norms[i] = np.linalg.norm(np.subtract(displacement_array_input, displacement_array_output[i]))/np.linalg.norm(displacement_array_output)
+
+            # write output array back to input array for next iteration
+            sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = displacement_array_output
+
+
+        print("Max relative 2-norm update: {}".format(array_update_norms.max()))
+
+        if array_update_norms.max() < 1e-8:
+            running = False
+
+        # update the input displacement arrays 
+
+        iter_idx += 1
+
+    # extract displacement function in framework representation
         # ...
         # get_output = sim['...']
         # sim['disp_input'] = get_output
@@ -434,7 +488,7 @@ if __name__ == '__main__':
     # sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass'],
     #                                     wrt=['h_spar', 'h_skin', 'h_rib'])
     ########################## Run optimization ##################################
-    prob = CSDLProblem(problem_name='pav', simulator=sim)
+    # prob = CSDLProblem(problem_name='pav', simulator=sim)
 
     # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 
@@ -559,5 +613,5 @@ if __name__ == '__main__':
     disp_list = []
     for key in wing_displacement.coefficients:
         # query corresponding object in sim dict
-        disp_arr = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_displacement_coefficients'.format(key)]
+        disp_arr = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_function_inverse_evaluation.{}_wing_displacement_coefficients'.format(key)]
         disp_list += [disp_arr]
