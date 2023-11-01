@@ -9,6 +9,7 @@ import numpy as np
 from scipy.sparse.linalg import spsolve
 
 from typing import Tuple, Dict
+from copy import deepcopy
 """
 M3L operations for structural optimization:
 >> Shell solver
@@ -261,8 +262,14 @@ class RMShellForces(m3l.ExplicitOperation):
         flatenned_shell_mesh_forces = csdl.matmat(force_map_csdl, flattened_nodal_forces)
         output_shape = tuple(mesh.shape[:-1]) + (nodal_forces.shape[-1],)
         shell_mesh_forces = csdl.reshape(flatenned_shell_mesh_forces, new_shape=output_shape)
-        csdl_model.register_module_output(f'{shell_name}_forces', -1.0*shell_mesh_forces)
 
+        # define matrix that scales the coordinates in the defined way to align them with other tools
+        scaling_mat = np.diag(np.array([-1., 1., 1.]))
+        scaling_mat_csdl = csdl_model.create_input(f'nodal_to_{shell_name}_scaling_mat', val=scaling_mat)
+
+        reoriented_shell_mesh_forces = csdl.matmat(shell_mesh_forces, scaling_mat_csdl)
+        csdl_model.register_module_output(f'{shell_name}_forces', reoriented_shell_mesh_forces)
+        # NOTE: Why the factor `-1.0` in the line above?
         return csdl_model
 
 
@@ -334,16 +341,35 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
 
         csdl_model = ModuleCSDL()
 
-        displacement_map = self.umap(mesh.value.reshape((-1,3)),
-                        oml=nodal_displacements_mesh.value.reshape((-1,3)))
+        # create mirrored mesh coordinates
+        mesh_original = mesh.value.reshape((-1,3))
+        mesh_mirrored = deepcopy(mesh_original)
+        mesh_mirrored[:, 1] *= -1.  # mirror coordinates along the y-axis
+        # we concatenate both meshes (original and mirrored) and compute the displacement map
+        mesh_concat = np.vstack([mesh_original, mesh_mirrored])
+        displacement_map = self.umap(mesh_concat,
+                        oml=nodal_displacements_mesh.value.reshape((-1,3)),
+                        repeat_bf_sup_size_vector=True)
+
         shell_displacements_csdl = csdl_model.register_module_input(
                                             name=f'{shell_name}_displacement',
                                             shape=shell_displacements.shape)
+
+        # we create a matrix as csdl operator that repeats the shell displacement variables twice
+        rep_mat = np.vstack([np.eye(shell_displacements.shape[0])]*2)
+        rep_mat_csdl = csdl_model.create_input(f'{shell_name}_displacement_repeater_mat', val=rep_mat)
+        # compute repeated shell_displacements_csdl
+        shell_displacements_csdl_rep = csdl.matmat(rep_mat_csdl,
+                                            shell_displacements_csdl)
+
         displacement_map_csdl = csdl_model.create_input(
                             f'{shell_name}_displacements_to_nodal_displacements',
                             val=displacement_map)
+        # displacement_map_rightwing_csdl = csdl_model.create_input(
+        #                     f'{shell_name}_rightwing_displacements_to_nodal_displacements',
+        #                     val=displacement_map)
         nodal_displacements = csdl.matmat(displacement_map_csdl,
-                                            shell_displacements_csdl)
+                                            shell_displacements_csdl_rep)
         csdl_model.register_module_output(f'{shell_name}_nodal_displacement',
                                             nodal_displacements)        
         csdl_model.register_module_output(f'{shell_name}_tip_displacement',
@@ -382,10 +408,15 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
                                     operation=self)
         return nodal_displacements, tip_displacement
 
-    def umap(self, mesh, oml):
+    def umap(self, mesh, oml, repeat_bf_sup_size_vector=False):
         # Up = W*Us
-        G_mat = NodalMap(mesh, oml, RBF_width_par=10.0,
-                            column_scaling_vec=self.pde.bf_sup_sizes)
+        if repeat_bf_sup_size_vector:
+            col_scaling_vec = np.concatenate([self.pde.bf_sup_sizes]*2)
+        else:
+            col_scaling_vec = self.pde.bf_sup_sizes
+
+        G_mat = NodalMap(mesh, oml, RBF_width_par=5.,
+                            column_scaling_vec=col_scaling_vec)
         weights = G_mat.map
         return weights
 
@@ -460,7 +491,7 @@ class RMShellNodalStress(m3l.ExplicitOperation):
         return nodal_stress
 
     def stressmap(self, mesh, oml):
-        G_mat = NodalMap(mesh, oml, RBF_width_par=10.0,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=5.0,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         weights = G_mat.map
         return weights
