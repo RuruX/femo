@@ -82,7 +82,7 @@ spatial_rep = sys_rep.spatial_representation
 # region FEniCS
 #############################################
 # filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_6307_quad.xdmf"
-filename = "./pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
+filename = "./test_shell_m3l/pav_wing/pav_wing_v2_caddee_mesh_SI_2303_quad.xdmf"
 
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
     fenics_mesh = xdmf.read_mesh(name="Grid")
@@ -92,7 +92,7 @@ nn = fenics_mesh.topology.index_map(0).size_local
 nodes = fenics_mesh.geometry.x
 
 
-with open('./pav_wing/pav_wing_v2_paneled_mesh_data_'+str(nodes.shape[0])+'.pickle', 'rb') as f:
+with open('./test_shell_m3l/pav_wing/pav_wing_v2_paneled_mesh_data_'+str(nodes.shape[0])+'.pickle', 'rb') as f:
     nodes_parametric = pickle.load(f)
 
 for i in range(len(nodes_parametric)):
@@ -101,6 +101,7 @@ for i in range(len(nodes_parametric)):
 wing_thickness = pav_geom_mesh.functions['wing_thickness']
 thickness_nodes = wing_thickness.evaluate(nodes_parametric)
 
+# `shell_pde` contains the nodal displacement map
 shell_pde = ShellPDE(fenics_mesh)
 
 
@@ -188,6 +189,7 @@ cruise_model.register_output(cruise_ac_states)
 # endregion
 
 # region VLM Solver
+# Construct VLM solver with CADDEE geometry
 vlm_model = VASTFluidSover(
     surface_names=[
         pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing'],
@@ -199,10 +201,15 @@ vlm_model = VASTFluidSover(
     mesh_unit='m',
     cl0=[wing_cl0, ]
 )
+# Compute VLM solution (input: displacements, output: forces)
+# NOTE: `wing_vlm_panel_forces` are the panel force vectors
 wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states)
+
+# register the total VLM forces and moments as outputs for the M3L Model (column 5)
 cruise_model.register_output(vlm_forces)
 cruise_model.register_output(vlm_moments)
 
+# construct operation to map from column 5 to column 4
 vlm_force_mapping_model = VASTNodalForces(
     surface_names=[
         pav_geom_mesh.mesh_data['vlm']['mesh_name']['wing'],
@@ -227,16 +234,18 @@ wing_forces = oml_forces[0]
 wing_force = pav_geom_mesh.functions['wing_force']
 oml_para_nodes = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
 
-
+# map forces from column 2 to column 3 (framework) 
 wing_force.inverse_evaluate(oml_para_nodes, wing_forces)
 cruise_model.register_output(wing_force.coefficients)
 
 left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
 left_oml_geo_nodes = spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
 
+# map forces from column 3 to 4 (`evaluate` is used since we're mapping out from the framework representation)
 left_wing_forces = wing_force.evaluate(left_wing_oml_para_coords)
 wing_component = pav_geom_mesh.geom_data['components']['wing']
 
+# Define force map that takes nodal forces and projects them to the shell mesh
 shell_force_map_model = rmshell.RMShellForces(component=wing_component,
                                                 mesh=shell_mesh,
                                                 pde=shell_pde,
@@ -275,12 +284,14 @@ for name in structural_left_wing_names:
 
 transfer_geo_nodes_ma = spatial_rep.evaluate_parametric(transfer_para_mesh)
 
-
+# construct map from column 5 to 4
 shell_nodal_displacements_model = rmshell.RMShellNodalDisplacements(component=wing_component,
                                                                     mesh=shell_mesh,
                                                                     pde=shell_pde,
                                                                     shells=shells)
 nodal_displacements, tip_displacement = shell_nodal_displacements_model.evaluate(cruise_structural_wing_mesh_displacements, transfer_geo_nodes_ma)
+
+# construct map from column 4 to 3 (the framework representation)
 wing_displacement = pav_geom_mesh.functions['wing_displacement']
 
 wing_displacement.inverse_evaluate(transfer_para_mesh, nodal_displacements)
@@ -430,6 +441,7 @@ if __name__ == '__main__':
 
     dummy_func = Function(shell_pde.VT)
     dummy_func.x.array[:] = 1.0
+    # print("vlm panel force sums: {}".format(np.sum(wing_vlm_panel_forces[0].value, axis=0)))
     print("vlm forces:", sum(f_vlm[:,0]),sum(f_vlm[:,1]),sum(f_vlm[:,2]))
     print("shell forces:", dolfinx.fem.assemble_scalar(form(fx_func*ufl.dx)),
                             dolfinx.fem.assemble_scalar(form(fy_func*ufl.dx)),
@@ -446,3 +458,58 @@ if __name__ == '__main__':
     print("  Number of elements = "+str(nel))
     print("  Number of vertices = "+str(nn))
 
+    # -----------------------------------------------
+    # Code to compute the total forces in columns 2, 3 and 4 (M3L-internal mappings)
+    # first column 1:
+    vlm_internal_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_mesh_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_vlm_mesh_total_forces'], axis=1)[0]
+
+    # then, column 2:
+    col2_proj_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_mesh_vlm_nodal_forces_model.wing_vlm_mesh_oml_forces'], axis=0)
+
+    # column 3 (framework):    
+    # loop over keys in `wing_force.coefficients` dict
+    wing_0_force = np.zeros((3,))
+    wing_1_force = np.zeros((3,))
+    for key in wing_force.coefficients:
+        # query corresponding object in sim dict
+        force_arr = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(key)]
+        summed_forces = np.sum(force_arr, axis=0)
+        # separate left and right wing forces
+        if 'Wing_0' in key:
+            wing_0_force += summed_forces
+        elif 'Wing_1' in key:
+            wing_1_force += summed_forces
+    
+    # column 4 (OML mesh of solid solver)
+    col4_oml_forces = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_evaluation.evaluated_wing_force_function']
+    col4_proj_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_evaluation.evaluated_wing_force_function'], axis=0)
+
+    # column 5 (solid solver)
+    col5_shell_force_coefficients = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_force_mapping.wing_shell_forces']
+
+
+    # NOTE: The objects in sim[''] can be found by looking for their corresponding variable names in SUMMARY_GRAPH.txt
+    # NOTE: wing_1_force matches the forces applied to the shell model!
+
+
+    # -----------------------------------------------
+    # Code to compute the (tip) displacements in columns 3, 4 and 5 (M3L-internal mappings)
+
+    # The solid solver computes the displacements on the shell mesh in CG2, 
+    # and then maps them to CG1 with the mapping approach that is covered in our SciTech 2023 submission.
+    # The nodal association of the CG1 space is then used to construct a NodalMap for projection to the nodal OML mesh of column 4
+    # TODO: Combine the maps from CG2 to the nodal OML mesh if necessary (might not be the case) 
+
+    # column 5 (CG1 nodal displacements)
+    wing_cg1_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
+
+    # column 4 (nodal OML mesh displacements)
+    wing_oml_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
+
+    # column 3 (framework, after inverse_evaluate)
+    # loop over keys in `wing_displacement.coefficients` dict
+    disp_list = []
+    for key in wing_displacement.coefficients:
+        # query corresponding object in sim dict
+        disp_arr = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_displacement_coefficients'.format(key)]
+        disp_list += [disp_arr]
