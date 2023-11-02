@@ -357,6 +357,9 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
 
         # we create a matrix as csdl operator that repeats the shell displacement variables twice
         rep_mat = np.vstack([np.eye(shell_displacements.shape[0])]*2)
+        # we manually set the fifth entry of rep_mat to `-1`, since the y-displacement is mirrored
+        rep_mat[4, 4] = -1.
+
         rep_mat_csdl = csdl_model.create_input(f'{shell_name}_displacement_repeater_mat', val=rep_mat)
         # compute repeated shell_displacements_csdl
         shell_displacements_csdl_rep = csdl.matmat(rep_mat_csdl,

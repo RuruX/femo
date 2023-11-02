@@ -190,7 +190,6 @@ cruise_model.register_output(cruise_ac_states)
 # endregion
 
 # Map displacements from column 3 (framework) to 2
-# TODO: Mirror wing displacements to OML surfaces of right wing
 wing_displacement_input = pav_geom_mesh.functions['wing_displacement_input']
 # for key in wing_displacement.coefficients:
 #     wing_displacement_input.coefficients[key].value = np.zeros(wing_displacement_input.coefficients[key].shape)
@@ -470,7 +469,7 @@ if __name__ == '__main__':
             print("Surface {} displacement input array 2-norm: {}".format(key, np.linalg.norm(displacement_array_input)))
             print("Surface {} displacement output array 2-norm: {}".format(key, np.linalg.norm(displacement_array_output)))
 
-            # TODO: Rewrite the displacement function 
+            # TODO: Where is `wing_undef_mesh` being set?
 
             disp_output_list += [displacement_array_output]
 
@@ -653,8 +652,8 @@ if __name__ == '__main__':
 
     # column 3 (framework, after inverse_evaluate)
     # loop over keys in `wing_displacement.coefficients` dict
-    disp_list = []
-    for key in wing_displacement.coefficients:
-        # query corresponding object in sim dict
-        disp_arr = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_function_evaluation.{}_wing_displacement_coefficients'.format(key)]
-        disp_list += [disp_arr]
+    # disp_list = []
+    # for key in wing_displacement_output.coefficients:
+    #     # query corresponding object in sim dict
+    #     disp_arr = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_evaluation.{}_wing_displacement_coefficients'.format(key)]
+    #     disp_list += [disp_arr]
