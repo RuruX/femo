@@ -232,6 +232,9 @@ vlm_model = VASTFluidSover(
     fluid_problem=FluidProblem(solver_option='VLM', problem_type='fixed_wake'),
     mesh_unit='m',
     cl0=[wing_cl0, ],
+    mesh = [
+        pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing']
+    ],
     displacement_names=[
         vlm_nodal_displacements[0].name
     ]
@@ -450,12 +453,12 @@ if __name__ == '__main__':
         print("Iteration {}".format(iter_idx))
         # run sim in current iteration
 
-        sim = Simulator(caddee_csdl_model, analytics=True)
+        # sim = Simulator(caddee_csdl_model, analytics=True)
 
         # set displacement inputs
-        if iter_idx > 0:
-            for i, key in enumerate(wing_displacement_output.coefficients):
-                sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = disp_output_list[i]
+        # if iter_idx > 0:
+        #     for i, key in enumerate(wing_displacement_output.coefficients):
+        #         sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = disp_output_list[i]
 
         sim.run()
 
@@ -469,14 +472,10 @@ if __name__ == '__main__':
             print("Surface {} displacement input array 2-norm: {}".format(key, np.linalg.norm(displacement_array_input)))
             print("Surface {} displacement output array 2-norm: {}".format(key, np.linalg.norm(displacement_array_output)))
 
-            # TODO: Where is `wing_undef_mesh` being set?
-
             disp_output_list += [displacement_array_output]
 
-            # print("VLM input displacement 2-norm")
-
             # write output array back to input array for next iteration
-            # sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = displacement_array_output
+            sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = displacement_array_output
 
         vlm_force_list += [np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'], axis=1)[0]]
         max_disp_update_list += [array_update_norms.max()]
@@ -495,7 +494,7 @@ if __name__ == '__main__':
         print("Max 2-norm update: {}".format(array_update_norms.max()))
         print("2-norm updates: {}".format(array_update_norms))
 
-        if array_update_norms.max() < 1e-8 or iter_idx >= 0:
+        if array_update_norms.max() < 1e-14 or iter_idx >= 10:
             running = False
 
         # update the input displacement arrays 
