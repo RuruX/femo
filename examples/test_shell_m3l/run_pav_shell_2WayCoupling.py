@@ -27,7 +27,7 @@ from m3l.core.function_spaces import IDWFunctionSpace
 
 ## Other stuff
 import numpy as np
-from scipy.sparse import csr_matrix, block_diag
+from scipy.sparse import csr_matrix, block_diag, dok_matrix, coo_matrix
 from scipy.sparse import vstack as sparse_vstack
 from mpi4py import MPI
 import pickle
@@ -57,6 +57,10 @@ visualize_flag = False
 dashboard = False
 xdmf_record = False
 
+# flags that control whether couplings are handled in a conservative way
+vlm_conservative = True
+fenics_conservative = False
+
 ft2m = 0.3048
 in2m = 0.0254
 
@@ -82,9 +86,10 @@ pav_geom_mesh.setup_geometry(
 pav_geom_mesh.setup_internal_wingbox_geometry(debug_geom_flag=debug_geom_flag,
                                               force_reprojection=force_reprojection)
 pav_geom_mesh.sys_rep.spatial_representation.assemble()
-pav_geom_mesh.oml_mesh(include_wing_flag=True,
+pav_geom_mesh.oml_mesh(include_wing_flag=True, 
+                       grid_num_u=4, grid_num_v=3,
                        debug_geom_flag=debug_geom_flag, force_reprojection=force_reprojection)
-pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=21, num_wing_chordwise_vlm=5,
+pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=51, num_wing_chordwise_vlm=9,
                          visualize_flag=visualize_flag, force_reprojection=force_reprojection)
 pav_geom_mesh.setup_index_functions()
 
@@ -105,6 +110,7 @@ for surf_name in disp_input_surface_names:
         framework_work_surface_names += [surf_name]
 
 disp_evaluationmaps = {}
+disp_evaluationmaps_list = []
 
 # loop over the surfaces that contain both forces and displacements and compute their invariant matrices
 for surf_name in framework_work_surface_names:
@@ -117,15 +123,17 @@ for surf_name in framework_work_surface_names:
     # we sample the displacements in the same parametric points
     displacement_evaluationmap = displacement_space.compute_evaluation_map(force_parametricpoints)
     # NOTE: `displacement_evaluationmap` is effectively the invariant matrix of a single displacement-force component pair (in x, y or z) on surface `test_surf`
-    disp_evaluationmaps[surf_name] = displacement_evaluationmap
+    disp_evaluationmaps[surf_name] = block_diag([displacement_evaluationmap]*3)  # repeat evaluation map 3 times to account for [x, y, z] in displacement vector
+    disp_evaluationmaps_list += [displacement_evaluationmap]
 
-# TODO: Repeat invariant matrix three times in block diagonal structure
-# framework_invariantmatrix = block_diag(disp_evaluationmap_list)
+# construct the total displacement evaluation map (i.e. invariant matrix) by stacking all surface contributions along the diagonal and repeating the result three times
+framework_invariantmatrix_nonstacked = block_diag(disp_evaluationmaps_list)
+framework_invariantmatrix = block_diag([framework_invariantmatrix_nonstacked]*3) 
 
 # Construct VLM invariant matrix link nodal displacements and locations of force vectors
-# TODO: Repeat invariant matrix three times in block diagonal structure
 vlm_camber_mesh = pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].value
-vlm_invariantmatrix = construct_VLM_vertex_to_force_map(vlm_camber_mesh.shape).T
+vlm_invariantmatrix_nonstacked = construct_VLM_vertex_to_force_map(vlm_camber_mesh.shape)
+vlm_invariantmatrix = block_diag([vlm_invariantmatrix_nonstacked.T]*3)
 
 # region FEniCS
 #############################################
@@ -252,13 +260,8 @@ cruise_ac_states = cruise_condition.evaluate_ac_states()
 cruise_model.register_output(cruise_ac_states)
 # endregion
 
-# Map displacements from column 3 (framework) to 2
-wing_displacement_input = pav_geom_mesh.functions['wing_displacement_input']
-oml_para_nodes_wing = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
-disp_oml_nodes = wing_displacement_input.evaluate(oml_para_nodes_wing)  # use OML parametric nodes to evaluate wing displacement function
-
-# Map displacements from column 2 to 1
-
+## We define all solver-specific maps here so we can use their properties and functions to construct work-preserving projection maps
+# map displacements from OML to VLM
 vlm_disp_mapping_model = VASTNodelDisplacements(
     surface_names=[
         pav_geom_mesh.functions['wing_displacement_input'].name,
@@ -273,9 +276,101 @@ vlm_disp_mapping_model = VASTNodelDisplacements(
         'wing_mesh_displacements'
     ]
 )
+
+# map forces from VLM to OML
+vlm_force_mapping_model = VASTNodalForces(
+    surface_names=[
+        'wing',
+    ],
+    surface_shapes=[
+        (1,) + pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].evaluate().shape[1:],
+        ],
+    initial_meshes=[
+        pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'],
+    ]
+)
+
+
+
 wing_oml_wing_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['wing']
-vlm_nodal_displacements = vlm_disp_mapping_model.evaluate(nodal_displacements=[disp_oml_nodes, ],
-                                              nodal_displacements_mesh=[wing_oml_wing_mesh, ])
+
+
+# Map displacements from column 3 (framework) to 2
+wing_displacement_input = pav_geom_mesh.functions['wing_displacement_input']
+wing_force = pav_geom_mesh.functions['wing_force']
+oml_para_nodes_wing = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
+
+if vlm_conservative:
+    disp_composition_mat = vlm_disp_mapping_model.disp_map(vlm_disp_mapping_model.parameters['initial_meshes'][0], oml=wing_oml_wing_mesh)
+    # disp_composition_mat = block_diag([disp_composition_mat]*3)
+    disp_composition_mat_test = deepcopy(disp_composition_mat)
+    disp_composition_mat_test[disp_composition_mat_test <= 1e-4] = 0.
+
+    # TODO: Check length of vlm_force_mapping_model.force_points and nodal_forces_meshes
+    eval_pts_location = 0.25
+    vlm_mesh = pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].value
+    vlm_mesh_reshaped = vlm_mesh.reshape((1, vlm_mesh.shape[2], vlm_mesh.shape[1], 3))
+    force_points_vlm = (
+            (1 - eval_pts_location) * 0.5 * vlm_mesh_reshaped[:, 0:-1, 0:-1, :] +
+            (1 - eval_pts_location) * 0.5 * vlm_mesh_reshaped[:, 0:-1, 1:, :] +
+            eval_pts_location * 0.5 * vlm_mesh_reshaped[:, 1:, 0:-1, :] +
+            eval_pts_location * 0.5 * vlm_mesh_reshaped[:, 1:, 1:, :])
+
+    force_map_oml = vlm_force_mapping_model.disp_map(force_points_vlm.reshape((-1,3)),wing_oml_wing_mesh.value.reshape((-1,3)))
+    # force_map_oml = block_diag([force_map_oml]*3)
+
+    associated_coords = {}
+    index = 0
+    for item in oml_para_nodes_wing:
+        key = item[0]
+        value = item[1]
+        if key not in associated_coords.keys():
+            associated_coords[key] = [[index], value]
+        else:
+            associated_coords[key][0].append(index)
+            associated_coords[key] = [associated_coords[key][0], np.vstack((associated_coords[key][1], value))]
+        index += 1
+
+    output_shape = (len(oml_para_nodes_wing), wing_force.coefficients[oml_para_nodes_wing[0][0]].shape[-1])
+
+    fitting_matrix_list = []
+    coefficient_idx_list = []
+    fitting_matrix_key_list = []
+
+    for key, value in associated_coords.items(): # in the future, use submodels from the function spaces?
+        if hasattr(wing_force.space.spaces[key], 'compute_fitting_map'):
+            fitting_matrix = wing_force.space.spaces[key].compute_fitting_map(value[1])
+    
+        fitting_matrix_list += [fitting_matrix]
+        coefficient_idx_list += [value[0]]
+        fitting_matrix_key_list += [key]
+    
+    # concatenate index list and construct fitting matrix list
+    fitting_matrix_unordered = block_diag(fitting_matrix_list)
+    coefficient_idxs = np.concatenate(coefficient_idx_list) 
+
+    fitting_matrix_unordered = fitting_matrix_unordered.tocsr()
+    # reorder the fitting matrix columns based on the entries of coefficient_idxs
+    fitting_matrix = dok_matrix(fitting_matrix_unordered.shape)
+    for i in range(coefficient_idxs.shape[0]):
+        fitting_matrix[i, :] = fitting_matrix_unordered[coefficient_idxs[i], :]
+    
+    # force_map_oml_to_framework = block_diag([fitting_matrix]*3)
+
+    disp_oml_nodes = wing_displacement_input.evaluate_conservative(fitting_matrix_key_list,
+                                                                   num_oml_output_points=wing_oml_wing_mesh.value.shape[0],
+                                                                   num_oml_dual_variable_points=wing_oml_wing_mesh.value.shape[0],
+                                                                   composition_mat=disp_composition_mat,
+                                                                   otherside_composed_mat=fitting_matrix@force_map_oml, 
+                                                                   solver_invariant_mat=coo_matrix(vlm_invariantmatrix_nonstacked), 
+                                                                   framework_invariant_mat=framework_invariantmatrix_nonstacked.T)  # use OML parametric nodes to evaluate wing displacement function
+else:
+    # Map displacements from column 3 to 2
+    disp_oml_nodes = wing_displacement_input.evaluate(oml_para_nodes_wing)  # use OML parametric nodes to evaluate wing displacement function
+
+    # Map displacements from column 2 to 1
+    vlm_nodal_displacements = vlm_disp_mapping_model.evaluate(nodal_displacements=[disp_oml_nodes, ],
+                                                nodal_displacements_mesh=[wing_oml_wing_mesh, ])
 
 # region VLM Solver
 # Construct VLM solver with CADDEE geometry
@@ -306,32 +401,16 @@ cruise_model.register_output(vlm_forces)
 cruise_model.register_output(vlm_moments)
 
 # construct operation to map from column 1 to column 2
-vlm_force_mapping_model = VASTNodalForces(
-    surface_names=[
-        'wing',
-    ],
-    surface_shapes=[
-        (1,) + pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].evaluate().shape[1:],
-        ],
-    initial_meshes=[
-        pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'],
-    ]
-)
-
-wing_oml_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['wing']
 oml_forces = vlm_force_mapping_model.evaluate(vlm_forces=wing_vlm_panel_forces,
-                                              nodal_force_meshes=[wing_oml_mesh, ])
+                                              nodal_force_meshes=[wing_oml_wing_mesh, ])
 wing_forces = oml_forces[0]
 # print("post-VLM force map evaluate")
 # endregion
 
 # region Strucutral Loads
 
-wing_force = pav_geom_mesh.functions['wing_force']
-oml_para_nodes = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
-
 # map forces from column 2 to column 3 (framework) 
-wing_force.inverse_evaluate(oml_para_nodes, wing_forces)
+wing_force.inverse_evaluate(oml_para_nodes_wing, wing_forces)
 cruise_model.register_output(wing_force.coefficients)
 
 left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
@@ -496,6 +575,12 @@ if __name__ == '__main__':
     array_update_norms = np.zeros((len(wing_displacement_input.coefficients),))
     vlm_force_list = []
     max_disp_update_list = []
+    vlm_work_list = []
+    total_framework_work_disp_inputs_list = []
+    fe_work_list = []
+    total_framework_work_disp_outputs_list = []
+
+
     running = True
 
     # we loop over the force and displacement surfaces to determine their shared surfaces
@@ -541,7 +626,7 @@ if __name__ == '__main__':
         print("Max 2-norm update: {}".format(array_update_norms.max()))
         print("2-norm updates: {}".format(array_update_norms))
 
-        if array_update_norms.max() < 1e-14 or iter_idx >= 10:
+        if array_update_norms.max() < 1e-10 or iter_idx >= 10:
             running = False
 
         # Below we compute the aeroelastic work with the various displacement and force variables & the invariant matrices:
@@ -551,8 +636,7 @@ if __name__ == '__main__':
         vlm_u = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.wing_mesh_displacements'][0, :, :, :]
         vlm_u_2d = np.reshape(vlm_u, (vlm_u.shape[0]*vlm_u.shape[1], vlm_u.shape[2]), order='C')
         vlm_u_flat = vlm_u_2d.flatten(order='F')
-        vlm_invariantmatrix_repeated = block_diag([vlm_invariantmatrix]*3)
-        vlm_work = vlm_F_flat@vlm_invariantmatrix_repeated@vlm_u_flat
+        vlm_work = vlm_F_flat@vlm_invariantmatrix@vlm_u_flat
 
         # Framework work with input displacements
         total_framework_work_disp_inputs = 0.
@@ -562,8 +646,7 @@ if __name__ == '__main__':
             surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
             surf_force_flat = surf_force.flatten(order='F')
             surf_invariantmatrix = disp_evaluationmaps[surf_name]
-            surf_invariantmatrix_repeated = block_diag([surf_invariantmatrix]*3)
-            surf_work = surf_force_flat@surf_invariantmatrix_repeated@surf_disp_flat
+            surf_work = surf_force_flat@surf_invariantmatrix@surf_disp_flat
 
             total_framework_work_disp_inputs += surf_work
 
@@ -583,48 +666,28 @@ if __name__ == '__main__':
             surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
             surf_force_flat = surf_force.flatten(order='F')
             surf_invariantmatrix = disp_evaluationmaps[surf_name]
-            surf_invariantmatrix_repeated = block_diag([surf_invariantmatrix]*3)
-            surf_work = surf_force_flat@surf_invariantmatrix_repeated@surf_disp_flat
+            surf_work = surf_force_flat@surf_invariantmatrix@surf_disp_flat
 
             total_framework_work_disp_outputs += surf_work
 
-        print("Displacement input framework work: {}".format(total_framework_work_disp_inputs))
         print("VLM work: {}".format(vlm_work))
+        print("Displacement input framework work: {}".format(total_framework_work_disp_inputs))
         print("FEniCS work: {}".format(fe_work))
         print("Displacement output framework work: {}".format(total_framework_work_disp_outputs))
-
+        vlm_work_list += [vlm_work]
+        total_framework_work_disp_inputs_list += [total_framework_work_disp_inputs]
+        fe_work_list += [fe_work]
+        total_framework_work_disp_outputs_list += [total_framework_work_disp_outputs]
 
         iter_idx += 1
 
     print("VLM forces per iteration: {}".format(np.vstack(vlm_force_list)))
     print("Max array update norm per iteration: {}".format(max_disp_update_list))
+    print("VLM work per iteration: {}".format(vlm_work_list))
+    print("Displacement input framework work per iteration: {}".format(total_framework_work_disp_inputs_list))
+    print("FEniCS work per iteration: {}".format(fe_work_list))
+    print("Displacement output framework work per iteration: {}".format(total_framework_work_disp_outputs_list))
 
-    # extract displacement function in framework representation
-        # ...
-        # get_output = sim['...']
-        # sim['disp_input'] = get_output
-
-        # NOTE: Might need to rerun Simulator(caddee_csdl_model) after modifying caddee_csdl_model in each iteration if approach above doesn't work
-        # Ask Mark about re-creating Simulator objects in every time step
-
-    # sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.aggregated_stress_model.wing_shell_aggregated_stress'],
-    #                                     wrt=['h_spar', 'h_skin', 'h_rib'])
-
-    # sim.check_totals(of=[system_model_name+'Wing_rm_shell_model.rm_shell.mass_model.mass'],
-    #                                     wrt=['h_spar', 'h_skin', 'h_rib'])
-    ########################## Run optimization ##################################
-    # prob = CSDLProblem(problem_name='pav', simulator=sim)
-
-    # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
-
-    # from modopt.snopt_library import SNOPT
-    # optimizer = SNOPT(prob,
-    #                   Major_iterations = 100,
-    #                   Major_optimality = 1e-5,
-    #                   append2file=False)
-
-    # optimizer.solve()
-    # optimizer.print_results()
 
 
     ####### Aerodynamic output ##########
@@ -754,3 +817,22 @@ if __name__ == '__main__':
     #     # query corresponding object in sim dict
     #     disp_arr = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_evaluation.{}_wing_displacement_coefficients'.format(key)]
     #     disp_list += [disp_arr]
+
+
+
+    # -------------------------------
+    # We verify whether the various maps that are used to couple VLM to the framework match with the ones that are computed manually for the work-conserving map
+    disp_oml_to_vlm_map = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_vlm_nodal_displacements_model.wing_displacement_input_function_displacements_map']
+    force_vlm_to_oml_map = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_nodal_forces_model.wing_force_map']
+    # force_oml_to_framework_map = sim['']
+    # we need to patch together the concatenated `force_oml_to_framework_map` from the maps to the various surfaces
+    oml_to_framework_map_per_surface = []
+    for key, value in associated_coords.items():
+        oml_to_framework_map_surface = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.fitting_matrix_{}'.format(key)]
+        oml_to_framework_map_per_surface += [oml_to_framework_map_surface]
+    
+    oml_to_framework_maps_combined = block_diag(oml_to_framework_map_per_surface)
+
+    diff_disp_oml_to_vlm_maps = np.linalg.norm(np.subtract(disp_oml_to_vlm_map, disp_composition_mat))
+    diff_force_vlm_to_oml_maps = np.linalg.norm(np.subtract(force_vlm_to_oml_map, force_map_oml))
+    diff_force_oml_to_framework_maps = np.linalg.norm(np.subtract(oml_to_framework_maps_combined.toarray(), fitting_matrix.toarray()))
