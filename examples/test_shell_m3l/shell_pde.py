@@ -125,6 +125,7 @@ class ShellModule(ModuleCSDL):
         von_Mises_stress_model = OutputFieldModel(fea=fea,
                                     output_name=output_name_5,
                                     arg_name_list=fea.outputs_field_dict[output_name_5]['arguments'])
+        # NOTE: The DisplacementExtractionModel below maps the computed displacement to a different function space
         disp_extraction_model = DisplacementExtractionModel(pde=pde,
                                     input_name=state_name,
                                     output_name=shell_name+'_displacement')

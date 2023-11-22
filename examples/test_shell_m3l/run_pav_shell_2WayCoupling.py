@@ -27,7 +27,7 @@ from m3l.core.function_spaces import IDWFunctionSpace
 
 ## Other stuff
 import numpy as np
-from scipy.sparse import csr_matrix, block_diag, dok_matrix, coo_matrix
+from scipy.sparse import csr_matrix, block_diag, dok_matrix, coo_matrix, issparse
 from scipy.sparse import vstack as sparse_vstack
 from mpi4py import MPI
 import pickle
@@ -38,16 +38,46 @@ from copy import deepcopy
 sys.setrecursionlimit(100000)
 
 
+# def construct_VLM_vertex_to_force_map(vertex_array_shape, F_chord_pos=0.25):
+#     # we assume that `vertex_array_shape` is a 4D array; 
+#     # its second index corresponds to chordwise nodes, and its third index to spanwise nodes
+#     node_map = np.zeros((vertex_array_shape[1]*vertex_array_shape[2], (vertex_array_shape[1]-1)*(vertex_array_shape[2]-1)))
+
+#     # loop over spanwise panels
+#     for i in range(vertex_array_shape[2]-1):
+#         # loop over chordwise panels
+#         for j in range(vertex_array_shape[1]-1):
+#             # define the panel number through a lexicographic ordering by first traversing the chordwise panels and then the spanwise panels
+#             # so node_map[0, 0] corresponds to the LE most outboard node on one side,
+#             # and node_map [1, 0] corresponds to the most outboard node directly behind the LE
+
+#             # similarly, node_map[0, 1] corresponds to the effect of the most outboard LE node on the panel directly behind the most outboard LE panel
+#             panel_num = j + i*(vertex_array_shape[1]-1)
+#             node_map[j + i*vertex_array_shape[1], panel_num] = 0.5*(1-F_chord_pos)
+#             node_map[j + 1 + i*vertex_array_shape[1], panel_num] = 0.5*(1-F_chord_pos)
+#             node_map[j + (i + 1)*vertex_array_shape[1], panel_num] = 0.5*F_chord_pos
+#             node_map[j + 1 + (i + 1)*vertex_array_shape[1], panel_num] = 0.5*F_chord_pos
+#     return node_map
+
 def construct_VLM_vertex_to_force_map(vertex_array_shape, F_chord_pos=0.25):
+    # we assume that `vertex_array_shape` is a 4D array; 
+    # its second index corresponds to chordwise nodes, and its third index to spanwise nodes
     node_map = np.zeros((vertex_array_shape[1]*vertex_array_shape[2], (vertex_array_shape[1]-1)*(vertex_array_shape[2]-1)))
 
-    for j in range(vertex_array_shape[1]-1):
-        for i in range(vertex_array_shape[2]-1):
-            panel_num = j + i*(vertex_array_shape[1]-1)
-            node_map[j + i*vertex_array_shape[1], panel_num] = 0.5*(1-F_chord_pos)
-            node_map[j + 1 + i*vertex_array_shape[1], panel_num] = 0.5*(1-F_chord_pos)
-            node_map[j + (i + 1)*vertex_array_shape[1], panel_num] = 0.5*F_chord_pos
-            node_map[j + 1 + (i + 1)*vertex_array_shape[1], panel_num] = 0.5*F_chord_pos
+    # loop over chordwise panels
+    for i in range(vertex_array_shape[1]-1):
+        # loop over spanwise panels
+        for j in range(vertex_array_shape[2]-1):
+            # define the panel number through a lexicographic ordering by first traversing the spanwise panels and then the chordwise panels
+            # so node_map[0, 0] corresponds to the LE most outboard node on one side,
+            # and node_map [1, 0] corresponds to the second-most outboard node on the LE
+
+            # similarly, node_map[0, 1] corresponds to the effect of the most outboard LE node on the second-most outboard LE panel
+            panel_num = j + i*(vertex_array_shape[2]-1)
+            node_map[j + i*vertex_array_shape[2], panel_num] = 0.5*(1-F_chord_pos)
+            node_map[j + 1 + i*vertex_array_shape[2], panel_num] = 0.5*(1-F_chord_pos)
+            node_map[j + (i + 1)*vertex_array_shape[2], panel_num] = 0.5*F_chord_pos
+            node_map[j + 1 + (i + 1)*vertex_array_shape[2], panel_num] = 0.5*F_chord_pos
     return node_map
 
 debug_geom_flag = False
@@ -58,8 +88,8 @@ dashboard = False
 xdmf_record = False
 
 # flags that control whether couplings are handled in a conservative way
-vlm_conservative = True
-fenics_conservative = False
+vlm_conservative = False
+fenics_conservative = True
 
 ft2m = 0.3048
 in2m = 0.0254
@@ -87,7 +117,7 @@ pav_geom_mesh.setup_internal_wingbox_geometry(debug_geom_flag=debug_geom_flag,
                                               force_reprojection=force_reprojection)
 pav_geom_mesh.sys_rep.spatial_representation.assemble()
 pav_geom_mesh.oml_mesh(include_wing_flag=True, 
-                       grid_num_u=4, grid_num_v=3,
+                       grid_num_u=10, grid_num_v=10,
                        debug_geom_flag=debug_geom_flag, force_reprojection=force_reprojection)
 pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=51, num_wing_chordwise_vlm=9,
                          visualize_flag=visualize_flag, force_reprojection=force_reprojection)
@@ -99,31 +129,38 @@ sys_param.setup()
 spatial_rep = sys_rep.spatial_representation
 # endregion
 
+wing_component = pav_geom_mesh.geom_data['components']['wing']
+
 # we first determine the framework surfaces that contain both displacements and forces 
 disp_input_surface_names = pav_geom_mesh.functions['wing_displacement_input'].space.spaces.keys()
 force_surface_names = pav_geom_mesh.functions['wing_force'].space.spaces.keys()
 
 framework_work_surface_names = []
+framework_work_left_wing_surface_names = []
 
 for surf_name in disp_input_surface_names:
     if surf_name in force_surface_names:
         framework_work_surface_names += [surf_name]
+    
+    # also store the left wing surfaces in a separate list
+    if 'Wing_1' in surf_name:
+        framework_work_left_wing_surface_names += [surf_name]
 
 disp_evaluationmaps = {}
 disp_evaluationmaps_list = []
 
 # loop over the surfaces that contain both forces and displacements and compute their invariant matrices
 for surf_name in framework_work_surface_names:
-    surf_primitive = spatial_rep.get_primitives([surf_name])[surf_name].geometry_primitive
+    # surf_primitive = spatial_rep.get_primitives([surf_name])[surf_name].geometry_primitive
     displacement_space = pav_geom_mesh.functions['wing_displacement_input'].space.spaces[surf_name]
     force_space = pav_geom_mesh.functions['wing_force'].space.spaces[surf_name]
 
     # NOTE: wing forces are currently represented by a set of vectors in these (parametric) points:
-    force_parametricpoints = pav_geom_mesh.functions['wing_force'].space.spaces[surf_name].points
+    force_parametricpoints = force_space.points
     # we sample the displacements in the same parametric points
     displacement_evaluationmap = displacement_space.compute_evaluation_map(force_parametricpoints)
     # NOTE: `displacement_evaluationmap` is effectively the invariant matrix of a single displacement-force component pair (in x, y or z) on surface `test_surf`
-    disp_evaluationmaps[surf_name] = block_diag([displacement_evaluationmap]*3)  # repeat evaluation map 3 times to account for [x, y, z] in displacement vector
+    disp_evaluationmaps[surf_name] = [displacement_evaluationmap]
     disp_evaluationmaps_list += [displacement_evaluationmap]
 
 # construct the total displacement evaluation map (i.e. invariant matrix) by stacking all surface contributions along the diagonal and repeating the result three times
@@ -188,10 +225,27 @@ fenics_invariantmatrix_csr = fenics_invariantmatrix_petsc.getValuesCSR()
 fenics_invariantmatrix_sp = csr_matrix((fenics_invariantmatrix_csr[2], fenics_invariantmatrix_csr[1], fenics_invariantmatrix_csr[0]))
 # multiply the invariant matrix with the displacement extraction operator (the matrix that only retains the displacements and leaves out the rotations)
 disp_extraction_matrix_list = shell_pde.construct_disp_extraction_mats()
+disp_cg2_cg1_interpolation_map = shell_pde.construct_CG2_CG1_interpolation_map()
+# disp_extraction_matrix = sparse_vstack([disp_cg2_cg1_interpolation_map@disp_extraction_mat for disp_extraction_mat in disp_extraction_matrix_list])
 disp_extraction_matrix = sparse_vstack(disp_extraction_matrix_list)
+# cg2_cg1_interpolations_stacked = sparse_vstack([disp_cg2_cg1_interpolation_map]*3)
 
-# the matrix below is the FEniCS invariant matrix!
+# NOTE: indices of displacement component i are in shell_pde.W.sub(0).collapse()[0].sub(i).collapse()[1]
+
+# construct FEniCS invariant matrix corresponding to a single force and displacement component
+fenics_force_function_component = TestFunction(shell_pde.VF.sub(0).collapse()[0])
+fenics_disp_function_component = TrialFunction(shell_pde.W.sub(0).collapse()[0].sub(0).collapse()[0])
+fenics_invariantmatrix_petsc_component = assemble_matrix(form(inner(fenics_force_function_component, fenics_disp_function_component)*dx))
+fenics_invariantmatrix_petsc_component.assemble()
+
+fenics_invariantmatrix_component_csr = fenics_invariantmatrix_petsc_component.getValuesCSR()
+fenics_invariantmatrix_component_sp = csr_matrix((fenics_invariantmatrix_component_csr[2], fenics_invariantmatrix_component_csr[1], fenics_invariantmatrix_component_csr[0]))
+
+# the matrix below is the complete FEniCS invariant matrix (for all components)!
 fenics_invariantmatrix = fenics_invariantmatrix_sp@disp_extraction_matrix
+
+# the matrix below is the FEniCS invariant matrix of a single force and displacement component
+fenics_invariantmatrix_component = fenics_invariantmatrix_component_sp@disp_extraction_matrix_list[0]
 
 #### Getting facets of the LEFT and the RIGHT edge  ####
 DOLFIN_EPS = 3E-16
@@ -290,6 +344,27 @@ vlm_force_mapping_model = VASTNodalForces(
     ]
 )
 
+# construct solid displacement map from column 5 to 4
+shell_nodal_displacements_model = rmshell.RMShellNodalDisplacements(component=wing_component,
+                                                                    mesh=shell_mesh,
+                                                                    pde=shell_pde,
+                                                                    shells=shells)
+
+grid_num = 10
+transfer_para_mesh = []
+structural_left_wing_names = pav_geom_mesh.geom_data['primitive_names']['structural_left_wing_names']
+# left_wing_skin_names = pav_geom_mesh.geom_data['primitive_names']['left_wing_bottom_names'] + pav_geom_mesh.geom_data['primitive_names']['left_wing_top_names']
+
+# element_projection_names = structural_left_wing_names + left_wing_skin_names
+# element_projection_names = pav_geom_mesh.geom_data['primitive_names']['left_wing'] #+ structural_left_wing_names except panels
+element_projection_names = pav_geom_mesh.geom_data['primitive_names']['both_wings'] #+ structural_left_wing_names except panels
+
+for name in element_projection_names:
+    for u in np.linspace(0,1,grid_num):
+        for v in np.linspace(0,1,grid_num):
+            transfer_para_mesh.append((name, np.array([u,v]).reshape((1,2))))
+
+transfer_geo_nodes_ma = spatial_rep.evaluate_parametric(transfer_para_mesh)
 
 
 wing_oml_wing_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['wing']
@@ -297,80 +372,83 @@ wing_oml_wing_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['wing']
 
 # Map displacements from column 3 (framework) to 2
 wing_displacement_input = pav_geom_mesh.functions['wing_displacement_input']
+wing_displacement_output = pav_geom_mesh.functions['wing_displacement_output']
 wing_force = pav_geom_mesh.functions['wing_force']
 oml_para_nodes_wing = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
 
-if vlm_conservative:
-    disp_composition_mat = vlm_disp_mapping_model.disp_map(vlm_disp_mapping_model.parameters['initial_meshes'][0], oml=wing_oml_wing_mesh)
-    # disp_composition_mat = block_diag([disp_composition_mat]*3)
-    disp_composition_mat_test = deepcopy(disp_composition_mat)
-    disp_composition_mat_test[disp_composition_mat_test <= 1e-4] = 0.
+# if vlm_conservative:
 
-    # TODO: Check length of vlm_force_mapping_model.force_points and nodal_forces_meshes
-    eval_pts_location = 0.25
-    vlm_mesh = pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].value
-    vlm_mesh_reshaped = vlm_mesh.reshape((1, vlm_mesh.shape[2], vlm_mesh.shape[1], 3))
-    force_points_vlm = (
-            (1 - eval_pts_location) * 0.5 * vlm_mesh_reshaped[:, 0:-1, 0:-1, :] +
-            (1 - eval_pts_location) * 0.5 * vlm_mesh_reshaped[:, 0:-1, 1:, :] +
-            eval_pts_location * 0.5 * vlm_mesh_reshaped[:, 1:, 0:-1, :] +
-            eval_pts_location * 0.5 * vlm_mesh_reshaped[:, 1:, 1:, :])
+# disp_composition_mat = block_diag([disp_composition_mat]*3)
+# disp_composition_mat_test = deepcopy(disp_oml_to_solver_map)
+# disp_composition_mat_test[disp_composition_mat_test <= 1e-4] = 0.
 
-    force_map_oml = vlm_force_mapping_model.disp_map(force_points_vlm.reshape((-1,3)),wing_oml_wing_mesh.value.reshape((-1,3)))
-    # force_map_oml = block_diag([force_map_oml]*3)
 
-    associated_coords = {}
-    index = 0
-    for item in oml_para_nodes_wing:
-        key = item[0]
-        value = item[1]
-        if key not in associated_coords.keys():
-            associated_coords[key] = [[index], value]
-        else:
-            associated_coords[key][0].append(index)
-            associated_coords[key] = [associated_coords[key][0], np.vstack((associated_coords[key][1], value))]
-        index += 1
 
-    output_shape = (len(oml_para_nodes_wing), wing_force.coefficients[oml_para_nodes_wing[0][0]].shape[-1])
+# # TODO: Check length of vlm_force_mapping_model.force_points and nodal_forces_meshes
+# eval_pts_location = 0.25
+# vlm_mesh = pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].value
+# vlm_mesh_reshaped = vlm_mesh.reshape((1, vlm_mesh.shape[2], vlm_mesh.shape[1], 3))
+# force_points_vlm = (
+#         (1 - eval_pts_location) * 0.5 * vlm_mesh_reshaped[:, 0:-1, 0:-1, :] +
+#         (1 - eval_pts_location) * 0.5 * vlm_mesh_reshaped[:, 0:-1, 1:, :] +
+#         eval_pts_location * 0.5 * vlm_mesh_reshaped[:, 1:, 0:-1, :] +
+#         eval_pts_location * 0.5 * vlm_mesh_reshaped[:, 1:, 1:, :])
 
-    fitting_matrix_list = []
-    coefficient_idx_list = []
-    fitting_matrix_key_list = []
+# force_map_oml = vlm_force_mapping_model.disp_map(force_points_vlm.reshape((-1,3)),wing_oml_wing_mesh.value.reshape((-1,3)))
+# # force_map_oml = block_diag([force_map_oml]*3)
 
-    for key, value in associated_coords.items(): # in the future, use submodels from the function spaces?
-        if hasattr(wing_force.space.spaces[key], 'compute_fitting_map'):
-            fitting_matrix = wing_force.space.spaces[key].compute_fitting_map(value[1])
-    
-        fitting_matrix_list += [fitting_matrix]
-        coefficient_idx_list += [value[0]]
-        fitting_matrix_key_list += [key]
-    
-    # concatenate index list and construct fitting matrix list
-    fitting_matrix_unordered = block_diag(fitting_matrix_list)
-    coefficient_idxs = np.concatenate(coefficient_idx_list) 
+# associated_coords = {}
+# index = 0
+# for item in oml_para_nodes_wing:
+#     key = item[0]
+#     value = item[1]
+#     if key not in associated_coords.keys():
+#         associated_coords[key] = [[index], value]
+#     else:
+#         associated_coords[key][0].append(index)
+#         associated_coords[key] = [associated_coords[key][0], np.vstack((associated_coords[key][1], value))]
+#     index += 1
 
-    fitting_matrix_unordered = fitting_matrix_unordered.tocsr()
-    # reorder the fitting matrix columns based on the entries of coefficient_idxs
-    fitting_matrix = dok_matrix(fitting_matrix_unordered.shape)
-    for i in range(coefficient_idxs.shape[0]):
-        fitting_matrix[i, :] = fitting_matrix_unordered[coefficient_idxs[i], :]
-    
-    # force_map_oml_to_framework = block_diag([fitting_matrix]*3)
+# output_shape = (len(oml_para_nodes_wing), wing_force.coefficients[oml_para_nodes_wing[0][0]].shape[-1])
 
-    disp_oml_nodes = wing_displacement_input.evaluate_conservative(fitting_matrix_key_list,
-                                                                   num_oml_output_points=wing_oml_wing_mesh.value.shape[0],
-                                                                   num_oml_dual_variable_points=wing_oml_wing_mesh.value.shape[0],
-                                                                   composition_mat=disp_composition_mat,
-                                                                   otherside_composed_mat=fitting_matrix@force_map_oml, 
-                                                                   solver_invariant_mat=coo_matrix(vlm_invariantmatrix_nonstacked), 
-                                                                   framework_invariant_mat=framework_invariantmatrix_nonstacked.T)  # use OML parametric nodes to evaluate wing displacement function
-else:
-    # Map displacements from column 3 to 2
-    disp_oml_nodes = wing_displacement_input.evaluate(oml_para_nodes_wing)  # use OML parametric nodes to evaluate wing displacement function
+# fitting_matrix_list = []
+# coefficient_idx_list = []
+# fitting_matrix_key_list = []
 
-    # Map displacements from column 2 to 1
-    vlm_nodal_displacements = vlm_disp_mapping_model.evaluate(nodal_displacements=[disp_oml_nodes, ],
-                                                nodal_displacements_mesh=[wing_oml_wing_mesh, ])
+# for key, value in associated_coords.items(): # in the future, use submodels from the function spaces?
+#     if hasattr(wing_force.space.spaces[key], 'compute_fitting_map'):
+#         fitting_matrix = wing_force.space.spaces[key].compute_fitting_map(value[1])
+
+#     fitting_matrix_list += [fitting_matrix]
+#     coefficient_idx_list += [value[0]]
+#     fitting_matrix_key_list += [key]
+
+# # concatenate index list and construct fitting matrix list
+# fitting_matrix_unordered = block_diag(fitting_matrix_list)
+# coefficient_idxs = np.concatenate(coefficient_idx_list) 
+
+# fitting_matrix_unordered = fitting_matrix_unordered.tocsr()
+# # reorder the fitting matrix columns based on the entries of coefficient_idxs
+# fitting_matrix = dok_matrix(fitting_matrix_unordered.shape)
+# for i in range(coefficient_idxs.shape[0]):
+#     fitting_matrix[i, :] = fitting_matrix_unordered[coefficient_idxs[i], :]
+
+# # force_map_oml_to_framework = block_diag([fitting_matrix]*3)
+
+    # disp_oml_nodes = wing_displacement_input.evaluate_conservative(fitting_matrix_key_list,
+    #                                                                num_oml_output_points=wing_oml_wing_mesh.value.shape[0],
+    #                                                                num_oml_dual_variable_points=wing_oml_wing_mesh.value.shape[0],
+    #                                                                composition_mat=disp_composition_mat,
+    #                                                                otherside_composed_mat=fitting_matrix@force_map_oml, 
+    #                                                                solver_invariant_mat=coo_matrix(vlm_invariantmatrix_nonstacked), 
+    #                                                                framework_invariant_mat=framework_invariantmatrix_nonstacked.T)  # use OML parametric nodes to evaluate wing displacement function
+# else:
+# Map displacements from column 3 to 2
+disp_oml_nodes = wing_displacement_input.evaluate(oml_para_nodes_wing)  # use OML parametric nodes to evaluate wing displacement function
+
+# Map displacements from column 2 to 1
+vlm_nodal_displacements = vlm_disp_mapping_model.evaluate(nodal_displacements=[disp_oml_nodes, ],
+                                            nodal_displacements_mesh=[wing_oml_wing_mesh, ])
 
 # region VLM Solver
 # Construct VLM solver with CADDEE geometry
@@ -396,42 +474,163 @@ vlm_model = VASTFluidSover(
 # print("pre-VLM model evaluate")
 wing_vlm_panel_forces, vlm_forces, vlm_moments = vlm_model.evaluate(ac_states=cruise_ac_states, displacements=vlm_nodal_displacements)
 # print("post-VLM model evaluate")
-# register the total VLM forces and moments as outputs for the M3L Model (column 5)
+# register the total VLM forces and moments as outputs for the M3L Model (column 1)
 cruise_model.register_output(vlm_forces)
 cruise_model.register_output(vlm_moments)
 
-# construct operation to map from column 1 to column 2
-oml_forces = vlm_force_mapping_model.evaluate(vlm_forces=wing_vlm_panel_forces,
-                                              nodal_force_meshes=[wing_oml_wing_mesh, ])
-wing_forces = oml_forces[0]
-# print("post-VLM force map evaluate")
-# endregion
+if vlm_conservative:
+    # compute displacement map from OML to VLM solver
+    # TODO: Figure out the ordering of the nodes in the array below
+    disp_oml_to_solver_map = vlm_disp_mapping_model.disp_map(vlm_disp_mapping_model.parameters['initial_meshes'][0], oml=wing_oml_wing_mesh)
 
-# region Strucutral Loads
+    # compute displacement map from framework to OML
+    associated_coords = {}
+    index = 0
+    for item in oml_para_nodes_wing:
+        key = item[0]
+        value = item[1]
+        if key not in associated_coords.keys() or key not in framework_work_surface_names:
+            associated_coords[key] = [[index], value]
+        else:
+            associated_coords[key][0].append(index)
+            associated_coords[key] = [associated_coords[key][0], np.vstack((associated_coords[key][1], value))]
+        index += 1
 
-# map forces from column 2 to column 3 (framework) 
-wing_force.inverse_evaluate(oml_para_nodes_wing, wing_forces)
-cruise_model.register_output(wing_force.coefficients)
+    # output_name = f'evaluated_{wing_displacement_input.name}'
+    output_shape = (len(oml_para_nodes_wing), wing_displacement_input.coefficients[oml_para_nodes_wing[0][0]].shape[-1])
+    
+    coefficients_dict = {} 
+    for key, coefficients in wing_displacement_input.coefficients.items():
+        num_coefficients = np.prod(coefficients.shape[:-1])
+        coefficients_dict[key] = coefficients.value.reshape((-1, coefficients.shape[-1]))
+
+    evaluation_matrix_list = []
+    # NOTE: We use the ordering from `framework_work_surface_names` below to make the mapping matrix ordering consistent with the framework invariant matrix
+    for ordered_key in framework_work_surface_names:
+        value = associated_coords[ordered_key]
+        evaluation_matrix = wing_displacement_input.space.spaces[ordered_key].compute_evaluation_map(value[1])
+
+        evaluation_matrix_list += [coo_matrix(evaluation_matrix)]
+        
+    disp_framework_to_oml_map = block_diag(evaluation_matrix_list)
+    # coefficients_mat = np.vstack(coefficients_list)
+    # coefficients_list = coefficients_mat.reshape(order='F')
+
+    # Compute the framework forces
+    wing_force.inverse_evaluate_conservative(framework_work_surface_names, wing_vlm_panel_forces[0], 
+                                     otherside_composed_mat=csr_matrix(disp_oml_to_solver_map)@disp_framework_to_oml_map,
+                                     solver_invariant_mat=coo_matrix(vlm_invariantmatrix_nonstacked), 
+                                     framework_invariant_mat=framework_invariantmatrix_nonstacked.T)
+    cruise_model.register_output(wing_force.coefficients)
+
+else:
+    # construct operation to map from column 1 to column 2
+    oml_forces = vlm_force_mapping_model.evaluate(vlm_forces=wing_vlm_panel_forces,
+                                                nodal_force_meshes=[wing_oml_wing_mesh, ])
+    wing_forces = oml_forces[0]
+    # print("post-VLM force map evaluate")
+    # endregion
+
+    # region Structural Loads
+
+    # map forces from column 2 to column 3 (framework) 
+    wing_force.inverse_evaluate(oml_para_nodes_wing, wing_forces)
+    cruise_model.register_output(wing_force.coefficients)
 
 left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
 left_oml_geo_nodes = spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
 
-# map forces from column 3 to 4 (`evaluate` is used since we're mapping out from the framework representation)
-left_wing_forces = wing_force.evaluate(left_wing_oml_para_coords)
-wing_component = pav_geom_mesh.geom_data['components']['wing']
+if fenics_conservative:
+    # construct matrix that maps the CG1 shell displacements to the OML
+    mesh_original = wing_shell_mesh.value.reshape((-1,3))
+    mesh_mirrored = deepcopy(mesh_original)
+    mesh_mirrored[:, 1] *= -1.  # mirror coordinates along the y-axis
+    # we concatenate both meshes (original and mirrored) and compute the displacement map
+    mesh_concat = np.vstack([mesh_original, mesh_mirrored])
+    displacement_map = shell_nodal_displacements_model.umap(mesh_concat,
+                    oml=transfer_geo_nodes_ma.value.reshape((-1,3)),
+                    repeat_bf_sup_size_vector=True)
 
-# Define force map that takes nodal forces and projects them to the shell mesh (column 4 to 5)
-shell_force_map_model = rmshell.RMShellForces(component=wing_component,
-                                                mesh=shell_mesh,
-                                                pde=shell_pde,
-                                                shells=shells)
-cruise_structural_wing_mesh_forces = shell_force_map_model.evaluate(
-                        nodal_forces=left_wing_forces,
-                        nodal_forces_mesh=left_oml_geo_nodes)
+    # we create a matrix that repeats the shell displacement variables twice
+    # the shape of the shell displacement variables coincides with the number of fenics mesh nodes
+    rep_mat = np.vstack([np.eye(fenics_mesh.geometry.x.shape[0])]*2)
+    # we manually set the fifth entry of rep_mat to `-1`, since the y-displacement is mirrored
+    rep_mat[4, 4] = -1.
+    
+    # combine maps into map of CG1 displacements to OML displacements
+    disp_solver_to_oml_map = displacement_map@rep_mat
+
+    # we multiply `disp_solver_to_oml_map` with the CG2-CG1 displacement projection matrix (NOTE: Operation moved to invariant matrix)
+    disp_solver_to_oml_map = disp_solver_to_oml_map  # @disp_cg2_cg1_interpolation_map
+
+    # Next we construct the OML -> framework displacement map
+
+    associated_coords = {}
+    index = 0
+    for item in transfer_para_mesh:
+        key = item[0]
+        value = item[1]
+        if key not in associated_coords.keys():
+            associated_coords[key] = [[index], value]
+        else:
+            associated_coords[key][0].append(index)
+            associated_coords[key] = [associated_coords[key][0], np.vstack((associated_coords[key][1], value))]
+        index += 1
+
+    # function_values = csdl_model.register_module_input('function_values', shape=self.arguments['function_values'].shape)
+    # function_values = csdl.reshape(function_values, output_shape)
+    # csdl_model.register_module_output('test_function_values', function_values)
+
+    # loop over the framework surfaces in the order in which they are used in the framework invariant matrix, as defined in `framework_work_surface_names`
+    fitting_matrix_per_surface_list = []
+    for key in framework_work_surface_names:
+        value = associated_coords[key]
+        if hasattr(wing_displacement_output.space.spaces[key], 'compute_fitting_map'):
+            fitting_matrix = wing_displacement_output.space.spaces[key].compute_fitting_map(value[1])
+        else:
+            evaluation_matrix = wing_displacement_output.space.spaces[key].compute_evaluation_map(value[1])
+            if issparse(evaluation_matrix):
+                evaluation_matrix = evaluation_matrix.toarray()
+            # if self.regularization_coeff is not None:
+                # fitting_matrix = np.linalg.inv(evaluation_matrix.T@evaluation_matrix + self.regularization_coeff*np.eye(evaluation_matrix.shape[1]))@evaluation_matrix.T # tested with 1e-3
+            # else:
+            fitting_matrix = np.linalg.pinv(evaluation_matrix)
+
+        fitting_matrix_per_surface_list += [fitting_matrix]
+
+    solid_disp_oml_to_framework_map = block_diag(fitting_matrix_per_surface_list)
+    composed_disp_maps = solid_disp_oml_to_framework_map@disp_solver_to_oml_map
+
+    # left_wing_forces = wing_force.evaluate(left_wing_oml_para_coords)
+
+    # Debugging TODO's:
+    #                   x compare displacement mapping matrices from above with the actual matrices that are used
+    #                   - do pen-and-paper derivation of work conservation for a blockwise-diagonal system of 2 blocks, one for each wing
+    #                   - check whether defining a left-wing framework invariant matrix is useful (would add a projection step of mirroring the displacements) 
+    cruise_structural_wing_mesh_forces = wing_force.evaluate_conservative(framework_work_surface_names, 
+                                     csr_matrix(composed_disp_maps),
+                                     disp_cg2_cg1_interpolation_map@fenics_invariantmatrix_component_sp.T,  
+                                     framework_invariantmatrix_nonstacked.T,
+                                     'wing_shell_forces',
+                                     fenics_mesh.geometry.x.shape)
+    # cruise_model.register_output(cruise_structural_wing_mesh_forces)
+
+else:
+    # map forces from column 3 to 4 (`evaluate` is used since we're mapping out from the framework representation)
+    left_wing_forces = wing_force.evaluate(left_wing_oml_para_coords)
+
+    # Define force map that takes nodal forces and projects them to the shell mesh (column 4 to 5)
+    shell_force_map_model = rmshell.RMShellForces(component=wing_component,
+                                                    mesh=shell_mesh,
+                                                    pde=shell_pde,
+                                                    shells=shells)
+    cruise_structural_wing_mesh_forces = shell_force_map_model.evaluate(
+                            nodal_forces=left_wing_forces,
+                            nodal_forces_mesh=left_oml_geo_nodes)
 # endregion
 
 # region Structures
-
+# run shell simulation
 shell_displacements_model = rmshell.RMShell(component=wing_component,
                                             mesh=shell_mesh,
                                             pde=shell_pde,
@@ -450,36 +649,10 @@ cruise_model.register_output(wing_mass)
 # print("post-RMshell evaluate")
 # region Nodal Displacements
 
-grid_num = 10
-transfer_para_mesh = []
-structural_left_wing_names = pav_geom_mesh.geom_data['primitive_names']['structural_left_wing_names']
-# left_wing_skin_names = pav_geom_mesh.geom_data['primitive_names']['left_wing_bottom_names'] + pav_geom_mesh.geom_data['primitive_names']['left_wing_top_names']
-
-# element_projection_names = structural_left_wing_names + left_wing_skin_names
-# element_projection_names = pav_geom_mesh.geom_data['primitive_names']['left_wing'] #+ structural_left_wing_names except panels
-element_projection_names = pav_geom_mesh.geom_data['primitive_names']['both_wings'] #+ structural_left_wing_names except panels
-
-for name in element_projection_names:
-    for u in np.linspace(0,1,grid_num):
-        for v in np.linspace(0,1,grid_num):
-            transfer_para_mesh.append((name, np.array([u,v]).reshape((1,2))))
-
-transfer_geo_nodes_ma = spatial_rep.evaluate_parametric(transfer_para_mesh)
-
-# construct map from column 5 to 4
-shell_nodal_displacements_model = rmshell.RMShellNodalDisplacements(component=wing_component,
-                                                                    mesh=shell_mesh,
-                                                                    pde=shell_pde,
-                                                                    shells=shells)
-
+# map displacements from column 5 to 4
 nodal_displacements, tip_displacement = shell_nodal_displacements_model.evaluate(cruise_structural_wing_mesh_displacements, transfer_geo_nodes_ma)
 
-# TODO: Figure out exactly where error is being thrown (around here somewhere)
-
 # construct map from column 4 to 3 (the framework representation)
-
-wing_displacement_output = pav_geom_mesh.functions['wing_displacement_output']
-
 wing_displacement_output.inverse_evaluate(transfer_para_mesh, nodal_displacements)
 cruise_model.register_output(wing_displacement_output.coefficients)
 
@@ -626,47 +799,76 @@ if __name__ == '__main__':
         print("Max 2-norm update: {}".format(array_update_norms.max()))
         print("2-norm updates: {}".format(array_update_norms))
 
-        if array_update_norms.max() < 1e-10 or iter_idx >= 10:
+        if array_update_norms.max() < 1e-10 or iter_idx >= 2:
             running = False
 
+        # TODO: Verify that the VLM displacements follow with the linear maps from the framework input displacements,
+        #       and that the framework forces do the same with the VLM output forces
+        # ----------------------------------------- #
         # Below we compute the aeroelastic work with the various displacement and force variables & the invariant matrices:
         # VLM work (F^T@mat@u)
+        # Import VLM forces and reorder them to coincide with the ordering of the VLM invariant matrix
         vlm_F = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'][0, :, :]
-        vlm_F_flat = vlm_F.flatten(order='F')
+        # vlm_F_3d = vlm_F.reshape((6, 30, 3), order='C')
+        # vlm_F_reshaped = vlm_F_3d.reshape((180, 3), order='F')
+
         vlm_u = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.wing_mesh_displacements'][0, :, :, :]
         vlm_u_2d = np.reshape(vlm_u, (vlm_u.shape[0]*vlm_u.shape[1], vlm_u.shape[2]), order='C')
-        vlm_u_flat = vlm_u_2d.flatten(order='F')
-        vlm_work = vlm_F_flat@vlm_invariantmatrix@vlm_u_flat
+        
+        # vlm_u_2d_x = vlm_u[:, :, 0].flatten(order='C')
+        # vlm_u_2d_y = vlm_u[:, :, 1].flatten(order='C')
+        # vlm_u_2d_z = vlm_u[:, :, 2].flatten(order='C')
+        # vlm_u_2d_reshaped = np.vstack([vlm_u_2d_x, vlm_u_2d_y, vlm_u_2d_z]).T
+
+        # With `order='F'` above: vlm work = 391.04
+        # With `order='C'` above: vlm work = 308.39
+        # Both are wrong, but one is definitely closer than the other
+
+        # vlm_u_flat = vlm_u_2d.flatten(order='F')
+        vlm_work_tensor = vlm_F.T@vlm_invariantmatrix_nonstacked.T@vlm_u_2d
+        vlm_work = np.diag(vlm_work_tensor).sum()
 
         # Framework work with input displacements
         total_framework_work_disp_inputs = 0.
         for surf_name in framework_work_surface_names:
             surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(surf_name)]
-            surf_disp_flat = surf_disp.flatten(order='F')
+            # surf_disp_flat = surf_disp.flatten(order='F')
             surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
-            surf_force_flat = surf_force.flatten(order='F')
-            surf_invariantmatrix = disp_evaluationmaps[surf_name]
-            surf_work = surf_force_flat@surf_invariantmatrix@surf_disp_flat
+            # surf_force_flat = surf_force.flatten(order='F')
+            surf_invariantmatrix = disp_evaluationmaps[surf_name][0]
+            surf_work_mat = surf_force.T@surf_invariantmatrix@surf_disp
+            surf_work = np.diag(surf_work_mat).sum()
 
             total_framework_work_disp_inputs += surf_work
 
         # FEniCS work (F^T@mat@u):
-        fe_F = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_force_mapping.wing_shell_forces']
-        fe_F_flat = fe_F.flatten(order='C')
-        fe_u = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_model.rm_shell.solid_model.disp_solid']
+        if fenics_conservative:
+            fe_F = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_evaluation.wing_shell_forces']
+            fe_F_flat = fe_F.flatten(order='C')
 
-        # NOTE: We multiply with a factor of 2 here to account for the fact that only one of the wings is included in FEniCS
-        fe_work = 2*fe_F_flat@fenics_invariantmatrix@fe_u
+            fe_u = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_model.rm_shell.solid_model.disp_solid']
+
+            # NOTE: We multiply with a factor of 2 here to account for the fact that only one of the wings is included in FEniCS
+            fe_work = 2*fe_F_flat@fenics_invariantmatrix@fe_u
+        else:
+            fe_F = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_force_mapping.wing_shell_forces']
+            fe_F_flat = fe_F.flatten(order='C')
+
+            fe_u = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_model.rm_shell.solid_model.disp_solid']
+
+            # NOTE: We multiply with a factor of 2 here to account for the fact that only one of the wings is included in FEniCS
+            fe_work = 2*fe_F_flat@fenics_invariantmatrix@fe_u
 
         # Framework work with output displacements
         total_framework_work_disp_outputs = 0.
         for surf_name in framework_work_surface_names:
             surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_coefficients'.format(surf_name)]
-            surf_disp_flat = surf_disp.flatten(order='F')
+            # surf_disp_flat = surf_disp.flatten(order='F')
             surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
-            surf_force_flat = surf_force.flatten(order='F')
-            surf_invariantmatrix = disp_evaluationmaps[surf_name]
-            surf_work = surf_force_flat@surf_invariantmatrix@surf_disp_flat
+            # surf_force_flat = surf_force.flatten(order='F')
+            surf_invariantmatrix = disp_evaluationmaps[surf_name][0]
+            surf_work_mat = surf_force.T@surf_invariantmatrix@surf_disp
+            surf_work = np.diag(surf_work_mat).sum()
 
             total_framework_work_disp_outputs += surf_work
 
@@ -704,8 +906,11 @@ if __name__ == '__main__':
     print("="*20+'structure outputs'+"="*20)
     print("="*60)
     # Comparing the solution to the Kirchhoff analytical solution
-    f_shell = sim[system_model_name+'Wing_rm_shell_force_mapping.wing_shell_forces']
-    f_vlm = sim[system_model_name+'wing_vlm_nodal_forces_model.wing_oml_forces'].reshape((-1,3))
+    if fenics_conservative:
+        f_shell = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_evaluation.wing_shell_forces']
+    else:
+        f_shell = sim[system_model_name+'Wing_rm_shell_force_mapping.wing_shell_forces']
+    f_vlm = sim[system_model_name+'wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'].reshape((-1,3))
     u_shell = sim[system_model_name+'Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
     u_nodal = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_nodal_displacement']
     u_tip = sim[system_model_name+'Wing_rm_shell_displacement_map.wing_shell_tip_displacement']
@@ -749,12 +954,14 @@ if __name__ == '__main__':
     print("  Number of vertices = "+str(nn))
 
     # -----------------------------------------------
+    # TODO: Verify whether OML -> VLM displacement mapping matrices in conservative map construction match the actual maps
     # Code to compute the total forces in columns 2, 3 and 4 (M3L-internal mappings)
     # first column 1:
     vlm_internal_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'], axis=1)[0]
-
+    print("VLM internal total forces: {}".format(vlm_internal_total_forces))
     # then, column 2:
-    col2_proj_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_nodal_forces_model.wing_oml_forces'], axis=0)
+    # this parameter will not exist if the conservative map is used
+    # col2_proj_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_nodal_forces_model.wing_oml_forces'], axis=0)
 
     # column 3 (framework):    
     # loop over keys in `wing_force.coefficients` dict
@@ -769,7 +976,9 @@ if __name__ == '__main__':
             wing_0_force += summed_forces
         elif 'Wing_1' in key:
             wing_1_force += summed_forces
-    
+    print("Framework wing 0 total forces: {}".format(wing_0_force))
+    print("Framework wing 1 total forces: {}".format(wing_1_force))
+    print("Framework total aero forces: {}".format(np.add(wing_0_force, wing_1_force)))
     # column 4 (OML mesh of solid solver)
     col4_oml_forces = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_evaluation.evaluated_wing_force_function']
     col4_proj_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_evaluation.evaluated_wing_force_function'], axis=0)
@@ -823,16 +1032,51 @@ if __name__ == '__main__':
     # -------------------------------
     # We verify whether the various maps that are used to couple VLM to the framework match with the ones that are computed manually for the work-conserving map
     disp_oml_to_vlm_map = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_vlm_nodal_displacements_model.wing_displacement_input_function_displacements_map']
-    force_vlm_to_oml_map = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_nodal_forces_model.wing_force_map']
-    # force_oml_to_framework_map = sim['']
-    # we need to patch together the concatenated `force_oml_to_framework_map` from the maps to the various surfaces
+    # force_vlm_to_oml_map = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_nodal_forces_model.wing_force_map']
+    
+    # we need to patch together the concatenated `disp_framework_to_oml_map` from the maps of the various surfaces,
+    disp_framework_to_oml_map_per_surface = []
+    for ordered_key in framework_work_surface_names:
+        evaluation_matrix = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.evaluation_matrix_{}'.format(key)]
+
+        disp_framework_to_oml_map_per_surface += [coo_matrix(evaluation_matrix)]
+    
+    disp_framework_to_oml_maps_combined = block_diag(disp_framework_to_oml_map_per_surface)
+
+    # and we need to patch together the concatenated `force_oml_to_framework_map`
     oml_to_framework_map_per_surface = []
+
+    associated_coords = {}
+    index = 0
+    for item in oml_para_nodes_wing:
+        key = item[0]
+        value = item[1]
+        if key not in associated_coords.keys():
+            associated_coords[key] = [[index], value]
+        else:
+            associated_coords[key][0].append(index)
+            associated_coords[key] = [associated_coords[key][0], np.vstack((associated_coords[key][1], value))]
+        index += 1
+
     for key, value in associated_coords.items():
         oml_to_framework_map_surface = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.fitting_matrix_{}'.format(key)]
         oml_to_framework_map_per_surface += [oml_to_framework_map_surface]
-    
+
     oml_to_framework_maps_combined = block_diag(oml_to_framework_map_per_surface)
 
-    diff_disp_oml_to_vlm_maps = np.linalg.norm(np.subtract(disp_oml_to_vlm_map, disp_composition_mat))
-    diff_force_vlm_to_oml_maps = np.linalg.norm(np.subtract(force_vlm_to_oml_map, force_map_oml))
-    diff_force_oml_to_framework_maps = np.linalg.norm(np.subtract(oml_to_framework_maps_combined.toarray(), fitting_matrix.toarray()))
+    # diff_disp_oml_to_vlm_maps = np.linalg.norm(np.subtract(disp_oml_to_vlm_map, disp_composition_mat))
+    # diff_force_vlm_to_oml_maps = np.linalg.norm(np.subtract(force_vlm_to_oml_map, force_map_oml))
+    # diff_force_oml_to_framework_maps = np.linalg.norm(np.subtract(oml_to_framework_maps_combined.toarray(), fitting_matrix.toarray()))
+
+    # the matrix below reflects the FEniCS displacements to the right wing
+    disp_fenics_to_oml_repeater_mat = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_displacement_map.wing_shell_displacement_repeater_mat']
+    disp_fenics_to_oml_mat_ref = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_displacement_map.wing_shell_displacements_to_nodal_displacements']
+
+    # construct
+    disp_oml_to_framework_map_per_surface = []
+    for ordered_key in framework_work_surface_names:
+        evaluation_matrix = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.fitting_matrix_{}'.format(key)]
+
+        disp_oml_to_framework_map_per_surface += [coo_matrix(evaluation_matrix)]
+    
+    disp_oml_to_framework_maps_combined = block_diag(disp_oml_to_framework_map_per_surface)
