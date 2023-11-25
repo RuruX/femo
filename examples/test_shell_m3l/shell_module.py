@@ -343,27 +343,27 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
 
         # create mirrored mesh coordinates
         mesh_original = mesh.value.reshape((-1,3))
-        mesh_mirrored = deepcopy(mesh_original)
-        mesh_mirrored[:, 1] *= -1.  # mirror coordinates along the y-axis
+        # mesh_mirrored = deepcopy(mesh_original)
+        # mesh_mirrored[:, 1] *= -1.  # mirror coordinates along the y-axis
         # we concatenate both meshes (original and mirrored) and compute the displacement map
-        mesh_concat = np.vstack([mesh_original, mesh_mirrored])
-        displacement_map = self.umap(mesh_concat,
+        # mesh_concat = np.vstack([mesh_original, mesh_mirrored])
+        displacement_map = self.umap(mesh_original,
                         oml=nodal_displacements_mesh.value.reshape((-1,3)),
-                        repeat_bf_sup_size_vector=True)
+                        repeat_bf_sup_size_vector=False)
 
         shell_displacements_csdl = csdl_model.register_module_input(
                                             name=f'{shell_name}_displacement',
                                             shape=shell_displacements.shape)
 
         # we create a matrix as csdl operator that repeats the shell displacement variables twice
-        rep_mat = np.vstack([np.eye(shell_displacements.shape[0])]*2)
+        # rep_mat = np.vstack([np.eye(shell_displacements.shape[0])]*2)
         # we manually set the fifth entry of rep_mat to `-1`, since the y-displacement is mirrored
-        rep_mat[4, 4] = -1.
+        # rep_mat[4, 4] = -1.
 
-        rep_mat_csdl = csdl_model.create_input(f'{shell_name}_displacement_repeater_mat', val=rep_mat)
+        # rep_mat_csdl = csdl_model.create_input(f'{shell_name}_displacement_repeater_mat', val=rep_mat)
         # compute repeated shell_displacements_csdl
-        shell_displacements_csdl_rep = csdl.matmat(rep_mat_csdl,
-                                            shell_displacements_csdl)
+        # shell_displacements_csdl_rep = csdl.matmat(rep_mat_csdl,
+                                            # shell_displacements_csdl)
 
         displacement_map_csdl = csdl_model.create_input(
                             f'{shell_name}_displacements_to_nodal_displacements',
@@ -372,7 +372,7 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         #                     f'{shell_name}_rightwing_displacements_to_nodal_displacements',
         #                     val=displacement_map)
         nodal_displacements = csdl.matmat(displacement_map_csdl,
-                                            shell_displacements_csdl_rep)
+                                            shell_displacements_csdl)
         csdl_model.register_module_output(f'{shell_name}_nodal_displacement',
                                             nodal_displacements)        
         csdl_model.register_module_output(f'{shell_name}_tip_displacement',
