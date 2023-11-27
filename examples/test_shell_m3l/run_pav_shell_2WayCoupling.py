@@ -69,6 +69,29 @@ xdmf_record = False
 vlm_conservative = True
 fenics_conservative = True
 
+# a list of tuples, with each tuple consisting of a left wing surface and its copy on the right wing
+symmetry_surface_pair_list = [('Wing_0_172', 'Wing_1_192'),
+                              ('Wing_0_173', 'Wing_1_193'),
+                              ('Wing_0_174', 'Wing_1_194'),
+                              ('Wing_0_175', 'Wing_1_195'),
+                              ('Wing_0_176', 'Wing_1_196'),
+                              ('Wing_0_177', 'Wing_1_197'),
+                              ('Wing_0_178', 'Wing_1_198'),
+                              ('Wing_0_179', 'Wing_1_199'),
+                              ('Wing_0_180', 'Wing_1_200'),
+                              ('Wing_0_181', 'Wing_1_201'),
+                              ('Wing_0_182', 'Wing_1_202'),
+                              ('Wing_0_183', 'Wing_1_203'),
+                              ('Wing_0_184', 'Wing_1_204'),
+                              ('Wing_0_185', 'Wing_1_205'),
+                              ('Wing_0_186', 'Wing_1_206'),
+                              ('Wing_0_187', 'Wing_1_207'),
+                              ('Wing_0_188', 'Wing_1_208'),
+                              ('Wing_0_189', 'Wing_1_209'),
+                              ('Wing_0_190', 'Wing_1_210'),
+                              ('Wing_0_191', 'Wing_1_211')]
+
+
 ft2m = 0.3048
 in2m = 0.0254
 
@@ -130,6 +153,7 @@ force_surface_names = pav_geom_mesh.functions['wing_force'].space.spaces.keys()
 
 framework_work_surface_names = []
 framework_work_left_wing_surface_names = []
+framework_work_right_wing_surface_names = []
 
 for surf_name in disp_input_surface_names:
     if surf_name in force_surface_names:
@@ -138,6 +162,8 @@ for surf_name in disp_input_surface_names:
     # also store the left wing surfaces in a separate list
     if 'Wing_1' in surf_name:
         framework_work_left_wing_surface_names += [surf_name]
+    elif 'Wing_0' in surf_name:
+        framework_work_right_wing_surface_names += [surf_name]
 
 disp_evaluationmaps = {}
 disp_evaluationmaps_list = []
@@ -370,8 +396,8 @@ structural_left_wing_names = pav_geom_mesh.geom_data['primitive_names']['structu
 # left_wing_skin_names = pav_geom_mesh.geom_data['primitive_names']['left_wing_bottom_names'] + pav_geom_mesh.geom_data['primitive_names']['left_wing_top_names']
 
 # element_projection_names = structural_left_wing_names + left_wing_skin_names
-element_projection_names = pav_geom_mesh.geom_data['primitive_names']['left_wing'] #+ structural_left_wing_names except panels
-element_projection_names_bothwings = pav_geom_mesh.geom_data['primitive_names']['both_wings'] #+ structural_left_wing_names except panels
+element_projection_names = pav_geom_mesh.geom_data['primitive_names']['left_wing']
+element_projection_names_bothwings = pav_geom_mesh.geom_data['primitive_names']['both_wings']
 
 for name in element_projection_names:
     for u in np.linspace(0,1,grid_num):
@@ -500,7 +526,36 @@ else:
     cruise_model.register_output(wing_force.coefficients)
 
 left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
-left_oml_geo_nodes = spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
+right_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['right_wing']
+left_oml_geo_nodes = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['left_wing']  #spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
+right_oml_geo_nodes = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['right_wing']
+
+# reflect left wing oml geo nodes around XZ plane
+# reflection_mat = np.eye(3)
+# reflection_mat[1,1] = -1.
+# left_oml_geo_nodes_reflected = left_oml_geo_nodes.value@reflection_mat
+
+# for i in range(3):
+#     left_oml_geo_nodes_reflected_coord = left_oml_geo_nodes_reflected[:, i]
+#     right_oml_geo_nodes_coord = right_oml_geo_nodes.value[:, i]
+#     coord_pairwise_distance = np.subtract(right_oml_geo_nodes_coord[:, None], left_oml_geo_nodes_reflected_coord[None, :])
+#     coord_pairwise_distance_squared = np.power(coord_pairwise_distance, 2)
+#     if i == 0:
+#         coord_pairwise_distance_squared_summed = coord_pairwise_distance_squared
+#     else:
+#         coord_pairwise_distance_squared_summed += coord_pairwise_distance_squared
+
+# coord_pairwise_distance_summed = np.sqrt(coord_pairwise_distance_squared_summed)
+# coord_pairwise_distance_summed = cdist(right_oml_geo_nodes.value, left_oml_geo_nodes_reflected)
+# # we compute the indices of minimal distance for each right wing node
+# rightwing_min_dist_leftwing_reflected_node_idxs = np.argmin(coord_pairwise_distance_summed, axis=1)
+
+# - We weten welke oppervlakken elkaars spiegelbeeld zouden moeten zijn
+# - We kunnen de posities in physical space van de OML nodes bepalen
+# 	- gebruik NodalMap functions om de afstanden en weights van de OML nodes van de linker- en rechtervleugel te bepalen, na die van de linkervleugel te reflecteren tov het XZ-vlak
+# 	- dit geeft de interpolation map voor linker- naar rechtervleugel
+# 	- daarna kunnen we zoals normaal van de OML naar het framework mappen met inverse_map
+
 
 if fenics_conservative:
     # construct matrix that maps the CG1 shell displacements to the OML
@@ -626,6 +681,17 @@ cruise_model.register_output(wing_stress.coefficients)
 cruise_model.register_output(tip_displacement)
 cruise_model.register_output(nodal_displacements)
 
+# lastly we reflect the left wing displacements to the right wing 
+# in a separate framework function object -- this object is used in the two-way coupling
+rightwing_disp_reflection_model = rmshell.OMLPointsFromReflection(source_indexed_physical_coordinates=left_oml_geo_nodes.value,
+                                                                  target_indexed_physical_coordinates=right_oml_geo_nodes.value,
+                                                                  RBF_eps=5.)
+rightwing_reflected_disp = rightwing_disp_reflection_model.evaluate(nodal_displacements)
+# we also map the right wing OML displacement to the framework
+wing_displacement_rightwing = pav_geom_mesh.functions['wing_displacement_output_rightwing']
+wing_displacement_rightwing.inverse_evaluate(right_wing_oml_para_coords, rightwing_reflected_disp)
+cruise_model.register_output(wing_displacement_rightwing.coefficients)
+
 # endregion
 
 # Add cruise m3l model to cruise condition
@@ -703,12 +769,8 @@ if __name__ == '__main__':
         sim = Simulator(caddee_csdl_model, analytics=True)
         # print("post-Simulator instantiation")
 
-    # TODO: Wrap `sim.run` in while loop. Modify the caddee_csdl_model above during each iteration to set the framework displacement
-
-
-    # displacement_arrays_old = []
-    # displacement_arrays_new = []
-    array_update_norms = np.zeros((len(wing_displacement_input.coefficients),))
+    array_leftwing_update_norms = np.zeros((len(wing_displacement_output.coefficients),))
+    array_rightwing_update_norms = np.zeros((len(wing_displacement_rightwing.coefficients),))
     vlm_force_list = []
     max_disp_update_list = []
     vlm_work_list = []
@@ -716,62 +778,68 @@ if __name__ == '__main__':
     fe_work_list = []
     total_framework_work_disp_outputs_list = []
 
-
     running = True
-
-    # we loop over the force and displacement surfaces to determine their shared surfaces
-
-
     # initialize iteration loop
     iter_idx = 0
     while running:
         print("---"*10)
         print("Iteration {}".format(iter_idx))
-        # run sim in current iteration
-
-        # sim = Simulator(caddee_csdl_model, analytics=True)
-
         # set displacement inputs
         if iter_idx > 0:
+            # first we copy over the left wing displacements
             for i, key in enumerate(wing_displacement_output.coefficients):
-                sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = disp_output_list[i]
+                sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = disp_leftwing_output_list[i]
+            # then we do the same for the right wing displacements
+            for i, key in enumerate(wing_displacement_rightwing.coefficients):
+                sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = disp_rightwing_output_list[i]
+
 
         sim.run()
 
-        disp_input_list = []
-        disp_output_list = []
+        # first we loop over and record the left wing displacements
+        disp_leftwing_input_list = []
+        disp_leftwing_output_list = []
         for i, key in enumerate(wing_displacement_output.coefficients):
             # query corresponding object in sim dict
             displacement_array_input = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)]
             displacement_array_output = deepcopy(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_coefficients'.format(key)])
-            array_update_norms[i] = np.linalg.norm(np.subtract(displacement_array_input, displacement_array_output))#/np.linalg.norm(displacement_array_output)
+            array_leftwing_update_norms[i] = np.linalg.norm(np.subtract(displacement_array_input, displacement_array_output))#/np.linalg.norm(displacement_array_output)
 
             # print("Surface {} displacement input array 2-norm: {}".format(key, np.linalg.norm(displacement_array_input)))
             # print("Surface {} displacement output array 2-norm: {}".format(key, np.linalg.norm(displacement_array_output)))
 
-            disp_input_list += [displacement_array_input]
-            disp_output_list += [displacement_array_output]
+            disp_leftwing_input_list += [displacement_array_input]
+            disp_leftwing_output_list += [displacement_array_output]
 
-            # write output array back to input array for next iteration
-            # sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = displacement_array_output
+        # then we do the same thing for the right wing displacements
+        disp_rightwing_input_list = []
+        disp_rightwing_output_list = []
+        for i, key in enumerate(wing_displacement_rightwing.coefficients):
+            # query corresponding object in sim dict
+            displacement_array_input = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)]
+            displacement_array_output = deepcopy(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_rightwing_function_inverse_evaluation.{}_wing_displacement_output_rightwing_coefficients'.format(key)])
+            array_rightwing_update_norms[i] = np.linalg.norm(np.subtract(displacement_array_input, displacement_array_output))#/np.linalg.norm(displacement_array_output)
+
+            # print("Surface {} displacement input array 2-norm: {}".format(key, np.linalg.norm(displacement_array_input)))
+            # print("Surface {} displacement output array 2-norm: {}".format(key, np.linalg.norm(displacement_array_output)))
+
+            disp_rightwing_input_list += [displacement_array_input]
+            disp_rightwing_output_list += [displacement_array_output]
 
 
         vlm_force_list += [np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'], axis=1)[0]]
-        max_disp_update_list += [array_update_norms.max()]
+        max_disp_update_list += [array_leftwing_update_norms.max()]
 
-        print("Max 2-norm update: {}".format(array_update_norms.max()))
-        print("2-norm updates: {}".format(array_update_norms))
+        print("Max left wing 2-norm update: {}".format(array_leftwing_update_norms.max()))
+        print("Max right wing 2-norm update: {}".format(array_rightwing_update_norms.max()))
+        print("Left wing 2-norm updates: {}".format(array_leftwing_update_norms))
+        print("Right wing 2-norm updates: {}".format(array_leftwing_update_norms))
 
-        if array_update_norms.max() < 1e-10 or iter_idx >= 2:
+        if (array_leftwing_update_norms.max() < 1e-10 and array_rightwing_update_norms.max() < 1e-10) or iter_idx >= 2:
             running = False
 
         # ----------------------------------------- #
         # Below we compute the aeroelastic work with the various displacement and force variables & the invariant matrices:
-        # VLM work (F^T@mat@u)
-        # Import VLM forces and reorder them to coincide with the ordering of the VLM invariant matrix
-        # TODO: Figure out what the order of the force vectors below is (find operations that create `wing_total_forces` in LiftDrag postprocessing)
-        # TODO: Is the energy nonconservation due to the addition of viscous drag? Doesn't seem likely but is worth a try?
-        # TODO: Test whether the transpose relationship holds by comparing the matrices (as in eq. 11 in current paper draft)
         vlm_F = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'][0, :, :]
         # the panel forces are just the forces coming from the panels, without force corrections
         vlm_panel_forces = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.panel_forces'][0, :, :]
@@ -795,6 +863,7 @@ if __name__ == '__main__':
         # Framework work with input displacements
         total_framework_work_disp_inputs = 0.
         leftwing_framework_work_disp_inputs = 0.
+        rightwing_framework_work_disp_inputs = 0.
         for surf_name in framework_work_surface_names:
             surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(surf_name)]
             # surf_disp_flat = surf_disp.flatten(order='F')
@@ -807,6 +876,9 @@ if __name__ == '__main__':
             total_framework_work_disp_inputs += surf_work
             if surf_name in framework_work_left_wing_surface_names:
                 leftwing_framework_work_disp_inputs += surf_work
+            if surf_name in framework_work_right_wing_surface_names:
+                rightwing_framework_work_disp_inputs += surf_work
+
 
         # FEniCS work (F^T@mat@u):
         if fenics_conservative:
@@ -828,12 +900,12 @@ if __name__ == '__main__':
 
             fe_u = sim['system_model.structural_sizing.cruise_3.cruise_3.Wing_rm_shell_model.rm_shell.solid_model.disp_solid']
 
-            # NOTE: We multiply with a factor of 2 here to account for the fact that only one of the wings is included in FEniCS
-            fe_work = 2*fe_F_flat@fenics_invariantmatrix@fe_u
+            fe_work = fe_F_flat@fenics_invariantmatrix@fe_u
 
         # Framework work with output displacements
         total_framework_work_disp_outputs = 0.
         leftwing_framework_work_disp_outputs = 0.
+        rightwing_framework_work_disp_outputs = 0.
         for surf_name in framework_work_left_wing_surface_names:
             surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_coefficients'.format(surf_name)]
             # surf_disp_flat = surf_disp.flatten(order='F')
@@ -844,27 +916,38 @@ if __name__ == '__main__':
             surf_work = np.diag(surf_work_mat).sum()
 
             total_framework_work_disp_outputs += surf_work
+            leftwing_framework_work_disp_outputs += surf_work
+        for surf_name in framework_work_right_wing_surface_names:
+            surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_rightwing_function_inverse_evaluation.{}_wing_displacement_output_rightwing_coefficients'.format(surf_name)]
+            # surf_disp_flat = surf_disp.flatten(order='F')
+            surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
+            # surf_force_flat = surf_force.flatten(order='F')
+            surf_invariantmatrix = disp_evaluationmaps[surf_name][0]
+            surf_work_mat = surf_force.T@surf_invariantmatrix@surf_disp
+            surf_work = np.diag(surf_work_mat).sum()
 
-            if surf_name in framework_work_left_wing_surface_names:
-                leftwing_framework_work_disp_outputs += surf_work
+            total_framework_work_disp_outputs += surf_work
+            rightwing_framework_work_disp_outputs += surf_work
 
 
         print("VLM work: {}".format(vlm_work))
         print("Displacement input total framework work: {}".format(total_framework_work_disp_inputs))
         print("Displacement input left wing framework work: {}".format(leftwing_framework_work_disp_inputs))
+        print("Displacement input right wing framework work: {}".format(rightwing_framework_work_disp_inputs))
         print("FEniCS work: {}".format(fe_work))
         print("Displacement output total framework work: {}".format(total_framework_work_disp_outputs))
         print("Displacement output left wing framework work: {}".format(leftwing_framework_work_disp_outputs))
+        print("Displacement output right wing framework work: {}".format(rightwing_framework_work_disp_outputs))
         vlm_work_list += [vlm_work]
         total_framework_work_disp_inputs_list += [total_framework_work_disp_inputs]
         fe_work_list += [fe_work]
         total_framework_work_disp_outputs_list += [total_framework_work_disp_outputs]
 
-        if vlm_conservative:
-            # we construct both sides of the transpose relation of the VLM <-> framework coupling to verify whether we should have work conservation
-            vlm_coupling_lhs = framework_invariantmatrix_nonstacked.T@sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.conservative_projection_matrix']
-            vlm_coupling_rhs = (csr_matrix(disp_oml_to_solver_map)@disp_framework_to_oml_map).T@vlm_invariantmatrix_nonstacked
-            print("Norm of difference between left and right side of VLM coupling transpose relation: {}".format(np.linalg.norm(vlm_coupling_lhs - vlm_coupling_rhs)))
+        # if vlm_conservative:
+        #     # we construct both sides of the transpose relation of the VLM <-> framework coupling to verify whether we should have work conservation
+        #     vlm_coupling_lhs = framework_invariantmatrix_nonstacked.T@sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.conservative_projection_matrix']
+        #     vlm_coupling_rhs = (csr_matrix(disp_oml_to_solver_map)@disp_framework_to_oml_map).T@vlm_invariantmatrix_nonstacked
+        #     print("Norm of difference between left and right side of VLM coupling transpose relation: {}".format(np.linalg.norm(vlm_coupling_lhs - vlm_coupling_rhs)))
 
         iter_idx += 1
 
@@ -939,7 +1022,6 @@ if __name__ == '__main__':
     print("  Number of vertices = "+str(nn))
 
     # -----------------------------------------------
-    # TODO: Verify whether OML -> VLM displacement mapping matrices in conservative map construction match the actual maps
     # Code to compute the total forces in columns 2, 3 and 4 (M3L-internal mappings)
     # first column 1:
     vlm_internal_total_forces = np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'], axis=1)[0]

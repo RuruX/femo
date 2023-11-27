@@ -7,6 +7,7 @@ from shell_pde import ShellPDE, ShellModule, NodalMap
 # from shell_pde import ShellPDE, ShellModule, ShellResidual, ShellResidualJacobian, NodalMap
 import numpy as np
 from scipy.sparse.linalg import spsolve
+from scipy.spatial.distance import cdist
 
 from typing import Tuple, Dict
 from copy import deepcopy
@@ -557,3 +558,101 @@ class RMShellStress(m3l.ExplicitOperation):
 
     def compute_derivatives(): # optional
         pass
+
+class OMLPointsFromReflection(m3l.ExplicitOperation):
+    # - We weten welke oppervlakken elkaars spiegelbeeld zouden moeten zijn
+    # - We kunnen de posities in physical space van de OML nodes bepalen
+    # 	- gebruik NodalMap functions om de afstanden en weights van de OML nodes van de linker- en rechtervleugel te bepalen, na die van de linkervleugel te reflecteren tov het XZ-vlak
+    # 	- dit geeft de interpolation map voor linker- naar rechtervleugel
+    # 	- daarna kunnen we zoals normaal van de OML naar het framework mappen met inverse_map
+    def initialize(self, kwargs):
+        self.parameters.declare('source_indexed_physical_coordinates', types=np.ndarray)
+        self.parameters.declare('target_indexed_physical_coordinates', types=np.ndarray)
+        self.parameters.declare('RBF_eps', types=float)
+
+    def assign_attributes(self):
+        '''
+        Assigns class attributes to make class more like standard python class.
+        '''
+        self.source_indexed_physical_coordinates = self.parameters['source_indexed_physical_coordinates']
+        self.target_indexed_physical_coordinates = self.parameters['target_indexed_physical_coordinates']
+        self.RBF_eps = self.parameters['RBF_eps']
+    
+    def compute(self):
+        '''
+        Creates the CSDL model to compute the function evaluation.
+
+        Returns
+        -------
+        csdl_model : {csdl.Model, lsdo_modules.ModuleCSDL}
+            The csdl model or module that computes the model/operation outputs.
+        '''
+
+        csdl_model = ModuleCSDL()
+        # We first create the source -> target map that relates the two sets of points in physical space
+
+        # compute the distances between the target and source points in physical space
+        coord_pairwise_distances = cdist(self.target_indexed_physical_coordinates, self.source_indexed_physical_coordinates)
+        # compute Gaussian weight for each target <-> source point distance
+        gaussian_dist_weights = np.exp(-(self.RBF_eps*coord_pairwise_distances)**2)        
+        # sum weights in each row and normalize the weights with those row sums (this creates a partition of unity for each target point)
+        inf_coeffs_per_row = np.sum(gaussian_dist_weights, axis=1)
+        normalized_weight_map = np.divide(gaussian_dist_weights, inf_coeffs_per_row[:, None])
+
+        normalized_weight_map_csdl = csdl_model.create_input('displacement_map_target_to_source', val=normalized_weight_map)
+
+        # Next we create a small array that we multiply with the incoming displacements, to invert the sign of the Y-displacements
+        reflection_mat = np.eye(3)
+        reflection_mat[1,1] = -1.
+
+        reflection_mat_csdl = csdl_model.create_input('displacement_reflection_map', val=reflection_mat)
+
+        source_displacements = csdl_model.register_module_input(self.input_name, shape=self.input_shape)
+
+        reflected_source_displacements = csdl.matmat(source_displacements, reflection_mat_csdl)
+        target_displacements = csdl.matmat(normalized_weight_map_csdl, reflected_source_displacements)
+
+        csdl_model.register_module_output('oml_reflected_disp', target_displacements)
+        return csdl_model
+    
+    def compute_derivates(self):
+        '''
+        -- optional --
+        Creates the CSDL model to compute the derivatives of the model outputs. This is only needed for dynamic analysis.
+        For now, I would recommend coming back to this.
+
+        Returns
+        -------
+        derivatives_csdl_model : {csdl.Model, lsdo_modules.ModuleCSDL}
+            The csdl model or module that computes the derivatives of the model/operation outputs.
+        '''
+        pass
+
+    def evaluate(self, left_wing_oml_displacements):
+        '''
+        User-facing method that the user will call to define a model evaluation.
+
+        Parameters
+        ----------
+        mesh : Variable
+            The mesh over which the function will be evaluated.
+
+        Returns
+        -------
+        function_values : Variable
+            The values of the function at the mesh locations.
+        '''
+        self.name = 'oml_disp_reflection'
+        self.input_name = left_wing_oml_displacements.name
+        self.input_shape = left_wing_oml_displacements.shape
+
+        # Define operation arguments
+        self.arguments = {}
+        self.arguments[left_wing_oml_displacements.name] = left_wing_oml_displacements
+        # self.arguments = self.function.coefficients
+
+        # Create the M3L variables that are being output
+        # output_shape = (len(self.indexed_mesh), self.function.coefficients[self.indexed_mesh[0][0]].shape[-1])
+
+        function_values = m3l.Variable(name='oml_reflected_disp', shape=self.target_indexed_physical_coordinates.shape, operation=self)
+        return function_values
