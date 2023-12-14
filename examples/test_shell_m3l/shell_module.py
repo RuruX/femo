@@ -265,10 +265,10 @@ class RMShellForces(m3l.ExplicitOperation):
         shell_mesh_forces = csdl.reshape(flatenned_shell_mesh_forces, new_shape=output_shape)
 
         # define matrix that scales the coordinates in the defined way to align them with other tools
-        scaling_mat = np.diag(np.array([-1., 1., 1.]))
-        scaling_mat_csdl = csdl_model.create_input(f'nodal_to_{shell_name}_scaling_mat', val=scaling_mat)
+        # scaling_mat = np.diag(np.array([-1., 1., 1.]))
+        # scaling_mat_csdl = csdl_model.create_input(f'nodal_to_{shell_name}_scaling_mat', val=scaling_mat)
 
-        reoriented_shell_mesh_forces = csdl.matmat(shell_mesh_forces, scaling_mat_csdl)
+        reoriented_shell_mesh_forces = shell_mesh_forces # csdl.matmat(shell_mesh_forces, scaling_mat_csdl)
         csdl_model.register_module_output(f'{shell_name}_forces', reoriented_shell_mesh_forces)
         # NOTE: Why the factor `-1.0` in the line above?
         return csdl_model
@@ -308,7 +308,7 @@ class RMShellForces(m3l.ExplicitOperation):
 
 
     def fmap(self, mesh, oml):
-        G_mat = NodalMap(mesh, oml, RBF_width_par=4.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=8.,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         rhs_mats = G_mat.map.T
         mat_f_sp = self.pde.compute_sparse_mass_matrix()
@@ -419,7 +419,7 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         else:
             col_scaling_vec = self.pde.bf_sup_sizes
 
-        G_mat = NodalMap(mesh, oml, RBF_width_par=5.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=8.,
                             column_scaling_vec=col_scaling_vec)
         weights = G_mat.map
         return weights
@@ -495,7 +495,7 @@ class RMShellNodalStress(m3l.ExplicitOperation):
         return nodal_stress
 
     def stressmap(self, mesh, oml):
-        G_mat = NodalMap(mesh, oml, RBF_width_par=5.0,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=8.0,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         weights = G_mat.map
         return weights
@@ -560,11 +560,6 @@ class RMShellStress(m3l.ExplicitOperation):
         pass
 
 class OMLPointsFromReflection(m3l.ExplicitOperation):
-    # - We weten welke oppervlakken elkaars spiegelbeeld zouden moeten zijn
-    # - We kunnen de posities in physical space van de OML nodes bepalen
-    # 	- gebruik NodalMap functions om de afstanden en weights van de OML nodes van de linker- en rechtervleugel te bepalen, na die van de linkervleugel te reflecteren tov het XZ-vlak
-    # 	- dit geeft de interpolation map voor linker- naar rechtervleugel
-    # 	- daarna kunnen we zoals normaal van de OML naar het framework mappen met inverse_map
     def initialize(self, kwargs):
         self.parameters.declare('source_indexed_physical_coordinates', types=np.ndarray)
         self.parameters.declare('target_indexed_physical_coordinates', types=np.ndarray)
@@ -589,22 +584,37 @@ class OMLPointsFromReflection(m3l.ExplicitOperation):
         '''
 
         csdl_model = ModuleCSDL()
-        # We first create the source -> target map that relates the two sets of points in physical space
+        # we first reflect the source points to the other side of the XZ plane
+        reflection_mat = np.eye(3)
+        reflection_mat[1,1] = -1.
+
+        reflected_source_indexed_physical_coordinates = self.source_indexed_physical_coordinates@reflection_mat
+
+        # We create the source -> target map that relates the two sets of points in physical space
 
         # compute the distances between the target and source points in physical space
-        coord_pairwise_distances = cdist(self.target_indexed_physical_coordinates, self.source_indexed_physical_coordinates)
+        coord_pairwise_distances = cdist(self.target_indexed_physical_coordinates, reflected_source_indexed_physical_coordinates)
+        # ----------
         # compute Gaussian weight for each target <-> source point distance
         gaussian_dist_weights = np.exp(-(self.RBF_eps*coord_pairwise_distances)**2)        
         # sum weights in each row and normalize the weights with those row sums (this creates a partition of unity for each target point)
         inf_coeffs_per_row = np.sum(gaussian_dist_weights, axis=1)
         normalized_weight_map = np.divide(gaussian_dist_weights, inf_coeffs_per_row[:, None])
+        # ----------
+        # Alternatively: use a nearest-neighbor approach to reflecting the displacements, since there's usually a one-to-one correspondence between the target and source points
+        # find nearest neighbor of each target point
+        target_nearest_neighbors = np.argmin(coord_pairwise_distances, axis=1)
+        # populate incidence matrix with the nearest neighbor index in each row
+        nn_projection_map = np.zeros_like(coord_pairwise_distances)
+        nn_projection_map[np.arange(self.target_indexed_physical_coordinates.shape[0]), target_nearest_neighbors] = 1.
+        # ----------
 
-        normalized_weight_map_csdl = csdl_model.create_input('displacement_map_target_to_source', val=normalized_weight_map)
+        # for debugging: subtract reflected left wing and right wing coordinates
+        # reflected_dist = self.target_indexed_physical_coordinates - self.source_indexed_physical_coordinates@np.array([[1., 0., 0.], [0., -1., 0.], [0., 0., 1.]]) 
 
-        # Next we create a small array that we multiply with the incoming displacements, to invert the sign of the Y-displacements
-        reflection_mat = np.eye(3)
-        reflection_mat[1,1] = -1.
+        normalized_weight_map_csdl = csdl_model.create_input('displacement_map_target_to_source', val=nn_projection_map)
 
+        # Next we create a small csdl array that we multiply with the incoming displacements, to invert the sign of the Y-displacements
         reflection_mat_csdl = csdl_model.create_input('displacement_reflection_map', val=reflection_mat)
 
         source_displacements = csdl_model.register_module_input(self.input_name, shape=self.input_shape)
@@ -648,7 +658,7 @@ class OMLPointsFromReflection(m3l.ExplicitOperation):
 
         # Define operation arguments
         self.arguments = {}
-        self.arguments[left_wing_oml_displacements.name] = left_wing_oml_displacements
+        self.arguments[self.input_name] = left_wing_oml_displacements
         # self.arguments = self.function.coefficients
 
         # Create the M3L variables that are being output

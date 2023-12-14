@@ -82,7 +82,8 @@ class ShellModule(ModuleCSDL):
         fea.add_state(name=state_name,
                         function=state_function,
                         residual_form=residual_form,
-                        arguments=[input_name_1, input_name_2])
+                        arguments=[input_name_1, input_name_2],
+                        record=record)
         fea.add_output(name=output_name_1,
                         type='scalar',
                         form=output_form_1,
