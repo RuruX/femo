@@ -16,7 +16,7 @@ It's recommended to use conda for installing the module and its dependencies.
   ```
   conda activate fenicsx
   ```
-- Install the latest FEniCSx and its add-on packages, mpich for parallel processing and pyvista for visualization
+- Install the latest FEniCSx
   ```
   conda install -c conda-forge fenics-dolfinx=0.5.1
   ```
