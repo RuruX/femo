@@ -9,8 +9,7 @@ from femo.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
 from csdl import Model
-from csdl_om import Simulator as om_simulator
-from python_csdl_backend import Simulator as py_simulator
+from python_csdl_backend import Simulator
 from matplotlib import pyplot as plt
 import argparse
 from mpi4py import MPI
@@ -68,7 +67,7 @@ nn = solid_mesh.topology.index_map(0).size_local
 E = 6.8E10 # unit: Pa (N/m^2)
 nu = 0.35
 h_val = 3E-3 # overall thickness (unit: m)
-y_bc = 0.55
+y_bc = 0.6
 PENALTY_BC = True
 
 element_type = "CG2CG1" # with quad/tri elements
@@ -331,7 +330,7 @@ vlm_model.create_input('thickness',
 vlm_model.create_input('surf_0',
                     shape=vlm_mesh_transposed.shape,
                     val=vlm_mesh_transposed)
-sim = py_simulator(vlm_model,analytics=True)
+sim = Simulator(vlm_model,analytics=True)
 
 ########### Test the forward solve ##############
 
@@ -371,20 +370,45 @@ with XDMFFile(MPI.COMM_WORLD, path+"/aero_F_"+str(dofs)+".xdmf", "w") as xdmf:
 @profile(filename="profile_out")
 def main(sim):
 
+    # import timeit
+    # start = timeit.default_timer()
+    # derivative_dict = sim.compute_totals(of=['compliance'], wrt=['thickness'])
+
+    # stop = timeit.default_timer()
+    # print('time for compute_totals:', stop-start)
+    # dCdT = derivative_dict[('compliance', 'thickness')]
+    # dCdT_function = Function(input_function_space_1)
+    # dCdT_function.vector.setArray(dCdT)
+
+    # if MPI.COMM_WORLD.Get_rank() == 0:
+    #     with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT.xdmf", "w") as xdmf:
+    #         xdmf.write_mesh(solid_mesh)
+    #         xdmf.write_function(dCdT_function)
     import timeit
     start = timeit.default_timer()
-    derivative_dict = sim.compute_totals(of=['compliance'], wrt=['thickness'])
-
+    error_dict = sim.check_totals(of=['compliance'], wrt=['thickness'], compact_print=True)
     stop = timeit.default_timer()
-    print('time for compute_totals:', stop-start)
-    dCdT = derivative_dict[('compliance', 'thickness')]
+
+    dCdT = error_dict[('compliance', 'thickness')]['analytical_jac']
+    dCdT_fd = error_dict[('compliance', 'thickness')]['fd_jac']
+    dCdT_error = error_dict[('compliance', 'thickness')]['error_jac']
     dCdT_function = Function(input_function_space_1)
     dCdT_function.vector.setArray(dCdT)
+    dCdT_fd_function = Function(input_function_space_1)
+    dCdT_fd_function.vector.setArray(dCdT_fd)
+    dCdT_error_function = Function(input_function_space_1)
+    dCdT_error_function.vector.setArray(dCdT_error)
 
     if MPI.COMM_WORLD.Get_rank() == 0:
-        with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT_2_10_wo_cyclic.xdmf", "w") as xdmf:
+        with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT.xdmf", "w") as xdmf:
             xdmf.write_mesh(solid_mesh)
             xdmf.write_function(dCdT_function)
+        with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT_fd.xdmf", "w") as xdmf:
+            xdmf.write_mesh(solid_mesh)
+            xdmf.write_function(dCdT_fd_function)
+        with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT_error.xdmf", "w") as xdmf:
+            xdmf.write_mesh(solid_mesh)
+            xdmf.write_function(dCdT_error_function)
 
 cProfile.run('main(sim)', "profile_out")
 

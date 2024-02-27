@@ -17,8 +17,8 @@ from shell_pde import ShellPDE
 # Other lsdo lab stuff
 import csdl
 from python_csdl_backend import Simulator
-from modopt.scipy_library import SLSQP
-from modopt.csdl_library import CSDLProblem
+from modopt import SLSQP
+from modopt import CSDLProblem
 import m3l
 from m3l.utils.utils import index_functions
 import lsdo_geo as lg
@@ -397,7 +397,7 @@ if __name__ == '__main__':
 
     # optimizer = SLSQP(prob, maxiter=50, ftol=1E-5)
 
-    # from modopt.snopt_library import SNOPT
+    # from modopt import SNOPT
     # optimizer = SNOPT(prob,
     #                   Major_iterations = 100,
     #                   Major_optimality = 1e-5,

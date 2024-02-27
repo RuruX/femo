@@ -31,8 +31,7 @@ from femo.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
 from csdl import Model
-from csdl_om import Simulator as om_simulator
-from python_csdl_backend import Simulator as py_simulator
+from python_csdl_backend import Simulator
 from matplotlib import pyplot as plt
 import argparse
 from mpi4py import MPI
@@ -406,8 +405,7 @@ fea_model.create_input("{}".format(input_name),
 # fea_model.add_design_variable(input_name)
 # fea_model.add_objective(output_name)
 
-sim = py_simulator(fea_model)
-# sim = om_simulator(fea_model)
+sim = Simulator(fea_model)
 
 # ########### Test the forward solve ##############
 # @profile(filename="profile_out_"+str(Nsteps))

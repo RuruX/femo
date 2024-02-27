@@ -20,16 +20,15 @@ import csdl
 
 import ufl
 from csdl import Model
-from csdl_om import Simulator as om_simulator
-from python_csdl_backend import Simulator as py_simulator
+from python_csdl_backend import Simulator
 from matplotlib import pyplot as plt
 import argparse
 import basix
 
 
 from mpi4py import MPI
-from modopt.csdl_library import CSDLProblem
-from modopt.scipy_library import SLSQP
+from modopt import CSDLProblem
+from modopt import SLSQP
 '''
 1. Define the mesh
 '''
@@ -177,7 +176,7 @@ fea_model.create_input("{}".format('thickness'),
 fea_model.add_design_variable('thickness', upper=10., lower=1e-2)
 fea_model.add_objective('compliance')
 fea_model.add_constraint('volume', equals=b*h*L)
-sim = py_simulator(fea_model,analytics=False)
+sim = Simulator(fea_model,analytics=False)
 # Run the simulation
 sim.run()
 
@@ -196,7 +195,7 @@ prob = CSDLProblem(
 
 optimizer = SLSQP(prob, maxiter=1000, ftol=1e-9)
 
-# from modopt.snopt_library import SNOPT
+# from modopt import SNOPT
 # optimizer = SNOPT(prob,
 #                   Major_iterations = 1000,
 #                   Major_optimality = 1e-9,

@@ -7,8 +7,7 @@ from femo.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
 
-from csdl_om import Simulator as om_simulator
-from python_csdl_backend import Simulator as py_simulator
+from python_csdl_backend import Simulator
 from matplotlib import pyplot as plt
 import argparse
 
@@ -342,8 +341,7 @@ model.add_design_variable('magnet_pos_delta_dv', lower=-1e-5, upper=50.)
 # model.add_constraint('magnet_shape_limit', upper=38.)
 model.add_objective('loss_sum')
 
-sim = py_simulator(model, analytics=True)
-# sim = om_simulator(model)
+sim = Simulator(model, analytics=True)
 ########### Test the forward solve ##############
 
 ####### Single steps of movement ##########
@@ -357,14 +355,14 @@ sim.run()
 # sim.executable.check_totals(of=['loss_sum'], wrt=['magnet_pos_delta_dv'],compact_print=True)
 
 ############# Run the optimization with modOpt #############
-from modopt.csdl_library import CSDLProblem
+from modopt import CSDLProblem
 
 prob = CSDLProblem(
     problem_name='em_motor_opt',
     simulator=sim,
 )
 
-from modopt.snopt_library import SNOPT
+from modopt import SNOPT
 
 optimizer = SNOPT(prob,
                   Major_iterations = 100,

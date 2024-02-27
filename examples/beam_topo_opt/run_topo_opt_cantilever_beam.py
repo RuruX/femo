@@ -9,8 +9,7 @@ from femo.csdl_opt.pre_processor.general_filter_model \
 import numpy as np
 import csdl
 from csdl import Model
-from csdl_om import Simulator as om_simulator
-from python_csdl_backend import Simulator as py_simulator
+from python_csdl_backend import Simulator as Simulator
 from matplotlib import pyplot as plt
 import argparse
 
@@ -182,8 +181,7 @@ fea_model.create_input("{}".format('density_unfiltered'),
 fea_model.add_design_variable('density_unfiltered', upper=1.0, lower=1e-4)
 fea_model.add_objective('compliance')
 fea_model.add_constraint('avg_density', upper=0.40)
-sim = py_simulator(fea_model,analytics=True)
-# sim = om_simulator(fea_model)
+sim = Simulator(fea_model,analytics=True)
 ########### Test the forward solve ##############
 sim.run()
 
@@ -192,9 +190,8 @@ sim.run()
 
 
 ############# Check the derivatives #############
-# sim.check_partials(compact_print=True)
-sim.check_totals(of=['displacements'], wrt=['density_unfiltered'],
-                            compact_print=True)
+# sim.check_totals(of=['displacements'], wrt=['density_unfiltered'],
+#                             compact_print=True)
 # derivative_dict = sim.compute_totals(of=['compliance'], wrt=['density'])
 # dCdRho = derivative_dict[('compliance', 'density')].flatten()
 # gradient_function.vector.setArray(dCdRho)
@@ -228,28 +225,27 @@ sim.check_totals(of=['displacements'], wrt=['density_unfiltered'],
 # stop = default_timer()
 # print('Optimization runtime:', str(stop-start), 'seconds')
 ############# Run the optimization with modOpt #############
-# from modopt.csdl_library import CSDLProblem
+from modopt import CSDLProblem
 
-# prob = CSDLProblem(
-#     problem_name='beam_topo_opt',
-#     simulator=sim,
-# )
+prob = CSDLProblem(
+    problem_name='beam_topo_opt',
+    simulator=sim,
+)
 
-# from modopt.snopt_library import SNOPT
+from modopt import SNOPT
 
-# optimizer = SNOPT(prob,
-#                   Major_iterations = 100000,
-#                   Major_optimality = 1e-8,
-#                   Major_feasibility=1e-6,
-#                   append2file=True)
-#                   # append2file=False)
+optimizer = SNOPT(prob,
+                  Major_iterations = 100000,
+                  Major_optimality = 1e-8,
+                  Major_feasibility=1e-6,
+                  append2file=True)
+                  # append2file=False)
 
 
-# # Check first derivatives at the initial guess, if needed
-# optimizer.check_first_derivatives(prob.x0)
+# Check first derivatives at the initial guess, if needed
+optimizer.check_first_derivatives(prob.x0)
 
-# Solve your optimization problem
-# optimizer.solve()
+optimizer.solve()
 print("="*40)
 print(traction_facets)
 print("="*40)

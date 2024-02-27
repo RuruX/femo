@@ -5,8 +5,7 @@ from femo.csdl_opt.state_model import StateModel
 from femo.csdl_opt.output_model import OutputModel
 import numpy as np
 import csdl
-from csdl_om import Simulator as om_simulator
-from python_csdl_backend import Simulator as py_simulator
+from python_csdl_backend import Simulator
 from matplotlib import pyplot as plt
 import argparse
 
@@ -177,7 +176,7 @@ fea_model.add_objective(output_name, scaler=1e5)
 
 # Ru: the new Python backend of CSDL has issue for promotions or connecting
 # the variables for custom operations as from Aug 30.
-sim = py_simulator(fea_model)
+sim = Simulator(fea_model)
 # sim = om_simulator(fea_model)
 ########### Test the forward solve ##############
 sim[input_name] = getFuncArray(f_ex)
@@ -210,26 +209,24 @@ sim.run()
 # sim.prob.run_driver()
 
 ############# Run the optimization with modOpt #############
-from modopt.csdl_library import CSDLProblem
+from modopt import CSDLProblem
 
 prob = CSDLProblem(
     problem_name='poisson_opt',
     simulator=sim,
 )
 
-from modopt.snopt_library import SNOPT
+from modopt import SNOPT, SLSQP
 
-from modopt.scipy_library import SLSQP
-
-optimizer = SNOPT(prob,
-                  Major_optimality = 1e-8,
-                    append2file=True)
-                  # append2file=False)
-# optimizer = SLSQP(
-#     prob,
-#     ftol=1e-13,
-#     maxiter=20,
-# )
+# optimizer = SNOPT(prob,
+#                   Major_optimality = 1e-8,
+#                     append2file=True)
+#                   # append2file=False)
+optimizer = SLSQP(
+    prob,
+    ftol=1e-13,
+    maxiter=20,
+)
 
 # # Check first derivatives at the initial guess, if needed
 # optimizer.check_first_derivatives(prob.x0)
