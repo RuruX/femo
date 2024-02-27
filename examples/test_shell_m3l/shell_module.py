@@ -345,7 +345,9 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         nodal_displacements = csdl.matmat(displacement_map_csdl,
                                             shell_displacements_csdl)
         csdl_model.register_module_output(f'{shell_name}_nodal_displacement',
-                                            nodal_displacements)
+                                            nodal_displacements)        
+        csdl_model.register_module_output(f'{shell_name}_tip_displacement',
+                                            csdl.max(nodal_displacements, rho=1000))
 
         return csdl_model
 
@@ -375,7 +377,10 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         nodal_displacements = m3l.Variable(name=f'{shell_name}_nodal_displacement',
                                             shape=nodal_displacements_mesh.shape,
                                             operation=self)
-        return nodal_displacements
+        tip_displacement = m3l.Variable(name=f'{shell_name}_tip_displacement',
+                                    shape=(1,),
+                                    operation=self)
+        return nodal_displacements, tip_displacement
 
     def umap(self, mesh, oml):
         # Up = W*Us

@@ -222,8 +222,8 @@ from modopt.snopt_library import SNOPT
 from modopt.scipy_library import SLSQP
 
 optimizer = SNOPT(prob,
-                  Major_optimality = 1e-8)
-                  #   append2file=True)
+                  Major_optimality = 1e-8,
+                    append2file=True)
                   # append2file=False)
 # optimizer = SLSQP(
 #     prob,
