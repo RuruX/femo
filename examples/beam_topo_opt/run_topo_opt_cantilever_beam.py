@@ -4,8 +4,7 @@ from femo.fea.fea_dolfinx import *
 from femo.csdl_opt.fea_model import FEAModel
 from femo.csdl_opt.state_model import StateModel
 from femo.csdl_opt.output_model import OutputModel
-from femo.csdl_opt.pre_processor.general_filter_model \
-                                    import GeneralFilterModel
+from pre_processor.general_filter_model import GeneralFilterModel
 import numpy as np
 import csdl
 from csdl import Model
