@@ -22,8 +22,8 @@ class ShellModule(ModuleCSDL):
         shells = self.parameters['shells']
         shell_name = list(shells.keys())[0]   # this is only taking the first mesh added to the solver.
 
-        # E = shells[shell_name]['E']
-        # nu = shells[shell_name]['nu']
+        E = shells[shell_name]['E']
+        nu = shells[shell_name]['nu']
         rho = shells[shell_name]['rho']
         dss = shells[shell_name]['dss']
         dSS = shells[shell_name]['dSS']
@@ -39,29 +39,11 @@ class ShellModule(ModuleCSDL):
         fea.record = record
         fea.initialize = True
         fea.linear_problem = True
-
         # Add input to the PDE problem:
         input_name_1 = shell_name+'_thicknesses'
         input_function_space_1 = pde.VT
         # input_function_space_1 = FunctionSpace(shell_mesh, ("DG", 0))
         input_function_1 = Function(input_function_space_1)
-
-        # Add input to the PDE problem:
-        input_name_E = shell_name+'_E_moduli'
-        # input_function_space_1 = pde.VT
-        # input_function_space_1 = FunctionSpace(shell_mesh, ("DG", 0))
-        input_function_E = Function(input_function_space_1)
-
-        # Add input to the PDE problem:
-        # input_name_G = shell_name+'_G_moduli'
-        # input_function_G = Function(input_function_space_1)
-
-        # Add input to the PDE problem:
-        input_name_nu = shell_name+'_nus'
-        # input_function_space_1 = pde.VT
-        # input_function_space_1 = FunctionSpace(shell_mesh, ("DG", 0))
-        input_function_nu = Function(input_function_space_1)
-        
         # Add input to the PDE problem:
         input_name_2 = 'F_solid'
         input_function_space_2 = pde.VF
@@ -75,7 +57,7 @@ class ShellModule(ModuleCSDL):
 
         # Simple isotropic material
         residual_form = pde.pdeRes(input_function_1,state_function,
-                                input_function_2,input_function_E,input_function_nu,
+                                input_function_2,E,nu,
                                 penalty=PENALTY_BC, dss=dss, dSS=dSS, g=g)
 
         # Add output to the PDE problem:
@@ -85,25 +67,22 @@ class ShellModule(ModuleCSDL):
         output_name_2 = 'mass'
         output_form_2 = pde.mass(input_function_1, rho)
         output_name_3 = 'elastic_energy'
-        output_form_3 = pde.elastic_energy(state_function,input_function_1,input_function_E)
+        output_form_3 = pde.elastic_energy(state_function,input_function_1,E)
         output_name_4 = 'pnorm_stress'
         m, rho = 1e-6, 100
         dx_reduced = ufl.Measure("dx", domain=shell_mesh, metadata={"quadrature_degree":4})
-        output_form_4 = pde.pnorm_stress(state_function,input_function_1,input_function_E,input_function_nu,
+        output_form_4 = pde.pnorm_stress(state_function,input_function_1,E,nu,
                                 dx_reduced,m=m,rho=rho,alpha=None,regularization=False)
         # output_name_5 = 'von_Mises_stress'
         output_name_5 = shell_name+'_stress'
-        output_form_5 = pde.von_Mises_stress(state_function,input_function_1,input_function_E,input_function_nu,surface='Top')
+        output_form_5 = pde.von_Mises_stress(state_function,input_function_1,E,nu,surface='Top')
 
         fea.add_input(input_name_1, input_function_1, init_val=0.001, record=record)
         fea.add_input(input_name_2, input_function_2, record=record)
-        fea.add_input(input_name_E, input_function_E, record=record)
-        fea.add_input(input_name_nu, input_function_nu, record=record)
-        # fea.add_input(input_name_G, input_function_G, record=record)
         fea.add_state(name=state_name,
                         function=state_function,
                         residual_form=residual_form,
-                        arguments=[input_name_1, input_name_2, input_name_E, input_name_nu],
+                        arguments=[input_name_1, input_name_2],
                         record=record)
         fea.add_output(name=output_name_1,
                         type='scalar',
@@ -116,14 +95,14 @@ class ShellModule(ModuleCSDL):
         fea.add_output(name=output_name_3,
                         type='scalar',
                         form=output_form_3,
-                        arguments=[input_name_1,state_name, input_name_E])
+                        arguments=[input_name_1,state_name])
         fea.add_output(name=output_name_4,
                         type='scalar',
                         form=output_form_4,
-                        arguments=[input_name_1,state_name, input_name_E, input_name_nu])
+                        arguments=[input_name_1,state_name])
         fea.add_field_output(name=output_name_5,
                         form=output_form_5,
-                        arguments=[input_name_1,state_name, input_name_E, input_name_nu],
+                        arguments=[input_name_1,state_name],
                         record=record)
         force_reshaping_model = ForceReshapingModel(pde=pde,
                                     input_name=shell_name+'_forces',

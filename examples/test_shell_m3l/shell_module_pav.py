@@ -176,10 +176,7 @@ class RMShell(m3l.ExplicitOperation):
 
     def evaluate(self, forces:m3l.Variable=None,
                         moments:m3l.Variable=None,
-                        thicknesses:m3l.Variable=None,
-                        E_moduli:m3l.Variable=None, 
-                        G_moduli:m3l.Variable=None, 
-                        nus:m3l.Variable=None) -> m3l.Variable:
+                        thicknesses:m3l.Variable=None) -> m3l.Variable:
         '''
         Evaluates the shell model.
 
@@ -209,14 +206,9 @@ class RMShell(m3l.ExplicitOperation):
         self.name = f'{self.component.name}_rm_shell_model'
 
         self.arguments = {}
+        # TODO: add input for thicknesses
         if thicknesses is not None:
             self.arguments[f'{shell_name}_thicknesses'] = thicknesses
-        if E_moduli is not None:
-            self.arguments[f'{shell_name}_E_moduli'] = E_moduli
-        # if G_moduli is not None:
-        #     self.arguments[f'{shell_name}_G_moduli'] = G_moduli
-        if nus is not None:
-            self.arguments[f'{shell_name}_nus'] = nus
         if forces is not None:
             self.arguments[f'{shell_name}_forces'] = forces
         if moments is not None:
@@ -316,7 +308,7 @@ class RMShellForces(m3l.ExplicitOperation):
 
 
     def fmap(self, mesh, oml):
-        G_mat = NodalMap(mesh, oml, RBF_width_par=12.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=20.,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         rhs_mats = G_mat.map.T
         mat_f_sp = self.pde.compute_sparse_mass_matrix()
@@ -427,7 +419,7 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         else:
             col_scaling_vec = self.pde.bf_sup_sizes
 
-        G_mat = NodalMap(mesh, oml, RBF_width_par=12.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=20.,
                             column_scaling_vec=col_scaling_vec)
         weights = G_mat.map
         return weights
@@ -503,7 +495,7 @@ class RMShellNodalStress(m3l.ExplicitOperation):
         return nodal_stress
 
     def stressmap(self, mesh, oml):
-        G_mat = NodalMap(mesh, oml, RBF_width_par=12.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=20.0,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         weights = G_mat.map
         return weights
