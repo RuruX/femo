@@ -316,7 +316,7 @@ class RMShellForces(m3l.ExplicitOperation):
 
 
     def fmap(self, mesh, oml):
-        G_mat = NodalMap(mesh, oml, RBF_width_par=12.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=5.,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         rhs_mats = G_mat.map.T
         mat_f_sp = self.pde.compute_sparse_mass_matrix()
@@ -427,7 +427,7 @@ class RMShellNodalDisplacements(m3l.ExplicitOperation):
         else:
             col_scaling_vec = self.pde.bf_sup_sizes
 
-        G_mat = NodalMap(mesh, oml, RBF_width_par=12.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=5.,
                             column_scaling_vec=col_scaling_vec)
         weights = G_mat.map
         return weights
@@ -503,7 +503,7 @@ class RMShellNodalStress(m3l.ExplicitOperation):
         return nodal_stress
 
     def stressmap(self, mesh, oml):
-        G_mat = NodalMap(mesh, oml, RBF_width_par=12.,
+        G_mat = NodalMap(mesh, oml, RBF_width_par=5.,
                             column_scaling_vec=self.pde.bf_sup_sizes)
         weights = G_mat.map
         return weights

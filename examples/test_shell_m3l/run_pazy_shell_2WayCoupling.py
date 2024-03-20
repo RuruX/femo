@@ -99,7 +99,6 @@ caddee.system_model = system_model = cd.SystemModel()
 pav_geom_mesh = PazyGeomMesh()
 pav_geom_mesh.setup_geometry(
     include_wing_flag=True,
-    include_htail_flag=False,
 )
 pav_geom_mesh.setup_internal_wingbox_geometry(debug_geom_flag=debug_geom_flag,
                                               force_reprojection=force_reprojection)
@@ -107,7 +106,7 @@ pav_geom_mesh.sys_rep.spatial_representation.assemble()
 pav_geom_mesh.oml_mesh(include_wing_flag=True, 
                        grid_num_u=10, grid_num_v=10,
                        debug_geom_flag=debug_geom_flag, force_reprojection=force_reprojection)
-pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=29, num_wing_chordwise_vlm=11,
+pav_geom_mesh.vlm_meshes(include_wing_flag=True, num_wing_spanwise_vlm=25, num_wing_chordwise_vlm=9,
                          visualize_flag=visualize_flag, force_reprojection=force_reprojection)
 pav_geom_mesh.setup_index_functions()
 
@@ -156,7 +155,8 @@ wing_component = pav_geom_mesh.geom_data['components']['wing']
 
 # Instead of using the ordering of `disp_input_surface_names` below we look at 
 # the associated coords of pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['wing']
-indexed_mesh = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['right_wing']
+# indexed_mesh = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['right_wing']
+indexed_mesh = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['both_wings']
 associated_coords = {}
 index = 0
 for item in indexed_mesh:
@@ -170,17 +170,26 @@ for item in indexed_mesh:
     index += 1
 
 # we first determine the framework surfaces that contain both displacements and forces 
-disp_input_surface_names = associated_coords.keys()
+disp_input_surface_names = pav_geom_mesh.functions['wing_displacement_input'].space.spaces.keys()
 force_surface_names = pav_geom_mesh.functions['wing_force'].space.spaces.keys()
 
 framework_work_surface_names = []
+framework_work_left_wing_surface_names = []
+framework_work_right_wing_surface_names = []
 
 for surf_name in disp_input_surface_names:
     if surf_name in force_surface_names:
         framework_work_surface_names += [surf_name]
+    
+    if 'PazyWingGeom_1' in surf_name:
+        framework_work_left_wing_surface_names += [surf_name]
+    else:
+        framework_work_right_wing_surface_names += [surf_name]
 
 disp_evaluationmaps = {}
 disp_evaluationmaps_list = []
+disp_evaluationmaps_rightwing = {}
+disp_evaluationmaps_rightwing_list = []
 
 # loop over the surfaces that contain both forces and displacements and compute their invariant matrices
 for surf_name in framework_work_surface_names:
@@ -195,10 +204,16 @@ for surf_name in framework_work_surface_names:
     disp_evaluationmaps[surf_name] = [displacement_evaluationmap]
     disp_evaluationmaps_list += [displacement_evaluationmap]
 
+    if surf_name in framework_work_right_wing_surface_names:
+        disp_evaluationmaps_rightwing[surf_name] = [displacement_evaluationmap]
+        disp_evaluationmaps_rightwing_list += [displacement_evaluationmap]
+
 
 # construct the total displacement evaluation map (i.e. invariant matrix) by stacking all surface contributions along the diagonal and repeating the result three times
 framework_invariantmatrix_nonstacked = block_diag(disp_evaluationmaps_list)
 framework_invariantmatrix = block_diag([framework_invariantmatrix_nonstacked]*3) 
+
+framework_invariantmatrix_rightwing_nonstacked = block_diag(disp_evaluationmaps_rightwing_list)
 
 # Construct VLM invariant matrix link nodal displacements and locations of force vectors
 vlm_camber_mesh = pav_geom_mesh.mesh_data['vlm']['chamber_surface']['wing'].value
@@ -482,10 +497,12 @@ shell_nodal_displacements_model = rmshell.RMShellNodalDisplacements(component=wi
 
 grid_num = 10
 transfer_para_mesh = []
+transfer_para_mesh_bothwings = []
 structural_right_wing_names = pav_geom_mesh.geom_data['primitive_names']['structural_right_wing_names']
 # left_wing_skin_names = pav_geom_mesh.geom_data['primitive_names']['left_wing_bottom_names'] + pav_geom_mesh.geom_data['primitive_names']['left_wing_top_names']
 
-element_projection_names = pav_geom_mesh.geom_data['primitive_names']['right_wing']
+element_projection_names = pav_geom_mesh.geom_data['primitive_names']['right_wing'] + structural_right_wing_names
+element_projection_names_bothwings = pav_geom_mesh.geom_data['primitive_names']['both_wings'] + structural_right_wing_names
 
 for name in element_projection_names:
     for u in np.linspace(0,1,grid_num):
@@ -494,18 +511,25 @@ for name in element_projection_names:
 
 transfer_geo_nodes_ma = spatial_rep.evaluate_parametric(transfer_para_mesh)
 
-wing_oml_wing_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['right_wing']
+for name in element_projection_names_bothwings:
+    for u in np.linspace(0,1,grid_num):
+        for v in np.linspace(0,1,grid_num):
+            transfer_para_mesh_bothwings.append((name, np.array([u,v]).reshape((1,2))))
+
+transfer_geo_nodes_ma_bothwings = spatial_rep.evaluate_parametric(transfer_para_mesh_bothwings)
+
+wing_oml_wing_mesh = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['both_wings']
 
 
 # Map displacements from column 3 (framework) to 2
 wing_displacement_input = pav_geom_mesh.functions['wing_displacement_input']
 wing_displacement_output = pav_geom_mesh.functions['wing_displacement_output']
 wing_force = pav_geom_mesh.functions['wing_force']
-oml_para_nodes_wing = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['right_wing']
+oml_para_nodes_wing = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['both_wings']
 
 # we convert `oml_para_nodes_wing` to physical space to check whether we're ordering the displacement OML points consistently
 # NOTE: It seems like `oml_geo_nodes_wing.value` is identical to `wing_oml_wing_mesh.value`, so the displacement OML points are ordered consistently!
-oml_geo_nodes_wing = spatial_rep.evaluate_parametric(oml_para_nodes_wing)
+# oml_geo_nodes_wing = spatial_rep.evaluate_parametric(oml_para_nodes_wing)
 
 # Map displacements from column 3 to 2
 disp_oml_nodes = wing_displacement_input.evaluate(oml_para_nodes_wing)  # use OML parametric nodes to evaluate wing displacement function
@@ -601,9 +625,9 @@ else:
     wing_force.inverse_evaluate(oml_para_nodes_wing, wing_forces)
     cruise_model.register_output(wing_force.coefficients)
 
-# left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
+left_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['left_wing']
 right_wing_oml_para_coords = pav_geom_mesh.mesh_data['oml']['oml_para_nodes']['right_wing']
-# left_oml_geo_nodes = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['left_wing']  #spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
+left_oml_geo_nodes = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['left_wing']  #spatial_rep.evaluate_parametric(left_wing_oml_para_coords)
 right_oml_geo_nodes = pav_geom_mesh.mesh_data['oml']['oml_geo_nodes']['right_wing']
 
 if fenics_conservative:
@@ -650,7 +674,7 @@ if fenics_conservative:
 
     # loop over the framework surfaces in the order in which they are used in the framework invariant matrix, as defined in `framework_work_surface_names`
     fitting_matrix_per_surface_list = []
-    for key in framework_work_surface_names:
+    for key in framework_work_right_wing_surface_names:
         value = associated_coords[key]
         if hasattr(wing_displacement_output.space.spaces[key], 'compute_fitting_map'):
             fitting_matrix = wing_displacement_output.space.spaces[key].compute_fitting_map(value[1])
@@ -674,17 +698,17 @@ if fenics_conservative:
     #                   x compare displacement mapping matrices from above with the actual matrices that are used
     #                   - do pen-and-paper derivation of work conservation for a blockwise-diagonal system of 2 blocks, one for each wing
     #                   - check whether defining a left-wing framework invariant matrix is useful (would add a projection step of mirroring the displacements) 
-    cruise_structural_wing_mesh_forces = wing_force.evaluate_conservative(framework_work_surface_names, 
+    cruise_structural_wing_mesh_forces = wing_force.evaluate_conservative(framework_work_right_wing_surface_names, 
                                      csr_matrix(composed_disp_maps),
                                      csr_matrix(fenics_cg1_invariantmatrix_component_sp.T),  
-                                     framework_invariantmatrix_nonstacked.T,
+                                     framework_invariantmatrix_rightwing_nonstacked.T,
                                      'wing_shell_forces',
                                      fenics_mesh.geometry.x.shape)
     # cruise_model.register_output(cruise_structural_wing_mesh_forces)
 
 else:
     # map forces from column 3 to 4 (`evaluate` is used since we're mapping out from the framework representation)
-    left_wing_forces = wing_force.evaluate(right_wing_oml_para_coords)
+    right_wing_forces = wing_force.evaluate(right_wing_oml_para_coords)
 
     # Define force map that takes nodal forces and projects them to the shell mesh (column 4 to 5)
     shell_force_map_model = rmshell.RMShellForces(component=wing_component,
@@ -692,7 +716,7 @@ else:
                                                     pde=shell_pde,
                                                     shells=shells)
     cruise_structural_wing_mesh_forces = shell_force_map_model.evaluate(
-                            nodal_forces=left_wing_forces,
+                            nodal_forces=right_wing_forces,
                             nodal_forces_mesh=right_oml_geo_nodes)
 # endregion
 
@@ -730,17 +754,16 @@ cruise_model.register_output(wing_stress.coefficients)
 cruise_model.register_output(tip_displacement)
 cruise_model.register_output(nodal_displacements)
 
-# lastly we reflect the left wing displacements to the right wing 
+# lastly we reflect the right wing displacements to the left wing 
 # in a separate framework function object -- this object is used in the two-way coupling
-if  False:
-    rightwing_disp_reflection_model = rmshell.OMLPointsFromReflection(source_indexed_physical_coordinates=left_oml_geo_nodes.value,
-                                                                    target_indexed_physical_coordinates=right_oml_geo_nodes.value,
-                                                                    RBF_eps=5.)
-    rightwing_reflected_disp = rightwing_disp_reflection_model.evaluate(nodal_displacements)
-    # we also map the right wing OML displacement to the framework
-    wing_displacement_rightwing = pav_geom_mesh.functions['wing_displacement_output_rightwing']
-    wing_displacement_rightwing.inverse_evaluate(right_wing_oml_para_coords, rightwing_reflected_disp)
-    cruise_model.register_output(wing_displacement_rightwing.coefficients)
+leftwing_disp_reflection_model = rmshell.OMLPointsFromReflection(source_indexed_physical_coordinates=right_oml_geo_nodes.value,
+                                                                target_indexed_physical_coordinates=left_oml_geo_nodes.value,
+                                                                RBF_eps=5.)
+leftwing_reflected_disp = leftwing_disp_reflection_model.evaluate(nodal_displacements)
+# we also map the left wing OML displacement to the framework
+wing_displacement_leftwing = pav_geom_mesh.functions['wing_displacement_output_leftwing']
+wing_displacement_leftwing.inverse_evaluate(left_wing_oml_para_coords, leftwing_reflected_disp)
+cruise_model.register_output(wing_displacement_leftwing.coefficients)
 
 # endregion
 
@@ -763,9 +786,9 @@ system_model_name = 'system_model.'+design_scenario_name+'.'+cruise_name+'.'+cru
 # Minimum thickness: 0.02 inch -> 0.000508 m
 # h_min = h
 
-i = 0
-shape = (9, 1)
-valid_structural_left_wing_names = structural_right_wing_names
+# i = 0
+# shape = (9, 1)
+# valid_structural_left_wing_names = structural_right_wing_names
 
 ################################################################
 #### Full thicknesses: individual for spars, skins and ribs ####
@@ -818,8 +841,8 @@ if __name__ == '__main__':
         sim = Simulator(caddee_csdl_model, analytics=True)
         # print("post-Simulator instantiation")
 
-    # array_leftwing_update_norms = np.zeros((len(wing_displacement_output.coefficients),))
-    array_rightwing_update_norms = np.zeros((len(framework_work_surface_names),))
+    array_leftwing_update_norms = np.zeros((len(wing_displacement_leftwing.coefficients),))
+    array_rightwing_update_norms = np.zeros((len(wing_displacement_output.coefficients),))
     vlm_force_list = []
     shell_force_list = []
     leftwing_force_list = []
@@ -850,16 +873,19 @@ if __name__ == '__main__':
         # set displacement inputs
         if iter_idx > 0:
             # first we copy over the wing displacements
-            for i, key in enumerate(framework_work_surface_names):
+            for i, key in enumerate(wing_displacement_output.coefficients):
                 sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = disp_rightwing_output_list[i]
+            # then we do the same for the right wing displacements
+            for i, key in enumerate(wing_displacement_leftwing.coefficients):
+                sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)] = disp_leftwing_output_list[i]
 
         sim.run()
 
-        # then we do the same thing for the right wing displacements
+        # loop over right wing displacements
         disp_rightwing_input_list = []
         disp_rightwing_output_list = []
         rightwing_force_sums = np.zeros((3,))
-        for i, key in enumerate(framework_work_surface_names):
+        for i, key in enumerate(wing_displacement_output.coefficients):
             # query corresponding object in sim dict
             # NOTE: At the moment we only map the displacement outputs on PazyWingGeo_0_2 and PazyWingGeo_0_3 back to the input (since the internal structure inputs are unused at the moment)
             displacement_array_input = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)]
@@ -871,16 +897,34 @@ if __name__ == '__main__':
             disp_rightwing_input_list += [displacement_array_input]
             disp_rightwing_output_list += [displacement_array_output]
 
+        disp_leftwing_input_list = []
+        disp_leftwing_output_list = []
+        leftwing_force_sums = np.zeros((3,))
+        for i, key in enumerate(wing_displacement_leftwing.coefficients):
+            # query corresponding object in sim dict
+            # NOTE: At the moment we only map the displacement outputs on PazyWingGeo_0_2 and PazyWingGeo_0_3 back to the input (since the internal structure inputs are unused at the moment)
+            displacement_array_input = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(key)]
+            displacement_array_output = deepcopy(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_leftwing_coefficients'.format(key)])
+            array_leftwing_update_norms[i] = np.linalg.norm(np.subtract(displacement_array_input, displacement_array_output))#/np.linalg.norm(displacement_array_output)
+
+            leftwing_force_sums += sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(key)].sum(axis=0)
+
+            disp_leftwing_input_list += [displacement_array_input]
+            disp_leftwing_output_list += [displacement_array_output]
+
 
         vlm_force_list += [np.sum(sim['system_model.structural_sizing.cruise_3.cruise_3.wing_vlm_model.vast.VLMSolverModel.VLM_outputs.LiftDrag.wing_total_forces'], axis=1)[0]]
-        max_disp_update_list += [array_rightwing_update_norms.max()]
+        max_disp_update_list += [max(array_leftwing_update_norms.max(), array_rightwing_update_norms.max())]
+        leftwing_force_list += [leftwing_force_sums]
         rightwing_force_list += [rightwing_force_sums]
 
 
+        print("Max left wing 2-norm update: {}".format(array_leftwing_update_norms.max()))
         print("Max right wing 2-norm update: {}".format(array_rightwing_update_norms.max()))
+        print("Left wing 2-norm updates: {}".format(array_leftwing_update_norms))
         print("Right wing 2-norm updates: {}".format(array_rightwing_update_norms))
 
-        if (array_rightwing_update_norms.max() < 1e-12) or iter_idx >= 10:
+        if (max(array_leftwing_update_norms.max(), array_rightwing_update_norms.max()) < 1e-12) or iter_idx >= 10:
             running = False
 
         # ----------------------------------------- #
@@ -907,6 +951,8 @@ if __name__ == '__main__':
 
         # Framework work with input displacements
         total_framework_work_disp_inputs = 0.
+        leftwing_framework_work_disp_inputs = 0.
+        rightwing_framework_work_disp_inputs = 0.
         for surf_name in framework_work_surface_names:
             surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_input_function_evaluation.{}_wing_displacement_input_coefficients'.format(surf_name)]
             # surf_disp_flat = surf_disp.flatten(order='F')
@@ -917,10 +963,10 @@ if __name__ == '__main__':
             surf_work = np.diag(surf_work_mat).sum()
 
             total_framework_work_disp_inputs += surf_work
-            # if surf_name in framework_work_left_wing_surface_names:
-            #     leftwing_framework_work_disp_inputs += surf_work
-            # if surf_name in framework_work_right_wing_surface_names:
-            #     rightwing_framework_work_disp_inputs += surf_work
+            if surf_name in framework_work_left_wing_surface_names:
+                leftwing_framework_work_disp_inputs += surf_work
+            if surf_name in framework_work_right_wing_surface_names:
+                rightwing_framework_work_disp_inputs += surf_work
 
         # FEniCS work (F^T@mat@u):
         if fenics_conservative:
@@ -945,7 +991,20 @@ if __name__ == '__main__':
 
         # Framework work with output displacements
         total_framework_work_disp_outputs = 0.
-        for surf_name in framework_work_surface_names:
+        leftwing_framework_work_disp_outputs = 0.
+        rightwing_framework_work_disp_outputs = 0.
+        # for surf_name in framework_work_surface_names:
+        #     surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_coefficients'.format(surf_name)]
+        #     # surf_disp_flat = surf_disp.flatten(order='F')
+        #     surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
+        #     # surf_force_flat = surf_force.flatten(order='F')
+        #     surf_invariantmatrix = disp_evaluationmaps[surf_name][0]
+        #     surf_work_mat = surf_force.T@surf_invariantmatrix@surf_disp
+        #     surf_work = np.diag(surf_work_mat).sum()
+
+        #     total_framework_work_disp_outputs += surf_work
+
+        for surf_name in framework_work_right_wing_surface_names:
             surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_function_inverse_evaluation.{}_wing_displacement_output_coefficients'.format(surf_name)]
             # surf_disp_flat = surf_disp.flatten(order='F')
             surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
@@ -955,15 +1014,35 @@ if __name__ == '__main__':
             surf_work = np.diag(surf_work_mat).sum()
 
             total_framework_work_disp_outputs += surf_work
+            rightwing_framework_work_disp_outputs += surf_work
+
+        for surf_name in framework_work_left_wing_surface_names:
+            surf_disp = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_displacement_output_leftwing_function_inverse_evaluation.{}_wing_displacement_output_leftwing_coefficients'.format(surf_name)]
+            # surf_disp_flat = surf_disp.flatten(order='F')
+            surf_force = sim['system_model.structural_sizing.cruise_3.cruise_3.wing_force_function_inverse_evaluation.{}_wing_force_coefficients'.format(surf_name)]
+            # surf_force_flat = surf_force.flatten(order='F')
+            surf_invariantmatrix = disp_evaluationmaps[surf_name][0]
+            surf_work_mat = surf_force.T@surf_invariantmatrix@surf_disp
+            surf_work = np.diag(surf_work_mat).sum()
+
+            total_framework_work_disp_outputs += surf_work
+            leftwing_framework_work_disp_outputs += surf_work
 
         print("VLM work: {}".format(vlm_work))
         print("Displacement input total framework work: {}".format(total_framework_work_disp_inputs))
+        print("Displacement input left wing framework work: {}".format(leftwing_framework_work_disp_inputs))
+        print("Displacement input right wing framework work: {}".format(rightwing_framework_work_disp_inputs))
         print("FEniCS work: {}".format(fe_work))
         print("Displacement output total framework work: {}".format(total_framework_work_disp_outputs))
+        print("Displacement output left wing framework work: {}".format(leftwing_framework_work_disp_outputs))
+        print("Displacement output right wing framework work: {}".format(rightwing_framework_work_disp_outputs))
+
         vlm_work_list += [vlm_work]
         total_framework_work_disp_inputs_list += [total_framework_work_disp_inputs]
         fe_work_list += [fe_work]
         total_framework_work_disp_outputs_list += [total_framework_work_disp_outputs]
+        leftwing_framework_work_list += [leftwing_framework_work_disp_outputs]
+        rightwing_framework_work_list += [rightwing_framework_work_disp_outputs]
 
         u_shell = sim[system_model_name+'Wing_rm_shell_model.rm_shell.disp_extraction_model.wing_shell_displacement']
         uZ = u_shell[:,2]
@@ -1019,12 +1098,12 @@ if __name__ == '__main__':
     # save various work lists
     save_results_dict['vlm_work_list'] = vlm_work_list
     save_results_dict['framework_total_work_disp_inputs_list'] = total_framework_work_disp_inputs_list
-    # save_results_dict['framework_leftwing_work_list'] = leftwing_framework_work_list
-    # save_results_dict['framework_rightwing_work_list'] = rightwing_framework_work_list
+    save_results_dict['framework_leftwing_work_list'] = leftwing_framework_work_list
+    save_results_dict['framework_rightwing_work_list'] = rightwing_framework_work_list
     save_results_dict['fenics_work_list'] = fe_work_list
     # save various force tuple lists
     save_results_dict['vlm_force_list'] = vlm_force_list
-    # save_results_dict['framework_leftwing_force_list'] = leftwing_force_list
+    save_results_dict['framework_leftwing_force_list'] = leftwing_force_list
     save_results_dict['framework_rightwing_force_list'] = rightwing_force_list
     save_results_dict['fenics_force_list'] = shell_force_list
     # save tip displacement lists
