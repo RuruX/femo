@@ -1,7 +1,6 @@
 import numpy as np
 import csdl
 from csdl import Model
-from csdl_om import Simulator as om_simulator
 from python_csdl_backend import Simulator as py_simulator
 
 class LossSumModel(Model):

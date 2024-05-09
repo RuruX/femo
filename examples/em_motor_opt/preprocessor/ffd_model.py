@@ -1,7 +1,6 @@
 import numpy as np
 import os
 import csdl
-from csdl_om import Simulator as om_simulator
 from python_csdl_backend import Simulator as py_simulator
 from electric_motor_mdo.high_fidelity.geometry.motor_mesh_class import MotorMesh
 from electric_motor_mdo.high_fidelity.geometry.shape_parameter_model import ShapeParameterModel

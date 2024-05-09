@@ -231,23 +231,22 @@ prob = CSDLProblem(
     simulator=sim,
 )
 
-from modopt import SNOPT
+#### Optional to run optiomization with SNOPT ####
+# from modopt import SNOPT
 
-optimizer = SNOPT(prob,
-                  Major_iterations = 100000,
-                  Major_optimality = 1e-8,
-                  Major_feasibility=1e-6,
-                  append2file=True)
-                  # append2file=False)
+# optimizer = SNOPT(prob,
+#                   Major_iterations = 100000,
+#                   Major_optimality = 1e-8,
+#                   Major_feasibility=1e-6,
+#                   append2file=True)
+#                   # append2file=False)
 
 
-# Check first derivatives at the initial guess, if needed
-optimizer.check_first_derivatives(prob.x0)
+# # Check first derivatives at the initial guess, if needed
+# optimizer.check_first_derivatives(prob.x0)
 
-optimizer.solve()
-print("="*40)
-print(traction_facets)
-print("="*40)
+# optimizer.solve()
+
 # optimizer.print_results()
 
 print("Compliance value: ", sim['compliance'])

@@ -1,5 +1,5 @@
 """
-Reusable functions for the PETSc and UFL operations
+Utility functions for the PETSc and UFL operations
 """
 
 import dolfinx
@@ -12,7 +12,7 @@ from dolfinx.mesh import (create_unit_square, create_rectangle, create_interval,
                             meshtags)
 from dolfinx.cpp.mesh import CellType
 from dolfinx.fem import (form, assemble_scalar, Function, FunctionSpace,
-                        dirichletbc, locate_dofs_geometrical)
+                        dirichletbc, locate_dofs_geometrical, Constant)
 from dolfinx.fem.petsc import (assemble_vector, assemble_matrix,
                         NonlinearProblem, apply_lifting, set_bc,
                         create_matrix, _assemble_matrix_mat,)
@@ -24,11 +24,13 @@ from mpi4py import MPI
 import numpy as np
 from scipy.spatial import KDTree
 from configparser import ConfigParser
+import ufl 
+
+from scipy.spatial import KDTree
 
 DOLFIN_EPS = 3E-16
 comm = MPI.COMM_WORLD
 
-I = Identity(2)
 def gradx(f,uhat):
     """
     Convert the differential operation from the reference domain
@@ -59,6 +61,8 @@ def F(uhat):
     ---------------------------
     uhat: DOLFINx function for mesh movements
     """
+    order = uhat.function_space.mesh.topology.dim
+    I = Identity(order) 
     return I + grad(uhat)
 
 # The dolfinx version for mesh importer from msh2xdmf module
@@ -328,7 +332,7 @@ def solveNonlinear(res, func, bc, solver, report, initialize):
     if report is True:
         print("Solve nonlinear finished in ",stop-start, "seconds")
 
-import ufl
+
 class NonlinearSNESProblem:
 
     def __init__(self, F, u, bcs,
@@ -580,7 +584,6 @@ def project(v, target_func, bcs=[], lump_mass=False):
 
 
 
-from scipy.spatial import KDTree
 def findNodeIndices(node_coordinates, coordinates):
     """
     Find the indices of the closest nodes, given the `node_coordinates`

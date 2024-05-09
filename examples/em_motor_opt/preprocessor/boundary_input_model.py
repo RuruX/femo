@@ -1,7 +1,6 @@
 from csdl import Model, CustomExplicitOperation
 import csdl
 import numpy as np
-from csdl_om import Simulator as om_simulator
 from python_csdl_backend import Simulator as py_simulator
 from scipy.sparse import csr_matrix
 
