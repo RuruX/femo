@@ -29,12 +29,12 @@ class OutputOperation(csdl.CustomExplicitOperation):
         self.args_dict = args_dict
         self.output_name = output_name
         self.fea_output = fea.outputs_dict[output_name]
-
-    def evaluate(self, inputs: dict):
+        
+    def evaluate(self, inputs: csdl.VariableGroup):
         # assign method inputs to input dictionary
         for arg_name in self.args_dict:
-            if arg_name in inputs:
-                self.declare_input(arg_name, inputs[arg_name])
+            if getattr(inputs, arg_name) is not None:
+                self.declare_input(arg_name, getattr(inputs, arg_name))
             else:
                 raise ValueError(f"Variable {arg_name} not found in the FEA model.")
 

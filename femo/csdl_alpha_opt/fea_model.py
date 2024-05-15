@@ -7,7 +7,7 @@ class FEAModel():
     def __init__(self, fea, fea_name='fea'):
         self.parameters = {'fea': fea, 'fea_name': fea_name}
 
-    def evaluate(self, inputs: dict, debug_mode=False):
+    def evaluate(self, inputs: csdl.VariableGroup, debug_mode=False):
         """
         Evaluate all of the FEA variables
 
@@ -27,7 +27,7 @@ class FEAModel():
         fea_name = self.parameters['fea_name']
 
         # construct output of the model
-        fea_variable_dict = inputs.copy()
+        fea_variable_dict = inputs
 
         with csdl.namespace(fea_name):
             # loop over the FEA list (there could be multiple FEA objects for coupled PDEs)
@@ -42,7 +42,7 @@ class FEAModel():
                     state = state_operation.evaluate(fea_variable_dict)
 
                     # add the state variable to the dictionary
-                    fea_variable_dict[state_name] = state
+                    setattr(fea_variable_dict, state_name, state)
 
                 for output_name in fea.outputs_dict:
                     args_name_list_output = fea.outputs_dict[output_name]['arguments']
@@ -53,7 +53,7 @@ class FEAModel():
                     output = output_operation.evaluate(fea_variable_dict)
 
                     # add the output variable to the dictionary
-                    fea_variable_dict[output_name] = output
+                    setattr(fea_variable_dict, output_name, output)
 
                 for output_name in fea.outputs_field_dict:
                     args_name_list_output = fea.outputs_field_dict[output_name]['arguments']
@@ -63,8 +63,6 @@ class FEAModel():
                     output = output_operation.evaluate(fea_variable_dict)
 
                     # add the output variable to the dictionary
-                    fea_variable_dict[output_name] = output
+                    setattr(fea_variable_dict, output_name, output)
 
         return fea_variable_dict
-
-

@@ -184,18 +184,15 @@ recorder.start()
 thickness = csdl.Variable(value=h*np.ones(nel), name='thickness')
 thickness.value = np.array(thick_ref)
 
-# [RX] VariableGroup doens't work in the evaluation of the custom operations
-# inputs_group = csdl.VariableGroup()
-# inputs_group.thickness = thickness
-
-inputs_group = dict()
-inputs_group['thickness'] = thickness
+inputs_group = csdl.VariableGroup()
+inputs_group.thickness = thickness
 
 fea_output = fea_model.evaluate(inputs_group)
-compliance = fea_output['compliance']
-volume = fea_output['volume']
-displacement = fea_output['displacements']
-thickness = fea_output['thickness']
+
+compliance = fea_output.compliance
+volume = fea_output.volume
+displacement = fea_output.displacements
+thickness = fea_output.thickness
 print("Forward evaluation with optimal solution:")
 print(" "*4, compliance.names, compliance.value)
 print(" "*4, volume.names, volume.value)

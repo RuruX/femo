@@ -35,7 +35,7 @@ class StateOperation(csdl.CustomExplicitOperation):
         self.state_name = state_name
         self.debug_mode = debug_mode
 
-    def evaluate(self, inputs: dict):
+    def evaluate(self, inputs: csdl.VariableGroup):
         """
 
         Evaluate the state operation
@@ -55,8 +55,11 @@ class StateOperation(csdl.CustomExplicitOperation):
             print("=" * 40)
 
         # assign method inputs to input dictionary
-        for input_name in self.args_dict:
-            self.declare_input(input_name, inputs[input_name])
+        for arg_name in self.args_dict:  
+            if getattr(inputs, arg_name) is not None:
+                self.declare_input(arg_name, getattr(inputs, arg_name))
+            else:
+                raise ValueError(f"Variable {arg_name} not found in the FEA model.")
 
         # declare output variables
         self.fea_state = self.fea.states_dict[self.state_name]
