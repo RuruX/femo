@@ -104,6 +104,9 @@ def regularization(h, type=None):
 def compliance(u_mid,h,dxx):
     return Constant(solid_mesh, 0.5)*inner(u_mid,u_mid)*dxx + regularization(h)
 
+def new_compliance(u_mid,f,dxx):
+    return inner(u_mid,f)*dxx
+
 def volume(h):
     return h*dx
 
@@ -191,7 +194,8 @@ residual_form = pdeRes(input_function_1,state_function,
 # Add output to the PDE problem:
 output_name_1 = 'compliance'
 u_mid, theta = split(state_function)
-output_form_1 = compliance(u_mid,input_function_1, dx_2(10))
+# output_form_1 = compliance(u_mid,input_function_1, dx_2(10))
+output_form_1 = new_compliance(u_mid,input_function_2, ufl.dx)
 output_name_2 = 'volume'
 output_form_2 = volume(input_function_1)
 output_name_3 = 'elastic_energy'
@@ -207,10 +211,14 @@ fea.add_state(name=state_name,
                 function=state_function,
                 residual_form=residual_form,
                 arguments=[input_name_1, input_name_2])
+# fea.add_output(name=output_name_1,
+#                 type='scalar',
+#                 form=output_form_1,
+#                 arguments=[state_name,input_name_1])
 fea.add_output(name=output_name_1,
                 type='scalar',
                 form=output_form_1,
-                arguments=[state_name,input_name_1])
+                arguments=[state_name,input_name_1,input_name_2])
 fea.add_output(name=output_name_2,
                 type='scalar',
                 form=output_form_2,
@@ -387,25 +395,9 @@ print("  Number of total dofs = ", dofs)
 print("-"*50)
 
 path = "solutions"+"_penalty_bc_"+str(y_bc)
-########## Compute the total derivatives ###########
+# ########## Compute the total derivatives ###########
 @profile(filename="profile_out")
 def main(sim):
-
-    # import timeit
-    # start = timeit.default_timer()
-    # derivative_dict = sim.compute_totals(of=['compliance'], wrt=['thickness'])
-
-    # stop = timeit.default_timer()
-    # print('time for compute_totals:', stop-start)
-    # dCdT = derivative_dict[('compliance', 'thickness')]
-    # dCdT_function = Function(input_function_space_1)
-    # dCdT_function.vector.setArray(dCdT)
-
-    # if MPI.COMM_WORLD.Get_rank() == 0:
-    #     with XDMFFile(MPI.COMM_WORLD, path+"/gradient_dCdT.xdmf", "w") as xdmf:
-    #         xdmf.write_mesh(solid_mesh)
-    #         xdmf.write_function(dCdT_function)
-
     
     import timeit
     start = timeit.default_timer()
@@ -456,28 +448,3 @@ with XDMFFile(MPI.COMM_WORLD, path+"/von_mises_stress.xdmf", "w") as xdmf:
     xdmf.write_mesh(solid_mesh)
     xdmf.write_function(von_Mises_top_func)
 
-
-# --------------------------------------------------
-# Tip deflection:  0.03242547968560471
-# disp_fluid: 0.02995551988836484
-# Compliance:  51.218575140611705
-# Initial volume:  0.04085249393489516
-# Volume:  0.04085249393489516
-#   Number of elements = 136686
-#   Number of vertices = 66974
-#   Number of total dofs =  1013097
-# --------------------------------------------------
-
-# --------------------------------------------------
-# -------- eVTOL_wing_half_tri_107695_136686.xdmf ---------
-# --------------------------------------------------
-# Tip deflection:  0.04223197981445306
-# disp_fluid: 0.03923219546294173
-# Elastic energy: 36.10593565388458
-# Compliance:  0.00024078688498322981
-# Initial volume:  0.04085249393489516
-# Volume:  0.04085249393489516
-#   Number of elements = 136686
-#   Number of vertices = 66974
-#   Number of total dofs =  1013097
-# --------------------------------------------------

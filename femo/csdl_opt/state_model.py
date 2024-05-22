@@ -97,6 +97,9 @@ class StateOperation(CustomImplicitOperation):
             if arg['record']:
                 arg['recorder'].write_function(arg['function'],
                                                 self.fea.opt_iter)
+                
+        update(self.state['function'], outputs[self.state_name])
+
         self.fea.solve(self.state['residual_form'],
                         self.state['function'],
                         self.bcs)

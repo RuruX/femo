@@ -130,6 +130,10 @@ def advance(func_old,increment_deltas):
 
 def solveIncremental(res,func,bc,report=False):
     vec = np.copy(input_function_mm.vector.getArray())
+    print('vec:',vec)
+    print('vec norm:',np.linalg.norm(vec))
+    print('func:',func.x.array)
+    print('func norm:',np.linalg.norm(func.x.array))
     nnz_ind = np.nonzero(vec)[0]
     func_old = input_function_mm
     # Get the relative movements from the previous step
@@ -324,14 +328,15 @@ loss_sum_model = LossSumModel()
 ######################## Connect ##########################
 
 # python_csdl_backend
-model.add(ffd_connection_model, name='ffd_model')
+
 model.add(boundary_input_model, name='boundary_input_model')
+model.add(ffd_connection_model, name='ffd_model')
 model.add(fea_model, name='fea_model')
 model.add(power_loss_model, name='power_loss_model')
 model.add(loss_sum_model, name='loss_sum_model')
 
 # Upper limit of 'magnet_pos_delta_dv' > 60.
-model.create_input('magnet_pos_delta_dv', val=0.0)
+model.create_input('magnet_pos_delta_dv', val=0.)
 model.create_input('magnet_width_dv', val=0.)
 model.create_input('motor_length', val=0.1)
 model.create_input('frequency', val=300)
@@ -344,11 +349,14 @@ model.add_objective('loss_sum')
 sim = Simulator(model, analytics=True)
 ########### Test the forward solve ##############
 
-####### Single steps of movement ##########
-# for i in range(3):
-#     sim['magnet_pos_delta_dv'] += 1
-#     sim.run()
 sim.run()
+
+# print('uhat_bc:',sim['uhat_bc'])
+# print('uhat:',sim['uhat'])
+# print('magnet_pos_delta_dv',sim['magnet_pos_delta_dv'])
+# print('magnet_width_dv',sim['magnet_width_dv'])
+# print('edge_deltas',sim['edge_deltas'])
+# exit()
 # sim.check_totals(of=['loss_sum'], wrt=['magnet_pos_delta_dv'],compact_print=True)
 
 # [RU]: It seems like CSDL doesn't work with csdl_om anymore
