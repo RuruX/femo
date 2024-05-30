@@ -8,6 +8,15 @@ import csdl_alpha as csdl
 from femo.rm_shell.rm_shell_model import RMShellModel
 from femo.fea.utils_dolfinx import createCustomMeasure
 import numpy as np
+import lsdo_geo as lg
+
+
+
+recorder = csdl.Recorder(inline=True)
+recorder.start()
+
+# pav_geometry = lg.import_geometry('pav_wing/pav.stp', parallelize=False)
+# pav_geometry.plot(opacity=0.3)
 
 pav_mesh_list = ["pav_wing_6rib_caddee_mesh_2374_quad.xdmf",]
 
@@ -51,8 +60,6 @@ shells = {'E': E, 'nu': nu, 'rho': rho,# material properties
             'dxx': dx_2(10), # custom dx measure for the tip displacement   
             'record': True}  # custom integrator: dx measure}
 
-recorder = csdl.Recorder(inline=True)
-recorder.start()
 
 force_vector = csdl.Variable(value=np.zeros((nn, 3)), name='force_vector')
 force_vector.value[:, 2] = f_d
