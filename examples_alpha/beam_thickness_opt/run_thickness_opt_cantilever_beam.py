@@ -200,8 +200,6 @@ print(" "*4, volume.names, volume.value)
 print("OpenMDAO compliance: "+str(23762.153677443166))
 
 
-recorder.stop()
-
 
 # fea_model.add_design_variable('thickness', upper=10., lower=1e-2)
 # fea_model.add_objective('compliance')

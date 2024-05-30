@@ -14,7 +14,7 @@ class OutputOperation(csdl.CustomExplicitOperation):
 
         # define any checks for the parameters
         csdl.check_parameter(fea, "fea", types=FEA)
-        csdl.check_parameter(args_name_list, "args_name_dict", types=list)
+        csdl.check_parameter(args_name_list, "args_name_list", types=list)
         csdl.check_parameter(output_name, "output_name", types=str)
 
         args_dict = dict()
@@ -78,7 +78,7 @@ class OutputFieldOperation(csdl.CustomExplicitOperation):
 
         # define any checks for the parameters
         csdl.check_parameter(fea, "fea", types=FEA)
-        csdl.check_parameter(args_name_list, "args_name_dict", types=list)
+        csdl.check_parameter(args_name_list, "args_name_list", types=list)
         csdl.check_parameter(output_name, "output_name", types=str)
 
         args_dict = dict()
@@ -92,16 +92,18 @@ class OutputFieldOperation(csdl.CustomExplicitOperation):
         self.fea = fea
         self.args_dict = args_dict
         self.output_name = output_name
-        self.fea_output = fea.outputs_dict[output_name]
+        self.fea_output = fea.outputs_field_dict[output_name]
 
     def evaluate(self, inputs: csdl.VariableGroup):
         # assign method inputs to input dictionary
         for arg_name in self.args_dict:
-            arg = self.args_dict[arg_name]
-            self.declare_input(arg_name, inputs[arg_name])
+            if getattr(inputs, arg_name) is not None:
+                self.declare_input(arg_name, getattr(inputs, arg_name))
+            else:
+                raise ValueError(f"Variable {arg_name} not found in the FEA model.")
 
         # declare output variables
-        output = self.create_output(self.output_name, (1,))
+        output = self.create_output(self.output_name, (self.fea_output['shape'],))
 
         # declare any derivative parameters
         self.declare_derivative_parameters(self.output_name, "*", dependent=False)
@@ -113,18 +115,8 @@ class OutputFieldOperation(csdl.CustomExplicitOperation):
             arg = self.args_dict[arg_name]
             update(arg["function"], input_vals[arg_name])
 
-        output_vals[self.output_name] = assemble(self.fea_output["form"])
+        self.fea.projectFieldOutput(self.fea_output['form'],self.fea_output['func'])
+        output_vals[self.output_name] = getFuncArray(self.fea_output['func'])
 
-    def compute_derivatives(self, input_vals, output_vals, derivatives):
-        for arg_name in input_vals:
-            arg = self.args_dict[arg_name]
-            update(arg["function"], input_vals[arg_name])
 
-        for arg_name in input_vals:
-            derivatives[self.output_name, arg_name] = assemble(
-                computePartials(
-                    self.fea_output["form"], self.args_dict[arg_name]["function"]
-                ),
-                dim=self.output_dim + 1,
-            )
 

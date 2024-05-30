@@ -1,13 +1,10 @@
-import m3l
-import array_mapper as am
-import csdl
-from lsdo_modules.module_csdl.module_csdl import ModuleCSDL
-from lsdo_modules.module.module import Module
+
+import csdl_alpha as csdl
+
 from shell_pde import ShellPDE, ShellModule, NodalMap
 import numpy as np
 from scipy.sparse.linalg import spsolve
 
-from typing import Tuple, Dict
 """
 M3L operations for structural optimization:
 >> Shell solver

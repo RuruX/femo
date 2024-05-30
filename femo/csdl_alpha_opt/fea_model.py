@@ -59,7 +59,7 @@ class FEAModel():
                     args_name_list_output = fea.outputs_field_dict[output_name]['arguments']
                     output_operation = OutputFieldOperation(fea=fea,
                                                 output_name=output_name,
-                                                arg_name_list=args_name_list_output)
+                                                args_name_list=args_name_list_output)
                     output = output_operation.evaluate(fea_variable_dict)
 
                     # add the output variable to the dictionary
