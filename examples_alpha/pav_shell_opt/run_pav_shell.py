@@ -66,7 +66,7 @@ force_vector.value[:, 2] = f_d
 thicknesses = csdl.Variable(value=h*np.ones(nn), name='thicknesses')
 
 shell_model = RMShellModel(mesh, shells)
-shell_outputs = shell_model.evaluate(force_vector, thicknesses)
+shell_outputs = shell_model.evaluate(force_vector, thicknesses, debug_mode=True)
 
 disp_solid = shell_outputs.disp_solid
 compliance = shell_outputs.compliance
@@ -94,3 +94,12 @@ with dolfinx.io.XDMFFile(MPI.COMM_WORLD, "solutions/u_mid.xdmf", "w") as xdmf:
 
 
 
+
+
+# 2024-05-30 16:08:30.708 (   7.785s) [main            ]       NewtonSolver.cpp:273   WARN| Newton solver did not converge.
+# Wing tip deflection (m): 0.000828640107096966
+# Wing total mass (kg): [29.10897555]
+# Wing aggregated von Mises stress (Pascal): [1929864.41525933]
+# Wing maximum von Mises stress (Pascal): 2104232.0788074955
+#   Number of elements = 2416
+#   Number of vertices = 2374

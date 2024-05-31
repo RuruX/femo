@@ -120,7 +120,8 @@ class RMShellModel:
         
         self.fea = fea
         
-    def evaluate(self, force_vector: csdl.Variable, thicknesses: csdl.Variable) \
+    def evaluate(self, force_vector: csdl.Variable, thicknesses: csdl.Variable,
+                 debug_mode=False) \
                     -> csdl.VariableGroup:
         """
         Args:
@@ -150,7 +151,7 @@ class RMShellModel:
         shell_inputs.F_solid = reshaped_force
 
         solid_model = FEAModel(fea=[self.fea], fea_name='rm_shell')
-        shell_outputs = solid_model.evaluate(shell_inputs)
+        shell_outputs = solid_model.evaluate(shell_inputs, debug_mode=debug_mode)
         
         # disp_extraction_model = DisplacementExtractionModel(shell_pde=self.shell_pde)
         # shell_outputs.disp_extracted = disp_extraction_model.evaluate(shell_outputs.disp_solid)

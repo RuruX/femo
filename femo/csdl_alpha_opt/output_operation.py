@@ -29,6 +29,7 @@ class OutputOperation(csdl.CustomExplicitOperation):
         self.args_dict = args_dict
         self.output_name = output_name
         self.fea_output = fea.outputs_dict[output_name]
+        self.output_dim = 0 # for scalar outputs
         
     def evaluate(self, inputs: csdl.VariableGroup):
         # assign method inputs to input dictionary
@@ -42,7 +43,7 @@ class OutputOperation(csdl.CustomExplicitOperation):
         output = self.create_output(self.output_name, (1,))
 
         # declare any derivative parameters
-        self.declare_derivative_parameters(self.output_name, "*", dependent=False)
+        self.declare_derivative_parameters(self.output_name, "*", dependent=True)
         output.add_name(self.output_name)
         return output
 
@@ -52,6 +53,10 @@ class OutputOperation(csdl.CustomExplicitOperation):
             update(arg["function"], input_vals[arg_name])
 
         output_vals[self.output_name] = assemble(self.fea_output["form"])
+
+        print("="*40)
+        print(output_vals[self.output_name])
+        print("="*40)
 
     def compute_derivatives(self, input_vals, output_vals, derivatives):
         for arg_name in input_vals:
@@ -65,6 +70,11 @@ class OutputOperation(csdl.CustomExplicitOperation):
                 ),
                 dim=self.output_dim + 1,
             )
+            print("="*40)
+            print("Derivatives for:", arg_name)
+            print(derivatives[self.output_name, arg_name])
+            print(np.linalg.norm(derivatives[self.output_name, arg_name]))
+            print("="*40)
 
 
 class OutputFieldOperation(csdl.CustomExplicitOperation):
@@ -93,6 +103,7 @@ class OutputFieldOperation(csdl.CustomExplicitOperation):
         self.args_dict = args_dict
         self.output_name = output_name
         self.fea_output = fea.outputs_field_dict[output_name]
+        self.output_dim = 1 # for field outputs
 
     def evaluate(self, inputs: csdl.VariableGroup):
         # assign method inputs to input dictionary

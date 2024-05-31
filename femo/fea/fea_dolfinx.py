@@ -11,7 +11,7 @@ from dolfinx.fem import (set_bc, Function, FunctionSpace, dirichletbc,
                         locate_dofs_topological, locate_dofs_geometrical,
                         Constant, VectorFunctionSpace)
 from ufl import (grad, SpatialCoordinate, CellDiameter, FacetNormal,
-                    div, Identity)
+                    div, Identity, derivative)
 import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix
 
@@ -112,6 +112,8 @@ class FEA(object):
     def add_state(self, name, function, residual_form, arguments,
                     dR_du=None, dR_df_list=None, record=False):
 
+        if dR_du is None:
+            dR_du = derivative(residual_form, function)
         self.states_dict[name] = dict(
             function=function,
             residual_form=residual_form,

@@ -141,7 +141,7 @@ fea.add_state(name=state_name,
 fea.add_output(name=output_name_1,
                 type='scalar',
                 form=output_form_1,
-                arguments=[input_name, state_name])
+                arguments=[state_name])
 fea.add_output(name=output_name_2,
                 type='scalar',
                 form=output_form_2,
@@ -181,26 +181,45 @@ thick_ref = [
 
 recorder = csdl.Recorder(inline=True)
 recorder.start()
+
 thickness = csdl.Variable(value=h*np.ones(nel), name='thickness')
 thickness.value = np.array(thick_ref)
 
 inputs_group = csdl.VariableGroup()
 inputs_group.thickness = thickness
 
-fea_output = fea_model.evaluate(inputs_group)
+with csdl.namespace('beam_1'):
+    fea_output = fea_model.evaluate(inputs_group)
 
-compliance = fea_output.compliance
-volume = fea_output.volume
-displacement = fea_output.displacements
-thickness = fea_output.thickness
+    compliance = fea_output.compliance
+    volume = fea_output.volume
+    displacements = fea_output.displacements
+# thickness = fea_output.thickness
 print("Forward evaluation with optimal solution:")
 print(" "*4, compliance.names, compliance.value)
-print(" "*4, volume.names, volume.value)
+# print(" "*4, volume.names, volume.value)
 # print(" "*4, thickness.names, thickness.value)
 print("OpenMDAO compliance: "+str(23762.153677443166))
 
+# thickness.value = h*np.ones(nel)
+
+# with csdl.namespace('beam_2'):
+#     fea_output = fea_model.evaluate(inputs_group)
+#     compliance = fea_output.compliance
+#     volume = fea_output.volume
+#     displacements = fea_output.displacements
+
+#     displacements_1 = displacements*2
+# print("Forward evaluation with uniform thickness:")
+# print(" "*4, compliance.names, compliance.value)
+# # print(" "*4, volume.names, volume.value)
+# # print(" "*4, thickness.names, thickness.value)
 
 
+from csdl_alpha.src.operations.derivative.utils import verify_derivatives_inline
+verify_derivatives_inline([displacements,volume,compliance], [thickness], 
+                            step_size=1e-6, raise_on_error=False)
+recorder.stop()
 # fea_model.add_design_variable('thickness', upper=10., lower=1e-2)
 # fea_model.add_objective('compliance')
 # fea_model.add_constraint('volume', equals=b*h*L)

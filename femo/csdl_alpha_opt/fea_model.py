@@ -29,40 +29,40 @@ class FEAModel():
         # construct output of the model
         fea_variable_dict = inputs
 
-        with csdl.namespace(fea_name):
-            # loop over the FEA list (there could be multiple FEA objects for coupled PDEs)
-            for fea in fea_list:
-                for state_name in fea.states_dict:
-                    args_name_list_state = fea.states_dict[state_name]['arguments']
-                    state_operation = StateOperation(fea=fea,
-                                                state_name=state_name,
-                                                args_name_list=args_name_list_state,
-                                                debug_mode=debug_mode)
+        # with csdl.namespace(fea_name):
+        # loop over the FEA list (there could be multiple FEA objects for coupled PDEs)
+        for fea in fea_list:
+            for state_name in fea.states_dict:
+                args_name_list_state = fea.states_dict[state_name]['arguments']
+                state_operation = StateOperation(fea=fea,
+                                            state_name=state_name,
+                                            args_name_list=args_name_list_state,
+                                            debug_mode=debug_mode)
 
-                    state = state_operation.evaluate(fea_variable_dict)
+                state = state_operation.evaluate(fea_variable_dict)
 
-                    # add the state variable to the dictionary
-                    setattr(fea_variable_dict, state_name, state)
+                # add the state variable to the dictionary
+                setattr(fea_variable_dict, state_name, state)
 
-                for output_name in fea.outputs_dict:
-                    args_name_list_output = fea.outputs_dict[output_name]['arguments']
-                    output_operation = OutputOperation(fea=fea, 
-                                                output_name=output_name,
-                                                args_name_list=args_name_list_output)
+            for output_name in fea.outputs_dict:
+                args_name_list_output = fea.outputs_dict[output_name]['arguments']
+                output_operation = OutputOperation(fea=fea, 
+                                            output_name=output_name,
+                                            args_name_list=args_name_list_output)
 
-                    output = output_operation.evaluate(fea_variable_dict)
+                output = output_operation.evaluate(fea_variable_dict)
 
-                    # add the output variable to the dictionary
-                    setattr(fea_variable_dict, output_name, output)
+                # add the output variable to the dictionary
+                setattr(fea_variable_dict, output_name, output)
 
-                for output_name in fea.outputs_field_dict:
-                    args_name_list_output = fea.outputs_field_dict[output_name]['arguments']
-                    output_operation = OutputFieldOperation(fea=fea,
-                                                output_name=output_name,
-                                                args_name_list=args_name_list_output)
-                    output = output_operation.evaluate(fea_variable_dict)
+            for output_name in fea.outputs_field_dict:
+                args_name_list_output = fea.outputs_field_dict[output_name]['arguments']
+                output_operation = OutputFieldOperation(fea=fea,
+                                            output_name=output_name,
+                                            args_name_list=args_name_list_output)
+                output = output_operation.evaluate(fea_variable_dict)
 
-                    # add the output variable to the dictionary
-                    setattr(fea_variable_dict, output_name, output)
+                # add the output variable to the dictionary
+                setattr(fea_variable_dict, output_name, output)
 
         return fea_variable_dict
