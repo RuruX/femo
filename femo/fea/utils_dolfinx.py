@@ -7,7 +7,7 @@ from dolfinx.io import XDMFFile
 from ufl import (Identity, dot, derivative, TestFunction, TrialFunction,
                 inner, ds, dS, dx, grad, inv, as_vector, sqrt, conditional, lt,
                 det, Measure, exp, tr, CellDiameter)
-from dolfinx.mesh import (create_unit_square, create_rectangle, create_interval,
+from dolfinx.mesh import (create_unit_square, create_unit_cube, create_rectangle, create_interval,
                             locate_entities_boundary, locate_entities,
                             meshtags)
 from dolfinx.cpp.mesh import CellType
@@ -59,6 +59,7 @@ def F(uhat):
     ---------------------------
     uhat: DOLFINx function for mesh movements
     """
+    I = Identity(uhat.geometric_dimension())
     return I + grad(uhat)
 
 # The dolfinx version for mesh importer from msh2xdmf module
@@ -134,6 +135,12 @@ def createUnitSquareMesh(n):
     Create unit square mesh for test purposes
     """
     return create_unit_square(MPI.COMM_WORLD, n, n)
+
+def createUnitCubeMesh(n):
+    """
+    Create unit cube mesh for test purposes
+    """
+    return create_unit_cube(MPI.COMM_WORLD, n, n, n)
 
 def createIntervalMesh(n, x0, x1):
     """
@@ -321,9 +328,10 @@ def solveNonlinear(res, func, bc, solver, report, initialize):
                                     report=report)
         newton_solver.solve(func)
     elif solver == 'SNES':
-        snes_solver = SNESSolver(res, func, bc, report=report)
+        snes_solver = SNESSolver(res, func, bc, report=report, initialize=initialize)
         snes_solver.solve(None, func.vector)
         print("Converged reason:", snes_solver.getConvergedReason())
+        return snes_solver.getConvergedReason()
     stop = default_timer()
     if report is True:
         print("Solve nonlinear finished in ",stop-start, "seconds")
@@ -370,16 +378,22 @@ class NonlinearSNESProblem:
 
 
 def SNESSolver(F, w, bcs=[],
-                    abs_tol=1e-13,
-                    rel_tol=1e-13,
-                    max_it=100,
-                    report=False):
+                    abs_tol=1e-8,
+                    # abs_tol=1e-2,
+                    rel_tol=1e-12,
+                    max_it=20,
+                    report=False,
+                    initialize=False):
     """
     https://github.com/FEniCS/dolfinx/blob/main/python/test/unit/nls/test_newton.py#L182-L205
     """
     # Create nonlinear problem
 
     problem = NonlinearSNESProblem(F, w, bcs)
+
+    if initialize:
+        with w.vector.localForm() as w_local:
+            w_local.set(0.)
 
     W = w.function_space
     b = la.create_petsc_vector(W.dofmap.index_map, W.dofmap.index_map_bs)
@@ -389,9 +403,11 @@ def SNESSolver(F, w, bcs=[],
     opts = PETSc.Options()
     opts['snes_type'] = 'newtonls'
     opts['snes_linesearch_type'] = 'basic'
+    # opts['snes_linesearch_type'] = 'bt'
     # Ru: the choice of damping parameter seems to be mesh dependent;
     # for the fine motor mesh, it is 0.8; for the coarse mesh, it is 0.61.
     # opts['snes_linesearch_damping'] = 0.8
+    # opts['snes_linesearch_damping'] = 0.61
     opts["error_on_nonconvergence"] = True
     if report is True:
         # dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
