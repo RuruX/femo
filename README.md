@@ -16,9 +16,9 @@ It's recommended to use conda for installing the module and its dependencies.
   ```
   conda activate fenicsx
   ```
-- Install the latest FEniCSx and its add-on packages, mpich for parallel processing and pyvista for visualization
+- Install the latest FEniCSx
   ```
-  conda install -c conda-forge fenics-dolfinx=0.5.1 mpich pyvista
+  conda install -c conda-forge fenics-dolfinx=0.5.1
   ```
 - Git clone and install [CSDL](https://github.com/LSDOlab/csdl), and [python_csdl_backend](https://github.com/LSDOlab/python_csdl_backend) by `pip`
 - Git clone and install [femo](https://github.com/RuruX/femo) by `pip`
