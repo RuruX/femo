@@ -80,7 +80,7 @@ class StateOperation(csdl.experimental.CustomImplicitOperation):
         state.add_name(self.state_name)
 
         # declare any derivative parameters
-        self.declare_derivative_parameters(self.state_name, "*", dependent=True)
+        self.declare_derivative_parameters(self.state_name, '*', dependent=True)
 
         return state
 

@@ -41,10 +41,11 @@ class OutputOperation(csdl.CustomExplicitOperation):
 
         # declare output variables
         output = self.create_output(self.output_name, (1,))
+        output.add_name(self.output_name)
 
         # declare any derivative parameters
-        self.declare_derivative_parameters(self.output_name, "*", dependent=True)
-        output.add_name(self.output_name)
+        self.declare_derivative_parameters(self.output_name, '*', dependent=True)
+
         return output
 
     def compute(self, input_vals, output_vals):
@@ -54,9 +55,9 @@ class OutputOperation(csdl.CustomExplicitOperation):
 
         output_vals[self.output_name] = assemble(self.fea_output["form"])
 
-        print("="*40)
-        print(output_vals[self.output_name])
-        print("="*40)
+        # print("="*40)
+        # print(output_vals[self.output_name])
+        # print("="*40)
 
     def compute_derivatives(self, input_vals, output_vals, derivatives):
         for arg_name in input_vals:
@@ -70,11 +71,11 @@ class OutputOperation(csdl.CustomExplicitOperation):
                 ),
                 dim=self.output_dim + 1,
             )
-            print("="*40)
-            print("Derivatives for:", arg_name)
-            print(derivatives[self.output_name, arg_name])
-            print(np.linalg.norm(derivatives[self.output_name, arg_name]))
-            print("="*40)
+            # print("="*40)
+            # print("Derivatives for:", arg_name)
+            # print(derivatives[self.output_name, arg_name])
+            # print(np.linalg.norm(derivatives[self.output_name, arg_name]))
+            # print("="*40)
 
 
 class OutputFieldOperation(csdl.CustomExplicitOperation):
@@ -115,10 +116,10 @@ class OutputFieldOperation(csdl.CustomExplicitOperation):
 
         # declare output variables
         output = self.create_output(self.output_name, (self.fea_output['shape'],))
+        output.add_name(self.output_name)
 
         # declare any derivative parameters
-        self.declare_derivative_parameters(self.output_name, "*", dependent=False)
-        output.add_name(self.output_name)
+        self.declare_derivative_parameters(self.output_name, '*', dependent=True)
         return output
 
     def compute(self, input_vals, output_vals):

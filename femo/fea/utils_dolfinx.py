@@ -31,6 +31,26 @@ from scipy.spatial import KDTree
 DOLFIN_EPS = 3E-16
 comm = MPI.COMM_WORLD
 
+
+def readMesh(meshFile, format="HDF"):
+    """
+    Reads mesh from input meshFile, optionally display statistics
+    """
+
+    if format == "HDF": # recommended format
+        # both xmdf and h5 files are available
+        with dolfinx.io.XDMFFile(MPI.COMM_SELF, meshFile, "r") as xdmf:
+            mesh = xdmf.read_mesh(name="Grid")
+    elif format == "XML": # it needs to have lxml module installed
+        # only xdmf file is available
+        with dolfinx.io.XDMFFile(MPI.COMM_SELF, meshFile, "r", encoding=XDMFFile.Encoding.ASCII) as xdmf:
+            mesh = xdmf.read_mesh(name="Grid")
+    else:
+        raise ValueError("Invalid mesh file type. Must be 'HDF' or 'XML'")
+
+    return mesh
+
+
 def gradx(f,uhat):
     """
     Convert the differential operation from the reference domain

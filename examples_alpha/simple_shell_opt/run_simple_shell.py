@@ -20,15 +20,15 @@ with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
 nel = mesh.topology.index_map(mesh.topology.dim).size_local
 nn = mesh.topology.index_map(0).size_local
 
-E = 4.32e8
-nu = 0.0
-h = 0.2
-rho = 1.0
+E_val = 4.32e8
+nu_val = 0.0
+h_val = 0.2
+rho_val = 1.0
 width = 2.
 length = 10.
-f_d = 10.*h
+f_d = 10.*h_val
 
-#### Getting facets of the LEFT and the RIGHT edge  ####
+#### Getting custom bc measures ####
 DOLFIN_EPS = 3E-16
 def ClampedBoundary(x):
     return np.less(x[0], 0.0+DOLFIN_EPS)
@@ -40,24 +40,21 @@ ds_1 = createCustomMeasure(mesh, fdim, ClampedBoundary, measure='ds', tag=100)
 dS_1 = createCustomMeasure(mesh, fdim, ClampedBoundary, measure='dS', tag=100)
 dx_2 = createCustomMeasure(mesh, fdim+1, TipChar, measure='dx', tag=10)
 
+bc_measures = {'dss': ds_1(100), 'dSS': dS_1(100), 'dxx': dx_2(10)}
 ###################  m3l ########################
 
-# create the shell dictionaries:
-shells = {'E': E, 'nu': nu, 'rho': rho,# material properties
-            'dss': ds_1(100), # custom ds measure for the Dirichlet BC
-            'dSS': dS_1(100), # custom dS measure for the Dirichlet BC
-            'dxx': dx_2(10),
-            'record': True}  # custom integrator: dx measure}
 
 recorder = csdl.Recorder(inline=True)
 recorder.start()
 
 force_vector = csdl.Variable(value=np.zeros((nn, 3)), name='force_vector')
 force_vector.value[:, 2] = f_d
-thicknesses = csdl.Variable(value=h*np.ones(nn), name='thicknesses')
-
-shell_model = RMShellModel(mesh, shells)
-shell_outputs = shell_model.evaluate(force_vector, thicknesses)
+thickness = csdl.Variable(value=h_val*np.ones(nn), name='thickness')
+E = csdl.Variable(value=E_val*np.ones(nn), name='E')
+nu = csdl.Variable(value=nu_val*np.ones(nn), name='nu')
+density = csdl.Variable(value=rho_val*np.ones(nn), name='density')
+shell_model = RMShellModel(mesh, custom_measures=bc_measures, record=True)
+shell_outputs = shell_model.evaluate(force_vector, thickness, E, nu, density)
 
 disp_solid = shell_outputs.disp_solid
 compliance = shell_outputs.compliance
@@ -68,9 +65,9 @@ recorder.stop()
 
 # Comparing the solution to the Kirchhoff analytical solution
 
-Ix = width*h**3/12
+Ix = width*h_val**3/12
 print("Euler-Beinoulli Beam theory deflection:",
-    float(f_d*width*length**4/(8*E*Ix)))
+    float(f_d*width*length**4/(8*E_val*Ix)))
 print("Reissner-Mindlin FE deflection:", max(disp_solid.value))
 print("Compliance:", compliance.value)
 

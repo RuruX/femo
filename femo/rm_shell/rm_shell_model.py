@@ -4,146 +4,180 @@ from femo.csdl_alpha_opt.fea_model import FEAModel
 from shell_analysis_fenicsx import *
 
 from femo.rm_shell.rm_shell_pde import RMShellPDE
+from femo.fea.utils_dolfinx import createCustomMeasure
 import csdl_alpha as csdl
 import ufl
-
+import numpy as np
 
 class RMShellModel:
-    def __init__(self, mesh: dolfinx.mesh, shells: dict):
+    def __init__(self, mesh: dolfinx.mesh, 
+                            shell_bcs: dict=None, 
+                            custom_measures: dict=None,
+                            record=True):
         self.mesh = mesh
-        self.shells = shells
-
+        self.shell_bcs = shell_bcs # dictionary of shell bc information
+        self.record = record
         self.m, self.rho = 1e-6, 100
+
+        if custom_measures is not None:
+            self.dss = custom_measures['dss']
+            self.dSS = custom_measures['dSS']
+            self.dxx = custom_measures['dxx']
+        elif shell_bcs is not None:
+            self.set_up_bcs(shell_bcs)
+        else:
+            raise ValueError('Please provide the custom measures or the shell bc locations')
         self.set_up_fea()
+
+    def set_up_bcs(self, bc_locs: dict): 
+        '''
+        Set up the boundary conditions for the shell model and the tip displacement
+        ** helper function for aircraft optimization with clamped root bc **
+        '''
+        mesh = self.mesh
+
+        y_root = bc_locs['y_root']
+        y_tip = bc_locs['y_tip']
+        #### Getting facets of the LEFT and the RIGHT edge  ####
+        DOLFIN_EPS = 3E-16
+        def ClampedBoundary(x):
+            return np.greater(x[1], y_root+DOLFIN_EPS)
+        def TipChar(x):
+            return np.less(x[1], y_tip+DOLFIN_EPS)
+        fdim = mesh.topology.dim - 1
+
+        ds_1 = createCustomMeasure(mesh, fdim, ClampedBoundary, measure='ds', tag=100)
+        dS_1 = createCustomMeasure(mesh, fdim, ClampedBoundary, measure='dS', tag=100)
+        dx_1 = createCustomMeasure(mesh, fdim+1, TipChar, measure='dx', tag=10)
+
+        self.dss = ds_1(100) # custom ds measure for the Dirichlet BC
+        self.dSS = dS_1(100) # custom ds measure for the Dirichlet BC
+        self.dxx = dx_1(10) # custom dx measure for the tip displacement
 
     def set_up_fea(self):
         mesh = self.mesh
-        shells = self.shells
         shell_pde = self.shell_pde = RMShellPDE(mesh)
-
-        E = shells['E']
-        nu = shells['nu']
-        rho = shells['rho']
-        dss = shells['dss'] # custom ds measure for the Dirichlet BC
-        dSS = shells['dSS'] # custom ds measure for the Dirichlet BC
-        dxx = shells['dxx'] # custom dx measure for the tip displacement
-        record = shells['record']
-
+        dss = self.dss
+        dSS = self.dSS
+        dxx = self.dxx
 
         PENALTY_BC = True
 
         fea = FEA(mesh)
         fea.PDE_SOLVER = "Newton"
         fea.REPORT = False
-        fea.record = record
+        fea.record = self.record
         fea.linear_problem = True
         # Add input to the PDE problem:
-        input_name_1 = 'thicknesses'
-        input_function_space_1 = shell_pde.VT
-        # input_function_space_1 = FunctionSpace(mesh, ("DG", 0))
-        input_function_1 = Function(input_function_space_1)
-        # Add input to the PDE problem:
-        input_name_2 = 'F_solid'
-        input_function_space_2 = shell_pde.VF
-        input_function_2 = Function(input_function_space_2)
-
+        h = Function(shell_pde.VT)
+        f = Function(shell_pde.VF)
+        E = Function(shell_pde.VT)
+        nu = Function(shell_pde.VT)
+        density = Function(shell_pde.VT)
         # Add state to the PDE problem:
         state_name = 'disp_solid'
-        state_function_space = shell_pde.W
-        state_function = Function(state_function_space)
+        w_space = shell_pde.W
+        w = Function(w_space)
 
         # Simple isotropic material
         g = Function(shell_pde.W)
         with g.vector.localForm() as uloc:
             uloc.set(0.)
-        residual_form = shell_pde.pdeRes(h=input_function_1,
-                                         w=state_function,
-                                         f=input_function_2,
-                                         E=E,nu=nu,
+        residual_form = shell_pde.pdeRes(h=h,
+                                         w=w,
+                                         f=f,
+                                         E=E,
+                                         nu=nu,
                                          penalty=PENALTY_BC, 
                                          dss=dss, dSS=dSS, g=g)
 
         # Add output to the PDE problem:
-        output_name_0 = 'compliance'
-        u_mid, theta = ufl.split(state_function)
-        output_form_0 = shell_pde.compliance(u_mid,input_function_2)
-        output_name_1 = 'tip_disp'
-        output_form_1 = shell_pde.tip_disp(u_mid,input_function_1, dxx)
-        output_name_2 = 'mass'
-        output_form_2 = shell_pde.mass(input_function_1, rho)
-        output_name_3 = 'elastic_energy'
-        output_form_3 = shell_pde.elastic_energy(state_function,input_function_1,E)
-        output_name_4 = 'pnorm_stress'
-
-
+        u_mid, theta = ufl.split(w)
+        compliance_form = shell_pde.compliance(u_mid,f)
+        tip_disp_form = shell_pde.tip_disp(u_mid,h, dxx)
+        mass_form = shell_pde.mass(h, density)
+        elastic_energy_form = shell_pde.elastic_energy(w,h,E)
         dx_reduced = ufl.Measure("dx", domain=mesh, 
                                  metadata={"quadrature_degree":4})
-        output_form_4 = shell_pde.pnorm_stress(
-                        state_function,input_function_1,E,nu,
+        pnorm_stress_form = shell_pde.pnorm_stress(
+                        w,h,E,nu,
                         dx_reduced,m=self.m,rho=self.rho,
                         alpha=None,regularization=False)
-        # output_name_5 = 'von_Mises_stress'
-        output_name_5 = 'stress'
-        output_form_5 = shell_pde.von_Mises_stress(
-                        state_function,input_function_1,E,nu,surface='Top')
+        stress_form = shell_pde.von_Mises_stress(
+                        w,h,E,nu,surface='Top')
 
-        fea.add_input(input_name_1, input_function_1, init_val=0.001, record=record)
-        fea.add_input(input_name_2, input_function_2, record=record)
-        fea.add_state(name=state_name,
-                        function=state_function,
+        fea.add_input('thickness', h, init_val=0.001, record=self.record)
+        fea.add_input('F_solid', f, init_val=1., record=self.record)
+        fea.add_input('E', E, init_val=1., record=self.record)
+        fea.add_input('nu', nu, init_val=1., record=self.record)
+        fea.add_input('density', density, init_val=1., record=self.record)
+
+        fea.add_state(name='disp_solid',
+                        function=w,
                         residual_form=residual_form,
-                        arguments=[input_name_1, input_name_2])
-        fea.add_output(name=output_name_0,
+                        arguments=['thickness', 'F_solid',
+                                    'E', 'nu', 'density'])
+        
+        fea.add_output(name='compliance',
                         type='scalar',
-                        form=output_form_0,
-                        arguments=[state_name,input_name_2])
-        fea.add_output(name=output_name_1,
+                        form=compliance_form,
+                        arguments=['disp_solid','F_solid'])
+        fea.add_output(name='tip_disp',
                         type='scalar',
-                        form=output_form_1,
-                        arguments=[state_name,input_name_1])
-        fea.add_output(name=output_name_2,
+                        form=tip_disp_form,
+                        arguments=['disp_solid','thickness'])
+        fea.add_output(name='mass',
                         type='scalar',
-                        form=output_form_2,
-                        arguments=[input_name_1])
-        fea.add_output(name=output_name_3,
+                        form=mass_form,
+                        arguments=['thickness', 'density'])
+        fea.add_output(name='elastic_energy',
                         type='scalar',
-                        form=output_form_3,
-                        arguments=[input_name_1,state_name])
-        fea.add_output(name=output_name_4,
+                        form=elastic_energy_form,
+                        arguments=['thickness','disp_solid', 'E'])
+        fea.add_output(name='pnorm_stress',
                         type='scalar',
-                        form=output_form_4,
-                        arguments=[input_name_1,state_name])
-        fea.add_field_output(name=output_name_5,
-                        form=output_form_5,
-                        arguments=[input_name_1,state_name],
-                        record=record)
+                        form=pnorm_stress_form,
+                        arguments=['thickness','disp_solid','E', 'nu'])
+        fea.add_field_output(name='stress',
+                        form=stress_form,
+                        arguments=['thickness','disp_solid','E', 'nu'],
+                        record=self.record)
         
         self.fea = fea
         
-    def evaluate(self, force_vector: csdl.Variable, thicknesses: csdl.Variable,
-                 debug_mode=False) \
+    def evaluate(self, force_vector: csdl.Variable, thickness: csdl.Variable,
+                    E: csdl.Variable, nu: csdl.Variable, density: csdl.Variable,
+                    debug_mode=False) \
                     -> csdl.VariableGroup:
         """
-        Args:
+        Parameters:
         ----------
         [RX]: consider a "shell_inputs" VariableGroup when the aeroelastic coupling is ready
-            
-            > force_vector: csdl.Variable that contains the force vector applied to the shell model
-            > thicknesses: csdl.Variable that contains the thicknesses of the shell model
-        
+        Vector csdl.Variable:
+            > force_vector: the force vector applied on the shell mesh nodes
+            > thickness: the thickness on the shell mesh nodes
+            > E: the Young's modulus on the shell mesh nodes
+            > nu: the Poisson's ratio on the shell mesh nodes
+            > density: the density on the shell mesh nodes
+
         Returns:
         ----------
         shell_outputs: csdl.VariableGroup that contains the outputs of the shell model
-
-            > disp_solid: (vector) csdl.Variable that contains the displacements of the shell model
-            > stress: (vector) csdl.Variable that contains the von Mises stress of the shell model
-            > aggregated_stress: (scalar) csdl.Variable that contains the aggregated stress of the shell model
-            > compliance: (scalar) csdl.Variable that contains the compliance of the shell model
-            > tip_disp: (scalar) csdl.Variable that contains the tip displacement of the shell model
-            > mass: (scalar) csdl.Variable that contains the mass of the shell model
+        Vector csdl.Variable:
+            > disp_solid: the displacements (3 translational dofs, 3 rotation dofs)
+                            on the shell mesh nodes
+            > stress: the von Mises stress on the shell mesh elements
+        Scalar csdl.Variable:
+            > aggregated_stress: the aggregated stress of the shell model
+            > compliance: the compliance of the shell model
+            > tip_disp: the tip displacement of the shell model
+            > mass: the mass of the shell model
         """
         shell_inputs = csdl.VariableGroup()
-        shell_inputs.thicknesses = thicknesses
+        shell_inputs.thickness = thickness
+        shell_inputs.E = E
+        shell_inputs.nu = nu
+        shell_inputs.density = density
 
         # Construct the shell model in CSDL
         force_reshaping_model = ForceReshapingModel(shell_pde=self.shell_pde)
@@ -153,8 +187,8 @@ class RMShellModel:
         solid_model = FEAModel(fea=[self.fea], fea_name='rm_shell')
         shell_outputs = solid_model.evaluate(shell_inputs, debug_mode=debug_mode)
         
-        # disp_extraction_model = DisplacementExtractionModel(shell_pde=self.shell_pde)
-        # shell_outputs.disp_extracted = disp_extraction_model.evaluate(shell_outputs.disp_solid)
+        disp_extraction_model = DisplacementExtractionModel(shell_pde=self.shell_pde)
+        shell_outputs.disp_extracted = disp_extraction_model.evaluate(shell_outputs.disp_solid)
         
         aggregated_stress_model = AggregatedStressModel(m=self.m, rho=self.rho)
         shell_outputs.aggregated_stress = aggregated_stress_model.evaluate(shell_outputs.pnorm_stress)
@@ -162,12 +196,16 @@ class RMShellModel:
 
         
 class AggregatedStressModel:
+    '''
+    Compute the aggregated stress
+    '''
     def __init__(self, m: float, rho: int):
         self.m = m
         self.rho = rho
 
     def evaluate(self, pnorm_stress: csdl.Variable):
         aggregated_stress = 1/self.m*pnorm_stress**(1/self.rho)
+        aggregated_stress.add_name('aggregated_stress')
         return aggregated_stress
 
 class DisplacementExtractionModel:
@@ -183,12 +221,12 @@ class DisplacementExtractionModel:
         disp_extraction_mats = shell_pde.construct_nodal_disp_map()
         # Both vector or tensors need to be numpy arrays
         shape = shell_pde.mesh.geometry.x.shape
-
         # contains nodal displacements only (CG1)
-        nodal_disp_vec = csdl.matvec(disp_extraction_mats.todense(), disp_vec)
-        nodal_disp_mat = csdl.reshape(nodal_disp_vec, new_shape=(shape[1],shape[0]))
+        nodal_disp_vec = csdl.sparse.matvec(disp_extraction_mats, disp_vec)
+        nodal_disp_mat = csdl.reshape(nodal_disp_vec, shape=(shape[1],shape[0]))
 
         output = csdl.transpose(nodal_disp_mat)
+        output.add_name('disp_extracted')
         return output
 
 class ForceReshapingModel:
@@ -203,5 +241,5 @@ class ForceReshapingModel:
         dummy_func = Function(shell_pde.VF)
         size = len(dummy_func.x.array)
         output = csdl.reshape(nodal_force_mat, shape=(size,))
-
+        output.add_name('F_solid')
         return output
