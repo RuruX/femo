@@ -1,12 +1,27 @@
-from shell_analysis_fenicsx import *
 
+import dolfinx
+import dolfinx.io
+import ufl
+from dolfinx.fem.petsc import (assemble_vector, assemble_matrix)
+from dolfinx.fem import (Function, FunctionSpace, form, Constant,
+                        assemble_scalar, VectorFunctionSpace)
 import basix
 import scipy.sparse as sp
 import numpy as np
-import ufl
+from ufl import TestFunction, TrialFunction, dx, inner
+
+from femo.rm_shell.linear_shell_fenicsx.linear_shell_model import (ShellElement,
+                                                                    ShellStressRM,
+                                                                    MaterialModel,
+                                                                    ElasticModelShapeOpt)
+from femo.rm_shell.linear_shell_fenicsx.utils import computeNodalDisp
+from femo.rm_shell.linear_shell_fenicsx.kinematics import J
 
 
 class RMShellPDE:
+    '''
+    Class for the PDE of the Reissner-Mindlin shell element and essential outputs
+    '''
     def __init__(self, mesh):
         self.mesh = mesh
         element_type = "CG2CG1"
@@ -24,30 +39,14 @@ class RMShellPDE:
                 form(TestFunction(self.VF.sub(0).collapse()[0])*dx)).getArray()
         # self.bf_sup_sizes = np.ones_like(self.bf_sup_sizes)
 
-    def compute_alpha(self):
-        h_mesh = ufl.CellDiameter(self.mesh)
-        V1 = FunctionSpace(self.mesh, ('CG', 1))
-        h_mesh_func = Function(V1)
-        project(h_mesh, h_mesh_func, lump_mass=False)
-        # alpha is a parameter based on the cell area
-        alpha = np.average(h_mesh_func.vector.getArray())**2/2
-        return alpha
-
-    def pdeRes(self,h,w,f,E,nu,penalty=False, dss=ufl.ds, dSS=ufl.dS, g=None):
+    def pdeRes(self,h,w,uhat,f,E,nu,penalty=False, dss=ufl.ds, dSS=ufl.dS, g=None):
         material_model = MaterialModel(E=E,nu=nu,h=h)
-        self.elastic_model = elastic_model = ElasticModel(self.mesh,
-                                                w,material_model.CLT)
+        self.elastic_model = elastic_model = ElasticModelShapeOpt(self.mesh,
+                                                w, uhat, material_model.CLT)
         elastic_energy = elastic_model.elasticEnergy(E, h,
                                     self.dx_inplane,self.dx_shear)
         return elastic_model.weakFormResidual(elastic_energy, f,
                                             penalty=penalty, dss=dss, dSS=dSS, g=g)
-
-    def kinetic_residual(self,rho,h):
-        return self.elastic_model.inertialResidual(rho,h)
-
-    def elastic_residual(self,h,w,f,E,nu,penalty=False, dss=ufl.ds, dSS=ufl.dS, g=None):
-        return self.pdeRes(h,w,f,E,nu,penalty=False, dss=ufl.ds, dSS=ufl.dS, g=None) \
-                + inner(f,self.elastic_model.du_mid)*dx
 
     def regularization(self, h, type=None):
         alpha1 = Constant(self.mesh, 1e3)
@@ -68,43 +67,43 @@ class RMShellPDE:
         # No regularization
         return regularization
 
-    def compliance(self,u_mid,f):
-        return inner(u_mid,f)*ufl.dx
+    def compliance(self,u_mid,uhat,f):
+        return inner(u_mid,f)*J(uhat)*ufl.dx
     
-    def tip_disp(self,u_mid,h,dxx):
-        return Constant(self.mesh, 0.5)*inner(u_mid,u_mid)*dxx + self.regularization(h)
+    def tip_disp(self,u_mid,uhat,dxx):
+        return Constant(self.mesh, 0.5)*inner(u_mid,u_mid)*J(uhat)*dxx
+    
+    def volume(self,uhat,h):
+        return h*J(uhat)*dx
 
-    def volume(self,h):
-        return h*dx
+    def mass(self,uhat,h,rho):
+        return rho*h*J(uhat)*dx
 
-    def mass(self,h,rho):
-        return rho*h*dx
-
-    def elastic_energy(self,w,h,E):
-        elastic_energy = self.elastic_model.elasticEnergy(E, h,
+    def elastic_energy(self,w,uhat,h,E):
+        elastic_energy = self.elastic_model.elasticEnergy(E, h, 
                                         self.dx_inplane, self.dx_shear)
         return elastic_energy
 
-    def pnorm_stress(self,w,h,E,nu,dx,m=1e-6,rho=100,alpha=None,regularization=False):
+    def pnorm_stress(self,w,uhat,h,E,nu,dx,m=1e-6,rho=100,alpha=None,regularization=False):
         """
         Compute the p-norm of the stress
         `rho` is the Constraint aggregation factor
         """
-        shell_stress_RM = ShellStressRM(self.mesh, w, h, E, nu)
+        shell_stress_RM = ShellStressRM(self.mesh, w, uhat, h, E, nu)
         # stress on the top surface
         vm_stress = shell_stress_RM.vonMisesStress(h/2)
-        pnorm = (m*vm_stress)**rho*dx
+        pnorm = (m*vm_stress)**rho*J(uhat)*dx
         if regularization:
-            regularization = 0.5*Constant(self.mesh, 1e3)*h**rho*dx
+            regularization = 0.5*Constant(self.mesh, 1e3)*h**rho*J(uhat)*dx
             pnorm += regularization
         if alpha == None:
             ##### alpha is a parameter based on the surface area
-            alpha_form = Constant(self.mesh,1.0)*dx
+            alpha_form = Constant(self.mesh,1.0)*J(uhat)*dx
             alpha = assemble_scalar(form(alpha_form))
         return 1/alpha*pnorm
 
-    def von_Mises_stress(self,w,h,E,nu,surface='Top'):
-        shell_stress_RM = ShellStressRM(self.mesh, w, h, E, nu)
+    def von_Mises_stress(self,w,uhat,h,E,nu,surface='Top'):
+        shell_stress_RM = ShellStressRM(self.mesh, w, uhat, h, E, nu)
         if surface == 'Top':
             # stress on the top surface
             vm_stress = shell_stress_RM.vonMisesStress(h/2)
@@ -212,8 +211,8 @@ class RMShellPDE:
 
     def eval_fe_basis_all_dolfinx(self, x, dofmap_adjacencylist, mesh_bbt, basix_element, x_idx, mat_shape):
         mesh_cur = self.mesh
-        cell_candidates = geometry.compute_collisions(mesh_bbt, x)
-        cell_ids = geometry.compute_colliding_cells(mesh_cur, cell_candidates, x)
+        cell_candidates = dolfinx.geometry.compute_collisions(mesh_bbt, x)
+        cell_ids = dolfinx.geometry.compute_colliding_cells(mesh_cur, cell_candidates, x)
         geom_dofs = dofmap_adjacencylist.links(cell_ids[0])
         cell_vertex_ids = mesh_cur.geometry.dofmap.links(cell_ids[0])
         x_ref = mesh_cur.geometry.cmap.pull_back(x[None, :], mesh_cur.geometry.x[cell_vertex_ids])
@@ -225,70 +224,3 @@ class RMShellPDE:
         basis_vec = sp.csr_array((c_tab, (c_tab.shape[0]*[int(x_idx)], geom_dofs)), shape=mat_shape)
 
         return basis_vec
-
-class RadialBasisFunctions:
-    def Gaussian(x_dist, eps=1.):
-        return np.exp(-(eps*x_dist)**2)
-
-    def BumpFunction(x_dist, eps=1.):
-        # filter x_dist to get rid of x_dist >= 1/eps, this prevents overflow warnings
-        x_dist_filt = np.where(x_dist < 1/eps, x_dist, 0.)
-        f_mat = np.where(x_dist < 1/eps, np.exp(-1./(1.-(eps*x_dist_filt)**2)), 0.)
-        return f_mat/np.exp(-1)  # normalize output so x_dist = 0 corresponds to f = 1
-
-    def ThinPlateSpline(x_dist):
-        return np.multiply(np.power(x_dist, 2), np.log(x_dist))
-
-class NodalMap:
-    def __init__(self, solid_nodal_mesh, fluid_nodal_mesh, RBF_width_par=np.inf, RBF_func=RadialBasisFunctions.Gaussian, column_scaling_vec=None):
-        self.solid_nodal_mesh = solid_nodal_mesh
-        self.fluid_nodal_mesh = fluid_nodal_mesh
-        self.RBF_width_par = RBF_width_par
-        self.RBF_func = RBF_func
-        if column_scaling_vec is not None:
-            self.column_scaling_vec = column_scaling_vec
-        else:
-            self.column_scaling_vec = np.ones((solid_nodal_mesh.shape[0],))
-
-        self.map_shape = [self.fluid_nodal_mesh.shape[0], self.solid_nodal_mesh.shape[0]]
-        self.distance_matrix = self.compute_distance_matrix()
-        self.map = self.construct_map()
-
-    def compute_distance_matrix(self):
-        coord_dist_mat = np.zeros((self.map_shape + [3]))
-        for i in range(3):
-            coord_dist_mat[:, :, i] = NodalMap.coord_diff(self.fluid_nodal_mesh[:, i], self.solid_nodal_mesh[:, i])
-
-        coord_dist_mat = NodalMap.compute_pairwise_Euclidean_distance(coord_dist_mat)
-        return coord_dist_mat
-
-    def construct_map(self):
-        influence_coefficients = self.RBF_func(self.distance_matrix, eps=self.RBF_width_par)
-
-        # influence_coefficients = np.multiply(influence_coefficients, influence_dist_below_max_mask)
-
-        # include influence of column scaling
-        influence_coefficients = np.einsum('ij,j->ij', influence_coefficients, self.column_scaling_vec)
-        # print("min influence:", np.min(influence_coefficients))
-        # print("max influence:", np.max(influence_coefficients))
-        # exit()
-        influence_coefficients[influence_coefficients < 1e-16] = 0.
-        # TODO: Make influence_coefficients matrix sparse before summation below?
-        #       -> seems like the matrix sparsity depends heavily on the value of self.RBF_par_width,
-        #           probably not worthwhile to make the matrix sparse
-
-        # sum influence coefficients in each row and normalize the coefficients with those row sums
-        inf_coeffs_per_row = np.sum(influence_coefficients, axis=1)
-        normalized_inf_coeff_map = np.divide(influence_coefficients, inf_coeffs_per_row[:, None])
-        return normalized_inf_coeff_map
-
-    @staticmethod
-    def coord_diff(arr_1, arr_2):
-        # subtracts arr_1 and arr_2 of different sizes in such a way that the result is a matrix of size (arr_1.shape[0], arr_2.shape[0])
-        return np.subtract(arr_1[:, None], arr_2[None, :])
-
-    @staticmethod
-    def compute_pairwise_Euclidean_distance(coord_dist_mat):
-        coord_dist_mat_sqrd = np.power(coord_dist_mat, 2)
-        coord_dist_mat_summed = np.sum(coord_dist_mat_sqrd, axis=2)
-        return np.sqrt(coord_dist_mat_summed)

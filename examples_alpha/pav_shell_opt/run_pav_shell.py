@@ -7,15 +7,9 @@ from mpi4py import MPI
 import csdl_alpha as csdl
 from femo.rm_shell.rm_shell_model import RMShellModel
 import numpy as np
-import lsdo_geo as lg
-
-
 
 recorder = csdl.Recorder(inline=True)
 recorder.start()
-
-# pav_geometry = lg.import_geometry('pav_wing/pav.stp', parallelize=False)
-# pav_geometry.plot(opacity=0.3)
 
 pav_mesh_list = ["pav_wing_6rib_caddee_mesh_2374_quad.xdmf",]
 
@@ -54,31 +48,58 @@ nu_0 = csdl.Variable(value=nu_val, name='nu_0')
 density_0 = csdl.Variable(value=density_val, name='density_0')
 
 # Nodal material properties
-thickness = thickness_0*np.ones(nn)
+thickness = csdl.expand(thickness_0, out_shape=(nn,))
 thickness.add_name('thickness')
-E = E_0*np.ones(nn)
+E = csdl.expand(E_0, out_shape=(nn,))
 E.add_name('E')
-nu = nu_0*np.ones(nn)
+nu = csdl.expand(nu_0, out_shape=(nn,))
 nu.add_name('nu')
-density = density_0*np.ones(nn)
+density = csdl.expand(density_0, out_shape=(nn,))   
 density.add_name('density')
+node_disp = csdl.Variable(value=0.1*np.ones((nn, 3)), name='node_disp')
+node_disp.add_name('node_disp')
+node_disp.value[:, 2] = 0.0 # z-displacement is zero for each
+
+
 
 shell_model = RMShellModel(mesh, shell_bcs=shell_bcs, record=True)
 shell_outputs = shell_model.evaluate(force_vector, thickness, 
-                                        E, nu, density, debug_mode=False)
+                                        E, nu, density, 
+                                        node_disp,
+                                        debug_mode=False)
 
 disp_solid = shell_outputs.disp_solid
 compliance = shell_outputs.compliance
 mass = shell_outputs.mass
 elastic_energy = shell_outputs.elastic_energy
 disp_extracted = shell_outputs.disp_extracted
+tip_disp = shell_outputs.tip_disp
 wing_von_Mises_stress = shell_outputs.stress
 wing_aggregated_stress = shell_outputs.aggregated_stress
 
+
+# Verify the derivatives
+# [RX] extra caution is needed for the step_size; 
+# rule-of-thumb: 1E-6/order_of_magnitude(analytical_derivative)
+
+
 from csdl_alpha.src.operations.derivative.utils import verify_derivatives_inline
-verify_derivatives_inline([wing_aggregated_stress], 
-                            [thickness_0], 
-                            step_size=1e-6, raise_on_error=False)
+########## Verified derivatives ##########
+# verify_derivatives_inline([wing_aggregated_stress], 
+#                             [E_0], 
+#                             step_size=1E8, raise_on_error=False)
+
+# verify_derivatives_inline([wing_aggregated_stress], 
+#                             [nu_0], 
+#                             step_size=1E-11, raise_on_error=False)
+
+# verify_derivatives_inline([wing_aggregated_stress], 
+#                             [thickness_0], 
+#                             step_size=1E-11, raise_on_error=False)
+##########################################
+# verify_derivatives_inline([tip_disp], 
+#                             [thickness_0], 
+#                             step_size=1E-11, raise_on_error=False)
 recorder.stop()
 
 ########## Output: ##########

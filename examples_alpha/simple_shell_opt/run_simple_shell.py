@@ -1,7 +1,6 @@
 """
 A simple thickness optimization problem using shell elements in FEMO
 """
-
 import dolfinx
 from mpi4py import MPI
 import csdl_alpha as csdl
@@ -14,7 +13,7 @@ beam = [#### quad mesh ####
         "plate_2_10_quad_8_40.xdmf",
         "plate_2_10_quad_10_50.xdmf",]
 
-filename = "./plate_meshes/"+beam[2]
+filename = "./plate_meshes/"+beam[0]
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, filename, "r") as xdmf:
     mesh = xdmf.read_mesh(name="Grid")
 nel = mesh.topology.index_map(mesh.topology.dim).size_local
@@ -53,13 +52,24 @@ thickness = csdl.Variable(value=h_val*np.ones(nn), name='thickness')
 E = csdl.Variable(value=E_val*np.ones(nn), name='E')
 nu = csdl.Variable(value=nu_val*np.ones(nn), name='nu')
 density = csdl.Variable(value=rho_val*np.ones(nn), name='density')
+
+node_disp = csdl.Variable(value=np.zeros((nn, 3)), name='node_disp')
+node_disp.add_name('node_disp')
+
 shell_model = RMShellModel(mesh, custom_measures=bc_measures, record=True)
-shell_outputs = shell_model.evaluate(force_vector, thickness, E, nu, density)
+shell_outputs = shell_model.evaluate(force_vector, thickness, E, nu, density,
+                                        node_disp,
+                                        debug_mode=False)
 
 disp_solid = shell_outputs.disp_solid
 compliance = shell_outputs.compliance
+aggregated_stress = shell_outputs.aggregated_stress
+mass = shell_outputs.mass
+# from csdl_alpha.src.operations.derivative.utils import verify_derivatives_inline
+# verify_derivatives_inline([compliance, aggregated_stress, mass],[node_disp], 
+#                             step_size=1E-11, raise_on_error=False)
+# recorder.stop()
 
-recorder.stop()
 
 ########## Output: ##########
 

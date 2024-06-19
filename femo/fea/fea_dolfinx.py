@@ -85,7 +85,7 @@ class FEA(object):
         self.bc = []
 
         self.PDE_SOLVER = "Newton"
-        self.REPORT = True
+        self.REPORT = False
 
         self.ubc = None
         self.custom_solve = None
@@ -96,6 +96,9 @@ class FEA(object):
         self.record = False
         self.recorder_path = "records"
         self.linear_problem = False
+
+        self.nel = mesh.topology.index_map(mesh.topology.dim).size_local
+        self.nn = mesh.topology.index_map(0).size_local
 
     def add_input(self, name, function, init_val=1.0, record=False):
         if name in self.inputs_dict:
@@ -154,7 +157,7 @@ class FEA(object):
         partials = []
         self.outputs_field_dict[name] = dict(
             form=form,
-            func=output_func,
+            function=output_func,
             shape=len(getFuncArray(output_func)),
             arguments=arguments,
             partials=partials,

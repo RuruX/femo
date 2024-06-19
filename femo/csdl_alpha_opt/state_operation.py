@@ -215,6 +215,9 @@ class StateOperation(csdl.experimental.CustomImplicitOperation):
                             self.fea_dR, self.A, self.fea_du,
                             d_outputs[state_name],
                             self.ksp)
+            # apply the boundary conditions to the derivatives
+            for bc in self.fea.bc:
+                d_residuals[state_name][bc.dof_indices()[0]] = 0.0
         else:
             raise ValueError("mode must be either 'fwd' or 'rev'.")
 

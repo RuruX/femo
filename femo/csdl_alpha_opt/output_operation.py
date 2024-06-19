@@ -55,10 +55,6 @@ class OutputOperation(csdl.CustomExplicitOperation):
 
         output_vals[self.output_name] = assemble(self.fea_output["form"])
 
-        # print("="*40)
-        # print(output_vals[self.output_name])
-        # print("="*40)
-
     def compute_derivatives(self, input_vals, output_vals, derivatives):
         for arg_name in input_vals:
             arg = self.args_dict[arg_name]
@@ -71,11 +67,6 @@ class OutputOperation(csdl.CustomExplicitOperation):
                 ),
                 dim=self.output_dim + 1,
             )
-            # print("="*40)
-            # print("Derivatives for:", arg_name)
-            # print(derivatives[self.output_name, arg_name])
-            # print(np.linalg.norm(derivatives[self.output_name, arg_name]))
-            # print("="*40)
 
 
 class OutputFieldOperation(csdl.CustomExplicitOperation):
@@ -125,10 +116,15 @@ class OutputFieldOperation(csdl.CustomExplicitOperation):
     def compute(self, input_vals, output_vals):
         for arg_name in input_vals:
             arg = self.args_dict[arg_name]
-            update(arg["function"], input_vals[arg_name])
+            update(arg['function'], input_vals[arg_name])
 
-        self.fea.projectFieldOutput(self.fea_output['form'],self.fea_output['func'])
-        output_vals[self.output_name] = getFuncArray(self.fea_output['func'])
+        self.fea.projectFieldOutput(self.fea_output['form'],self.fea_output['function'])
+        output_vals[self.output_name] = getFuncArray(self.fea_output['function'])
 
+        # record the function values in XDMF files
+        if self.fea_output['record']:
+            self.fea_output['recorder'].write_function(
+                self.fea_output['function'], self.fea.opt_iter
+            )
 
 

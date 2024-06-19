@@ -32,7 +32,7 @@ DOLFIN_EPS = 3E-16
 comm = MPI.COMM_WORLD
 
 
-def readMesh(meshFile, format="HDF"):
+def readFEAMesh(meshFile, format="HDF"):
     """
     Reads mesh from input meshFile, optionally display statistics
     """
@@ -634,6 +634,7 @@ def findNodeIndices(node_coordinates, coordinates):
 #
 #     return edge_indices.astype('int')
 
+
 def locateDOFs(coords,V, input='polar'):
     """
     Find the indices of the dofs for setting up the boundary condition
@@ -659,3 +660,14 @@ def locateDOFs(coords,V, input='polar'):
         edge_indices[2*i+1] = 2*node_indices[i]+1
 
     return edge_indices.astype('int')
+
+import meshio
+def reconstructFEAMesh(filename, nodes, connectivity):
+    # Generate cells (connectivity)
+    # This is a placeholder, replace with your actual cell data
+    cells = [("quad", np.array(connectivity))]
+    # Write the mesh data to an XDMF file
+    mesh = meshio.Mesh(nodes, cells)
+    meshio.write(filename, mesh)
+    wing_shell_mesh_dolfinx = readFEAMesh(filename)
+    return wing_shell_mesh_dolfinx
