@@ -16,57 +16,43 @@ class RMShellModel:
     --------------------------------
     Args:
     mesh: dolfinx.mesh object for the shell mesh
-    * shell_bcs: dictionary of shell Dirichlet BC locations (strong bc)
-    * custom_measures: dictionary of custom measures based on shell Dirichlet BC
-                        locations (weak bc)
+    shell_bc_func: callable for shell Dirichlet BC locations - returns True if 
+                    it is the boundary location, otherwise returns False
     record: boolean to record the FEA model variables in xdmf format
 
-    * Either shell_bcs or custom_measures should be provided
     --------------------------------
     '''
     def __init__(self, mesh: dolfinx.mesh, 
-                            shell_bcs: dict=None, 
-                            custom_measures: dict=None,
+                            shell_bc_func: callable=None, 
                             record=True):
         self.mesh = mesh
-        self.shell_bcs = shell_bcs # dictionary of shell bc information
+        self.shell_bc_func = shell_bc_func # shell bc information
         self.record = record
         self.m, self.rho = 1e-6, 100
 
-        if custom_measures is not None:
-            self.dss = custom_measures['dss']
-            self.dSS = custom_measures['dSS']
-            self.dxx = custom_measures['dxx']
-        elif shell_bcs is not None:
-            self.set_up_bcs(shell_bcs)
+        if shell_bc_func is not None:
+            self.set_up_bcs(shell_bc_func)
         else:
-            raise ValueError('Please provide the custom measures or the shell bc locations')
+            raise ValueError('Please provide the shell bc location function.\n \
+                             Example:\n \
+                             def ClampedBoundary(x):\n \
+                                return np.less(x[1], 0.0)')
         self.set_up_fea()
 
-    def set_up_bcs(self, bc_locs: dict): 
+    def set_up_bcs(self, bc_locs_func): 
         '''
         Set up the boundary conditions for the shell model and the tip displacement
         ** helper function for aircraft optimization with clamped root bc **
         '''
         mesh = self.mesh
 
-        y_root = bc_locs['y_root']
-        y_tip = bc_locs['y_tip']
-        #### Getting facets of the LEFT and the RIGHT edge  ####
-        DOLFIN_EPS = 3E-16
-        def ClampedBoundary(x):
-            return np.greater(x[1], y_root+DOLFIN_EPS)
-        def TipChar(x):
-            return np.less(x[1], y_tip+DOLFIN_EPS)
         fdim = mesh.topology.dim - 1
 
-        ds_1 = createCustomMeasure(mesh, fdim, ClampedBoundary, measure='ds', tag=100)
-        dS_1 = createCustomMeasure(mesh, fdim, ClampedBoundary, measure='dS', tag=100)
-        dx_1 = createCustomMeasure(mesh, fdim+1, TipChar, measure='dx', tag=10)
+        ds_1 = createCustomMeasure(mesh, fdim, bc_locs_func, measure='ds', tag=100)
+        dS_1 = createCustomMeasure(mesh, fdim, bc_locs_func, measure='dS', tag=100)
 
         self.dss = ds_1(100) # custom ds measure for the Dirichlet BC
         self.dSS = dS_1(100) # custom ds measure for the Dirichlet BC
-        self.dxx = dx_1(10) # custom dx measure for the tip displacement
 
     def set_up_fea(self):
         '''
@@ -78,7 +64,6 @@ class RMShellModel:
         shell_pde = self.shell_pde = RMShellPDE(mesh)
         dss = self.dss
         dSS = self.dSS
-        dxx = self.dxx
 
         PENALTY_BC = True
 
@@ -114,8 +99,7 @@ class RMShellModel:
 
         # Add output to the PDE problem:
         u_mid, theta = ufl.split(w)
-        compliance_form = shell_pde.compliance(u_mid,uhat,f)
-        tip_disp_form = shell_pde.tip_disp(u_mid,uhat,dxx)
+        compliance_form = shell_pde.compliance(u_mid,uhat,h,f)
         mass_form = shell_pde.mass(uhat, h, density)
         elastic_energy_form = shell_pde.elastic_energy(w,uhat,h,E)
         dx_reduced = ufl.Measure("dx", domain=mesh, 
@@ -142,11 +126,7 @@ class RMShellModel:
         fea.add_output(name='compliance',
                         type='scalar',
                         form=compliance_form,
-                        arguments=['disp_solid','F_solid','uhat'])
-        fea.add_output(name='tip_disp',
-                        type='scalar',
-                        form=tip_disp_form,
-                        arguments=['disp_solid','uhat'])
+                        arguments=['disp_solid','F_solid','thickness','uhat'])
         fea.add_output(name='mass',
                         type='scalar',
                         form=mass_form,

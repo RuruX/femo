@@ -8,7 +8,7 @@ from dolfinx.fem import (Function, FunctionSpace, form, Constant,
 import basix
 import scipy.sparse as sp
 import numpy as np
-from ufl import TestFunction, TrialFunction, dx, inner
+from ufl import TestFunction, TrialFunction, dx, inner, CellDiameter, dot, grad
 
 from femo.rm_shell.linear_shell_fenicsx.linear_shell_model import (ShellElement,
                                                                     ShellStressRM,
@@ -49,7 +49,7 @@ class RMShellPDE:
                                             penalty=penalty, dss=dss, dSS=dSS, g=g)
 
     def regularization(self, h, type=None):
-        alpha1 = Constant(self.mesh, 1e3)
+        alpha1 = Constant(self.mesh, 1e1)
         alpha2 = Constant(self.mesh, 1e0)
         h_mesh = CellDiameter(self.mesh)
 
@@ -67,8 +67,8 @@ class RMShellPDE:
         # No regularization
         return regularization
 
-    def compliance(self,u_mid,uhat,f):
-        return inner(u_mid,f)*J(uhat)*ufl.dx
+    def compliance(self,u_mid,uhat,h,f):
+        return inner(u_mid,f)*J(uhat)*ufl.dx + self.regularization(h, type='H1')
     
     def tip_disp(self,u_mid,uhat,dxx):
         return Constant(self.mesh, 0.5)*inner(u_mid,u_mid)*J(uhat)*dxx
