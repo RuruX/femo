@@ -1,1 +1,3 @@
-<Xdmf Version="3.0"><Domain><Grid Name="Grid"><Geometry GeometryType="XYZ"><DataItem DataType="Float" Dimensions="107695 3" Format="HDF" Precision="8">eVTOL_wing_half_tri_107695_136686.h5:/data0</DataItem></Geometry><Topology TopologyType="Triangle" NumberOfElements="136686" NodesPerElement="3"><DataItem DataType="Int" Dimensions="136686 3" Format="HDF" Precision="4">eVTOL_wing_half_tri_107695_136686.h5:/data1</DataItem></Topology></Grid></Domain></Xdmf>
+version https://git-lfs.github.com/spec/v1
+oid sha256:4f640cdb0b2cb81fc881e371383008dce21b7580f7ed5b1784b3f80dc4ea0ab2
+size 458
