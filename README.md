@@ -27,6 +27,7 @@ It's recommended to use conda for installing the module and its dependencies.
 
 
 ## Cite us
+'''
 @misc{xiang2024,
     author = "Xiang, Ru 
             and van Schie, Sebastiaan P.C.
@@ -49,3 +50,4 @@ It's recommended to use conda for installing the module and its dependencies.
     title  = "Geometric Design of Electric Motors Using Adjoint-based Shape Optimization",
     howpublished = {Feb 2024, Preprint available at \url{https://doi.org/10.21203/rs.3.rs-3941981/v1}}
 }
+'''
