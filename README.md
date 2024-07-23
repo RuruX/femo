@@ -16,7 +16,7 @@ It's recommended to use conda for installing the module and its dependencies.
   ```
   conda activate fenicsx
   ```
-- Install the latest FEniCSx
+- Install FEniCSx
   ```
   conda install -c conda-forge fenics-dolfinx=0.5.1
   ```
@@ -24,3 +24,28 @@ It's recommended to use conda for installing the module and its dependencies.
 - Git clone and install [femo](https://github.com/RuruX/femo) by `pip`
 - (optional) Install [SNOPT](https://ccom.ucsd.edu/~optimizers/solvers/snopt/) for optimization (licence required)
 - (optional) Install [ModOpt](https://github.com/LSDOlab/modopt) by `pip` and test with `modopt/modopt/external_packages/csdl/test_scaler.py`
+
+
+## Cite us
+@misc{xiang2024,
+    author = "Xiang, Ru 
+            and van Schie, Sebastiaan P.C.
+            and Scotzniovsky, Luca 
+            and Yan, Jiayao
+            and Kamensky, David 
+            and Hwang, John T.",
+    title  = "Automating adjoint sensitivity analysis for multidisciplinary models involving partial differential equations",
+    howpublished = {Jul 2024, Preprint available at \url{https://doi.org/10.21203/rs.3.rs-4265983/v1}}
+}
+
+@misc{scotzniovsky2024,
+    author = "Scotzniovsky, Luca 
+            and Xiang, Ru 
+            and Cheng, Zeyu 
+            and Rodriguez, Gabriel 
+            and Kamensky, David 
+            and Mi, Chris 
+            and Hwang, John T.",
+    title  = "Geometric Design of Electric Motors Using Adjoint-based Shape Optimization",
+    howpublished = {Feb 2024, Preprint available at \url{https://doi.org/10.21203/rs.3.rs-3941981/v1}}
+}
