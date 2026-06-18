@@ -3,6 +3,13 @@
 
 For modeling and simulation, you need to install `FEniCSx`, `CSDL` and the Python-based backend of `CSDL` - [python_csdl_backend](https://github.com/LSDOlab/python_csdl_backend); for optimization, you will also need [ModOpt](https://github.com/LSDOlab/modopt) on top of them for the black-box optimizers. 
 
+## Code layout
+
+- `femo/fea/`: core finite-element wrappers, PDE solves, and derivative utilities built around FEniCSx.
+- `femo/csdl_opt/`: CSDL-facing models that expose states, outputs, and optimization couplings.
+- `examples/`: end-to-end problem setups showing how to assemble and run the framework.
+- `docs/`: Sphinx documentation sources.
+
 ## Installation
 
 It's recommended to use conda for installing the module and its dependencies.
