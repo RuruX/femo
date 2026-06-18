@@ -1,8 +1,11 @@
+"""Unit tests for scalar and field output registration."""
+
 import types
 import numpy as np
 
 
 def test_add_output_handles_scalar_and_field_shapes(fresh_import):
+    """Verify add_output handles both scalar and field output contracts."""
     fea_mod = fresh_import("femo.fea.fea_dolfinx")
     fea = fea_mod.FEA(mesh=object())
 

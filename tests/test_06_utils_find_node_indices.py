@@ -1,7 +1,10 @@
+"""Unit tests for node index lookup utility."""
+
 import numpy as np
 
 
 def test_find_node_indices_returns_nearest(fresh_import):
+    """Verify nearest-node indices are returned for requested coordinates."""
     utils = fresh_import("femo.fea.utils_dolfinx")
 
     class SimpleKDTree:

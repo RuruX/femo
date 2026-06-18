@@ -1,8 +1,11 @@
+"""Unit tests for OutputOperation compute paths."""
+
 import numpy as np
 import types
 
 
 def test_output_operation_compute_and_derivatives(fresh_import):
+    """Verify output compute and derivative paths populate expected values."""
     mod = fresh_import("femo.csdl_opt.output_model")
 
     update_calls = []

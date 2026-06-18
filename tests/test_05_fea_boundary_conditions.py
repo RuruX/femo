@@ -1,4 +1,7 @@
+"""Unit tests for strong boundary condition registration."""
+
 def test_add_strong_bc_appends_with_and_without_space(fresh_import):
+    """Verify add_strong_bc appends BC entries for both call signatures."""
     fea_mod = fresh_import("femo.fea.fea_dolfinx")
     fea = fea_mod.FEA(mesh=object())
 

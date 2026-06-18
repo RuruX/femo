@@ -1,7 +1,10 @@
+"""Unit tests for FEAModel CSDL wiring."""
+
 import types
 
 
 def test_fea_model_define_adds_state_and_output_models(fresh_import):
+    """Verify FEAModel.define adds state, output, and field output submodels."""
     fea_model_mod = fresh_import("femo.csdl_opt.fea_model")
 
     made = []

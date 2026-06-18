@@ -1,8 +1,11 @@
+"""Unit tests for FEA state registration."""
+
 import types
 import numpy as np
 
 
 def test_add_state_registers_expected_keys(fresh_import):
+    """Verify add_state records the expected dictionary fields."""
     fea_mod = fresh_import("femo.fea.fea_dolfinx")
     fea = fea_mod.FEA(mesh=object())
 

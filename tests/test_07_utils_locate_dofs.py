@@ -1,7 +1,10 @@
+"""Unit tests for locating DOFs from point coordinates."""
+
 import numpy as np
 
 
 def test_locate_dofs_converts_polar_input(fresh_import):
+    """Verify polar coordinate input is converted before DOF lookup."""
     utils = fresh_import("femo.fea.utils_dolfinx")
 
     captured = {}
@@ -23,6 +26,7 @@ def test_locate_dofs_converts_polar_input(fresh_import):
 
 
 def test_locate_dofs_keeps_cartesian_input(fresh_import):
+    """Verify cartesian coordinate input is used directly for DOF lookup."""
     utils = fresh_import("femo.fea.utils_dolfinx")
 
     captured = {}

@@ -1,8 +1,11 @@
+"""Unit tests for StateOperation control-flow paths."""
+
 import numpy as np
 import types
 
 
 def test_state_operation_core_paths(fresh_import):
+    """Verify residual, solve, and inverse-jacobian paths in StateOperation."""
     mod = fresh_import("femo.csdl_opt.state_model")
 
     update_calls = []

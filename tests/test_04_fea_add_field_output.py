@@ -1,8 +1,11 @@
+"""Unit tests for field output metadata registration."""
+
 import numpy as np
 import types
 
 
 def test_add_field_output_sets_shape_and_metadata(fresh_import):
+    """Verify add_field_output stores shape, arguments, and record flag."""
     fea_mod = fresh_import("femo.fea.fea_dolfinx")
     fea = fea_mod.FEA(mesh=object())
 

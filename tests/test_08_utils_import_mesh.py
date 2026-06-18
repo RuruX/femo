@@ -1,7 +1,10 @@
+"""Unit tests for mesh import helper contracts."""
+
 import types
 
 
 def test_import_mesh_parses_association_table_and_returns_expected_tuple(tmp_path, fresh_import):
+    """Verify import_mesh parses associations and return arity for both modes."""
     utils = fresh_import("femo.fea.utils_dolfinx")
 
     assoc = tmp_path / "mesh_association_table.ini"
