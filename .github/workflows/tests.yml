@@ -15,6 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pytest numpy scipy
+      - run: pip install -e . --no-deps
       - run: pytest tests/unit/ -v --tb=short
 
   integration:
