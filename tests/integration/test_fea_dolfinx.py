@@ -17,6 +17,7 @@ from dolfinx.mesh import create_unit_square, create_unit_cube
 from dolfinx.fem import (FunctionSpace, Function, dirichletbc,
                           locate_dofs_geometrical, form, assemble_scalar,
                           Constant)
+from petsc4py.PETSc import ScalarType
 from dolfinx.fem.petsc import assemble_vector, assemble_matrix
 from dolfinx.cpp.mesh import CellType
 import ufl
@@ -107,7 +108,7 @@ def test_poisson_solve(square_mesh, scalar_V):
 
     u = Function(scalar_V)
     v = TestFunction(scalar_V)
-    f_val = Constant(square_mesh, 1.0)
+    f_val = Constant(square_mesh, ScalarType(1.0))
 
     # Nonlinear residual: R(u;v) = ∫ ∇u·∇v dx − ∫ f·v dx
     res = inner(grad(u), grad(v)) * dx - inner(f_val, v) * dx

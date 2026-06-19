@@ -21,10 +21,12 @@ jobs:
     name: Integration tests (real dolfinx)
     runs-on: ubuntu-latest
     container:
-      image: dolfinx/dolfinx:v0.9.0
+      image: dolfinx/dolfinx:v0.5.1
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: python3 -m pip install pytest scipy matplotlib
       - name: Install femo
-        run: pip install -e ".[dev]" --no-deps
+        run: pip install -e . --no-deps
       - name: Run integration tests
         run: pytest tests/integration/ -v --tb=short

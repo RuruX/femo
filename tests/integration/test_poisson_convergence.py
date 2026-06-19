@@ -14,7 +14,7 @@ from mpi4py import MPI
 from dolfinx.mesh import create_unit_square
 from dolfinx.fem import (FunctionSpace, Function, dirichletbc,
                           locate_dofs_geometrical, form, assemble_scalar,
-                          Constant, Expression)
+                          Constant)
 from dolfinx.cpp.mesh import CellType
 import ufl
 from ufl import inner, grad, dx, sin, pi, SpatialCoordinate
